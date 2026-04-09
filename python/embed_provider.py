@@ -37,29 +37,43 @@ class SentenceTransformerBackend:
             return
         
         from sentence_transformers import SentenceTransformer
+        import torch
         
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Detect best device
+        if torch.cuda.is_available():
+            device = 'cuda'
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_mem = torch.cuda.get_device_properties(0).total_mem / 1024**3
+            print(f"[embed] CUDA: {gpu_name} ({gpu_mem:.1f} GB)")
+        else:
+            device = 'cpu'
+            print(f"[embed] CPU only (no CUDA detected)")
         
         cached_model_dir = MODEL_DIR / f"models--sentence-transformers--{self.MODEL_NAME}"
         is_first_download = not cached_model_dir.exists()
         
         if is_first_download:
-            print(f"Downloading {self.MODEL_NAME} model (~80MB) to {MODEL_DIR}...")
+            print(f"[embed] Downloading {self.MODEL_NAME} (~80MB) to {MODEL_DIR}...")
             print("This only happens once. Please wait...", flush=True)
         
         try:
             self.model = SentenceTransformer(
                 self.MODEL_NAME,
-                cache_folder=str(MODEL_DIR)
+                cache_folder=str(MODEL_DIR),
+                device=device
             )
             self.dim = 384
             SentenceTransformerBackend._shared_model = self.model
             SentenceTransformerBackend._shared_dim = self.dim
             
             if is_first_download:
-                print(f"Model downloaded and cached successfully!", flush=True)
+                print(f"[embed] Model cached successfully!", flush=True)
+            
+            print(f"[embed] {self.MODEL_NAME} ready on {device}")
         except Exception as e:
-            print(f"Failed to load sentence-transformers model: {e}", file=sys.stderr)
+            print(f"[embed] Failed to load model: {e}", file=sys.stderr)
             raise
     
     def embed(self, text: str) -> list[float]:
@@ -294,31 +308,31 @@ class EmbeddingProvider:
         print(f"Embedding backend: {self.backend.__class__.__name__} ({self.backend.dim}d)")
     
     def _auto_detect(self):
-        """Auto-detect best available backend with proper priority:
-        1. sentence-transformers (if installed AND model downloadable)
-        2. TF-IDF+SVD (if numpy available)
-        3. hash (always works)
+        """Auto-detect best available backend.
+        Priority: CUDA sentence-transformers > CPU sentence-transformers > TF-IDF > hash
         """
-        # Try sentence-transformers first
+        # Try sentence-transformers first (CUDA or CPU)
         try:
             import sentence_transformers
-            # Verify we can actually instantiate the backend
-            # This will fail if model download fails
-            return SentenceTransformerBackend()
+            import torch
+            device = "CUDA" if torch.cuda.is_available() else "CPU"
+            backend = SentenceTransformerBackend()
+            print(f"[embed] Auto-selected: sentence-transformers ({device})")
+            return backend
         except (ImportError, Exception) as e:
-            # ImportError: package not installed
-            # Other errors: model download failed, network issues, etc.
             if not isinstance(e, ImportError):
-                print(f"sentence-transformers unavailable: {e}", file=sys.stderr)
+                print(f"[embed] sentence-transformers failed: {e}", file=sys.stderr)
         
-        # Fall back to TF-IDF+SVD if numpy available
+        # TF-IDF+SVD
         try:
             import numpy
+            print("[embed] Auto-selected: TF-IDF+SVD")
             return TfidfSvdBackend()
         except ImportError:
             pass
         
-        # Last resort: hash-based (always works, no dependencies)
+        # Hash fallback
+        print("[embed] Auto-selected: hash (zero dependencies)")
         return HashBackend()
     
     def _load_cache(self):

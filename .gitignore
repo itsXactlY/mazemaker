@@ -1,0 +1,13 @@
+build/
+__pycache__/
+*.pyc
+*.so
+*.o
+*.a
+*.pkl
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+.neural_memory/
+*.db

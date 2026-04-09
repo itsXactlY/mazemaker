@@ -8,7 +8,7 @@ Built with C++23 (AVX2 SIMD) and Python. Integrates with [Hermes Agent](https://
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Python API (unified)                      │
+│                    Python API (unified)                     │
 │  from neural_memory import Memory                           │
 │  mem = Memory() → auto-detects best backend                 │
 ├──────────┬──────────────┬────────────┬──────────────────────┤
@@ -16,7 +16,7 @@ Built with C++23 (AVX2 SIMD) and Python. Integrates with [Hermes Agent](https://
 │  Engine  │  Layer       │  Graph     │  (SQLite/MSSQL)      │
 │  (ST*)   │  (Attention) │  (BFS)     │                      │
 ├──────────┴──────────────┴────────────┴──────────────────────┤
-│           C++ Library (libneural_memory.so)                  │
+│           C++ Library (libneural_memory.so)                 │
 │  AVX2 SIMD │ ODBC │ OpenMP │ C API for FFI                  │
 └─────────────────────────────────────────────────────────────┘
 * sentence-transformers (all-MiniLM-L6-v2, 384d)

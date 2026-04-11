@@ -7,7 +7,9 @@
 #include "neural/hopfield.h"
 #include "neural/memory.h"
 #include "neural/graph.h"
+#ifdef USE_MSSQL
 #include "neural/mssql.h"
+#endif
 
 #include <string>
 #include <vector>
@@ -48,7 +50,9 @@ struct AdapterConfig {
     float edge_prune_threshold = 0.01f;
     
     // --- MSSQL ---
+#ifdef USE_MSSQL
     mssql::ConnectionConfig db_config;
+#endif
     
     // --- Background Threads ---
     bool enable_consolidation_thread = true;
@@ -228,7 +232,9 @@ private:
     std::unique_ptr<HopfieldLayer> hopfield_;
     std::unique_ptr<memory::MemoryManager> memory_manager_;
     std::unique_ptr<graph::KnowledgeGraph> graph_;
+#ifdef USE_MSSQL
     std::unique_ptr<mssql::MSSQLVectorAdapter> db_;
+#endif
     
     // Background threads
     std::thread consolidation_thread_;

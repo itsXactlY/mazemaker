@@ -4,6 +4,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(neural-memory-adapter VERSION 1.0.0 LANGUAGES CXX)
 
+option(USE_MSSQL "Build with MSSQL/ODBC support (requires unixodbc-dev)" ON)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -23,18 +25,30 @@ if(OpenMP_CXX_FOUND)
     add_definitions(-DHAS_OPENMP=1)
 endif()
 
-find_package(PkgConfig QUIET)
-if(PkgConfig_FOUND)
-    pkg_check_modules(ODBC QUIET odbc)
-endif()
-if(NOT ODBC_FOUND)
-    find_path(ODBC_INCLUDE_DIR sql.h PATHS /usr/include /usr/local/include PATH_SUFFIXES odbc)
-    find_library(ODBC_LIBRARY NAMES odbc unixodbc)
-    if(ODBC_INCLUDE_DIR AND ODBC_LIBRARY)
-        set(ODBC_FOUND TRUE)
-        set(ODBC_INCLUDE_DIRS ${ODBC_INCLUDE_DIR})
-        set(ODBC_LIBRARIES ${ODBC_LIBRARY})
+# MSSQL / ODBC (optional)
+if(USE_MSSQL)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(ODBC QUIET odbc)
     endif()
+    if(NOT ODBC_FOUND)
+        find_path(ODBC_INCLUDE_DIR sql.h PATHS /usr/include /usr/local/include PATH_SUFFIXES odbc)
+        find_library(ODBC_LIBRARY NAMES odbc unixodbc)
+        if(ODBC_INCLUDE_DIR AND ODBC_LIBRARY)
+            set(ODBC_FOUND TRUE)
+            set(ODBC_INCLUDE_DIRS ${ODBC_INCLUDE_DIR})
+            set(ODBC_LIBRARIES ${ODBC_LIBRARY})
+        endif()
+    endif()
+    if(ODBC_FOUND)
+        message(STATUS "MSSQL: ODBC found, building with MSSQL support")
+        add_definitions(-DUSE_MSSQL=1)
+    else()
+        message(WARNING "MSSQL: ODBC not found, disabling MSSQL support")
+        set(USE_MSSQL OFF)
+    endif()
+else()
+    message(STATUS "MSSQL: disabled (-DUSE_MSSQL=OFF)")
 endif()
 
 include_directories(${CMAKE_SOURCE_DIR}/include ${ODBC_INCLUDE_DIRS})
@@ -44,15 +58,22 @@ set(NEURAL_SOURCES
     src/memory/hopfield.cpp src/memory/consolidation.cpp
     src/memory/memory_manager.cpp src/memory/vsa.cpp
     src/graph/knowledge_graph.cpp
-    src/mssql/connection_pool.cpp src/mssql/bulk_ops.cpp src/mssql/vector_store.cpp
     src/core/memory_adapter.cpp
     src/core/c_api.cpp
 )
 
+if(USE_MSSQL AND ODBC_FOUND)
+    list(APPEND NEURAL_SOURCES
+        src/mssql/connection_pool.cpp
+        src/mssql/bulk_ops.cpp
+        src/mssql/vector_store.cpp
+    )
+endif()
+
 add_library(neural_memory SHARED ${NEURAL_SOURCES})
 target_compile_options(neural_memory PRIVATE ${OPT_FLAGS} ${WARN_FLAGS})
 target_link_libraries(neural_memory PRIVATE
-    ${ODBC_LIBRARIES}
+    $<$<BOOL:${USE_MSSQL}>:${ODBC_LIBRARIES}>
     $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
     pthread stdc++
 )

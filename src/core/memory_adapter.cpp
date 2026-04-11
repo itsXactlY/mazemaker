@@ -43,10 +43,12 @@ bool NeuralMemoryAdapter::initialize(const AdapterConfig& config) {
     graph_ = std::make_unique<graph::KnowledgeGraph>();
     
     // Initialize MSSQL (optional - skip if no server configured)
+#ifdef USE_MSSQL
     if (!config.db_config.server.empty()) {
         db_ = std::make_unique<mssql::MSSQLVectorAdapter>(config.db_config);
         db_->initialize();
     }
+#endif
     
     // Start background threads
     running_ = true;
@@ -77,12 +79,16 @@ void NeuralMemoryAdapter::shutdown() {
     // Final consolidation
     consolidate();
     
+#ifdef USE_MSSQL
     if (db_) db_->shutdown();
-    
+#endif
+
     hopfield_.reset();
     memory_manager_.reset();
     graph_.reset();
+#ifdef USE_MSSQL
     db_.reset();
+#endif
     
     initialized_ = false;
 }
@@ -122,10 +128,12 @@ uint64_t NeuralMemoryAdapter::store(const std::vector<float>& embedding,
     }
     
     // 5. Store in MSSQL (if available)
+#ifdef USE_MSSQL
     if (db_) {
         std::string metadata = "{\"label\":\"" + label + "\",\"source\":\"" + source + "\"}";
         db_->insert_vector(id, embedding, metadata);
     }
+#endif
     
     auto end = Clock::now();
     auto us = std::chrono::duration_cast<Microseconds>(end - start).count();

@@ -33,7 +33,9 @@ NEURAL_API NeuralMemoryHandle neural_memory_create_dim(int vector_dim) {
     config.enable_decay_thread = false;
     config.enable_link_prediction = false;
     // Disable MSSQL (Python client uses SQLite)
+#ifdef USE_MSSQL
     config.db_config.server = "";  // Will cause mssql init to be a no-op
+#endif
 
     if (!adapter->initialize(config)) {
         delete adapter;

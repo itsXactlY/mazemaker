@@ -106,10 +106,14 @@ if command -v cmake &> /dev/null && command -v g++ &> /dev/null; then
     mkdir -p "$PROJECT_DIR/build"
     cd "$PROJECT_DIR/build"
 
+    local CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release"
+    if ! $IS_FULL; then
+        CMAKE_FLAGS="$CMAKE_FLAGS -DUSE_MSSQL=OFF"
+    fi
     if grep -q "avx2" /proc/cpuinfo 2>/dev/null; then
-        cmake .. -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -1
+        cmake .. $CMAKE_FLAGS 2>&1 | tail -1
     else
-        cmake .. -DCMAKE_BUILD_TYPE=Release \
+        cmake .. $CMAKE_FLAGS \
             -DCMAKE_CXX_FLAGS="-O3 -march=x86-64" 2>&1 | tail -1
     fi
     cmake --build . -j$(nproc) 2>&1 | tail -1

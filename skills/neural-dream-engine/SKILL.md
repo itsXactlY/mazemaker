@@ -218,6 +218,32 @@ def _env(key: str, fallback: str = "") -> str:
 
 Passwords are resolved as: `explicit arg > OS env > .env > config > empty`.
 
+## SQLite Thread Safety
+
+When using `check_same_thread=False` for concurrent access, ALL methods that
+touch the connection need the lock — not just writes. The `get_all()` method
+was missing the lock, causing `NoneType has no len()` errors during concurrent
+read/write.
+
+```python
+def get_all(self):
+    with self._lock:  # MUST have lock even for reads
+        rows = self.conn.execute(...).fetchall()
+    results = []
+    for row in rows:
+        if blob is None:  # null guard for race conditions
+            continue
+```
+
+## Conflict Detection + Hash Backend Pitfall
+
+The `detect_conflicts` feature (merging similar memories) interacts badly with
+hash embeddings — hash generates similar vectors for structurally similar text,
+causing unintended merges in batch operations.
+
+Fix for stress tests: `m.remember(text, label, detect_conflicts=False)`
+In production with sentence-transformers, conflict detection works correctly.
+
 ## Cron Integration
 
 ```bash

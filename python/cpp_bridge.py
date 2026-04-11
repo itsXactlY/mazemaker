@@ -29,7 +29,7 @@ def _find_lib() -> str:
         return lib
     raise FileNotFoundError(
         "libneural_memory.so not found. Build first:\n"
-        "  cd ~/neural-memory-adapter/build && cmake --build . -j$(nproc)"
+        "  cd ~/projects/neural-memory-adapter/build && cmake --build . -j$(nproc)"
     )
 
 # ============================================================================
@@ -291,4 +291,4 @@ if __name__ == "__main__":
         print("\nC++ bridge: OK")
     except FileNotFoundError as e:
         print(f"C++ library not found: {e}")
-        print("Build first: cd ~/neural-memory-adapter/build && cmake --build . -j$(nproc)")
+        print("Build first: cd ~/projects/neural-memory-adapter/build && cmake --build . -j$(nproc)")

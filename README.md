@@ -1,3 +1,5 @@
+![Demo](https://github.com/user-attachments/assets/2d938624-cc39-4f8b-b35b-485b23e93355)
+
 # Neural Memory Adapter for Hermes Agent
 
 Semantic memory system with knowledge graph, spreading activation, embedding-based recall, and **autonomous dream consolidation** for the Hermes Agent.

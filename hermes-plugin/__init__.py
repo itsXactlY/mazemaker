@@ -253,12 +253,13 @@ class NeuralMemoryProvider(MemoryProvider):
                 embedding_backend=self._config["embedding_backend"],
             )
 
-            # Eager prefetch: load recent/important context for the first turn
-            # so the agent has historical context immediately, not just after turn 1.
-            self._initial_context = self._load_initial_context()
-
             # Start Dream Engine (background consolidation)
             self._start_dream_engine()
+
+            # Eager prefetch: load recent/important context for the first turn
+            # so the agent has historical context immediately, not just after turn 1.
+            # NOTE: must happen AFTER dream engine start to avoid concurrent DB access
+            self._initial_context = self._load_initial_context()
 
             logger.info(
                 "Neural memory initialized: db=%s, backend=%s, dream=%s",
@@ -278,10 +279,11 @@ class NeuralMemoryProvider(MemoryProvider):
 
         Queries for:
         1. Recent session summaries
-        2. Recent memories (last turns)
+        2. Recent memories (last turns) — direct DB query
         3. High-connection memories (graph hubs = important topics)
         """
         if not self._memory:
+            logger.debug("Initial context: no memory instance")
             return ""
         try:
             parts = []
@@ -452,11 +454,10 @@ class NeuralMemoryProvider(MemoryProvider):
             result = self._prefetch_result
             self._prefetch_result = ""
 
-        # First turn fallback: use initial context if no background result yet
+        # First turn: use initial context if no background result yet
+        # DON'T consume — system_prompt_block also needs it
         if not result and hasattr(self, "_initial_context") and self._initial_context:
-            ctx = self._initial_context
-            self._initial_context = ""  # Consume — only use once
-            return f"## Neural Memory Context (initial)\n{ctx}"
+            return f"## Neural Memory Context (recent history)\n{self._initial_context}"
 
         if not result:
             return ""

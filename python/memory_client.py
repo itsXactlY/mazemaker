@@ -108,12 +108,15 @@ class SQLiteStore:
     
     def get_all(self) -> list[dict]:
         import struct
-        rows = self.conn.execute(
-            "SELECT id, label, content, embedding, salience, access_count FROM memories ORDER BY id"
-        ).fetchall()
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT id, label, content, embedding, salience, access_count FROM memories ORDER BY id"
+            ).fetchall()
         results = []
         for row in rows:
             id_, label, content, blob, salience, access_count = row
+            if blob is None:
+                continue
             dim = len(blob) // 4
             embedding = list(struct.unpack(f'{dim}f', blob))
             results.append({

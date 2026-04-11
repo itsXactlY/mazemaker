@@ -358,9 +358,11 @@ def test_26():
     try:
         m = NeuralMemory(db_path=db, embedding_backend="hash")
         for i in range(100):
-            m.remember(f"Memory number {i} about topic {i%10}", f"batch-{i}")
-        assert m.stats()['memories'] == 100
-        r = m.recall("topic 5", k=5)
+            # Use detect_conflicts=False for batch stress test — hash backend
+            # generates similar vectors for similar text, triggering conflict merge
+            m.remember(f"Entry {i} about unique topic {i}", f"batch-{i}", detect_conflicts=False)
+        assert m.stats()['memories'] == 100, f"Expected 100, got {m.stats()['memories']}"
+        r = m.recall("unique topic 5", k=5)
         assert len(r) >= 1
         m.close()
     finally: os.unlink(db)

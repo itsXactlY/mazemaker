@@ -26,7 +26,6 @@ import logging
 import os
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -251,6 +250,7 @@ class NeuralMemoryProvider(MemoryProvider):
             self._memory = NeuralMemory(
                 db_path=self._config["db_path"],
                 embedding_backend=self._config["embedding_backend"],
+                use_cpp=True,
             )
 
             # Start Dream Engine (background consolidation)
@@ -414,8 +414,16 @@ class NeuralMemoryProvider(MemoryProvider):
             except Exception:
                 pass
 
+        # Stack info
+        stack_parts = []
+        if self._memory and self._memory._cpp:
+            stack_parts.append("C++ SIMD")
+        if self._memory and self._memory._cosine_sim_fast:
+            stack_parts.append("Cython")
+        stack_info = f" ({', '.join(stack_parts)})" if stack_parts else ""
+
         header = (
-            f"# Neural Memory\n"
+            f"# Neural Memory{stack_info}\n"
             f"Active. {total} memories, {connections} connections{dream_info}.\n"
             f"Use neural_remember to store new memories.\n"
             f"Use neural_recall to search semantically.\n"

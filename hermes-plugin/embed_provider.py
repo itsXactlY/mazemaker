@@ -41,19 +41,23 @@ class SentenceTransformerBackend:
         
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         
-        # Detect best device
+        # Detect best device (with GPU memory check)
+        device = 'cpu'
         if torch.cuda.is_available():
-            device = 'cuda'
             try:
                 gpu_name = torch.cuda.get_device_name(0)
                 props = torch.cuda.get_device_properties(0)
                 gpu_mem = getattr(props, 'total_mem', None) or getattr(props, 'total_global_memory', 0) / 1024**3
-                print(f"[embed] CUDA: {gpu_name} ({gpu_mem:.1f} GB)")
+                free_mem = (torch.cuda.mem_get_info(0)[0]) / 1024**2  # MB free
+                if free_mem > 500:  # Need at least 500MB for sentence-transformers
+                    device = 'cuda'
+                    print(f"[embed] CUDA: {gpu_name} ({gpu_mem:.1f} GB, {free_mem:.0f} MB free)")
+                else:
+                    print(f"[embed] CUDA: {gpu_name} but only {free_mem:.0f} MB free — using CPU")
             except Exception:
-                print(f"[embed] CUDA: {torch.cuda.get_device_name(0)}")
-        else:
-            device = 'cpu'
-            print(f"[embed] CPU only (no CUDA detected)")
+                print(f"[embed] CUDA detected but memory check failed — using CPU")
+        if device == 'cpu':
+            print(f"[embed] CPU only")
         
         cached_model_dir = MODEL_DIR / f"models--sentence-transformers--{self.MODEL_NAME}"
         is_cached = cached_model_dir.exists()

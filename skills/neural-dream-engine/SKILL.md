@@ -153,6 +153,42 @@ multiple agents can dream independently on the same knowledge graph.
 
 Falls back to SQLite if MSSQL is unavailable.
 
+### Pitfalls (learned the hard way)
+
+**MSSQL has no scalar MIN/MAX** — `MIN(col + 0.05, 1.0)` is an AGGREGATE in MSSQL,
+not scalar like SQLite. Use CASE WHEN instead:
+```sql
+-- WRONG (MSSQL): UPDATE t SET weight = MIN(weight + 0.05, 1.0)
+-- RIGHT (MSSQL): UPDATE t SET weight = CASE WHEN weight + 0.05 > 1.0 THEN 1.0 ELSE weight + 0.05 END
+-- RIGHT (SQLite): UPDATE t SET weight = MIN(weight + 0.05, 1.0)
+```
+
+**Model caching** — sentence-transformers defaults to HF hub cache (~/.cache).
+Must explicitly set `cache_folder=str(MODEL_DIR)` and `local_files_only=is_cached`
+to use the project cache at `~/.neural_memory/models/`. Otherwise re-downloads every time.
+```python
+cached = MODEL_DIR / f"models--sentence-transformers--{self.MODEL_NAME}"
+model = SentenceTransformer(
+    self.MODEL_NAME,
+    cache_folder=str(MODEL_DIR),
+    local_files_only=cached.exists(),
+)
+```
+
+**Credentials** — Never hardcode passwords. Use .env loader (no python-dotenv dependency):
+```python
+_dotenv = _load_dotenv([".env", str(Path.home() / ".hermes" / ".env")])
+def _env(key, fallback=""): return os.environ.get(key) or _dotenv.get(key, fallback)
+password = _env('MSSQL_PASSWORD', '')
+```
+
+**Batch updates** — Don't do individual SQL UPDATE for 40K connections.
+Batch them in a loop with cursor.execute per row + one commit at the end.
+
+**Standalone worker** — dream_worker.py needs its own EmbedProvider with the same
+cache path as embed_provider.py. Shared class variable `_shared_model` prevents
+loading the model twice in the same process.
+
 ## Installer Pattern (Lite vs Full Stack)
 
 Two-mode installer for different environments:

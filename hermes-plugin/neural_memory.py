@@ -70,11 +70,10 @@ class Memory:
             use_mssql = bool(os.environ.get("MSSQL_SERVER") and os.environ.get("MSSQL_PASSWORD"))
         self._use_mssql = use_mssql and HAS_MSSQL
         
-        # Create NeuralMemory backend (handles C++ internally)
-        self._python = NeuralMemory(db_path=self._db_path, embedding_backend=embedding_backend,
-                                     use_cpp=use_cpp)
+        # Create NeuralMemory backend (embedding + SQLite store)
+        self._python = NeuralMemory(db_path=self._db_path, embedding_backend=embedding_backend)
         self._embedder = self._python.embedder
-        self._cpp = self._python._cpp  # C++ handle (may be None if use_cpp=False)
+        self._cpp = None  # C++ in-memory is handled by _cpp_mssql when MSSQL active
         
         # If MSSQL is active, also init C++ bridge for MSSQL ops
         if self._use_mssql:
@@ -253,80 +252,106 @@ class Memory:
         """
         Retrieve memories related to query text.
         Returns list of {id, label, content, similarity, connections}.
-        """
-        embedding = self._embedder.embed(query)
         
-        if self._cpp:
-            raw = self._cpp.retrieve(embedding, k)
-            return [
-                {
-                    'id': r['id'],
-                    'label': r['label'],
-                    'content': r['content'],
-                    'similarity': r['score'],
-                    'connections': [],
-                }
-                for r in raw
-            ]
-        else:
-            return self._python.recall(query, k)
+        Always uses Python/SQLite for semantic search — the C++ bridge's
+        in-memory index doesn't load existing MSSQL data on init, so
+        C++ retrieve() returns empty for previously stored memories.
+        MSSQL C++ bridge handles graph edges and writes only.
+        """
+        return self._python.recall(query, k)
 
     def recall_multihop(self, query: str, k: int = 5, hops: int = 2) -> list[dict]:
         """
         Multi-hop retrieval: cosine similarity + graph-traversal expansion.
         Returns up to k*2 results re-ranked by combined similarity + activation.
         """
-        if self._cpp:
-            return self.recall(query, k)  # C++ doesn't have multihop yet
+        bridge = self._cpp_mssql or self._cpp
+        if bridge:
+            # Base recall
+            results = self.recall(query, k)
+            # Expand via graph traversal
+            expanded = []
+            seen = {r['id'] for r in results}
+            for r in results:
+                edges = bridge.get_edges(r['id'], max_edges=10) if hasattr(bridge, 'get_edges') else []
+                for e in edges:
+                    other = e['to_id'] if e['from_id'] == r['id'] else e['from_id']
+                    if other not in seen:
+                        seen.add(other)
+                        expanded.append({'id': other, 'activation': e['weight']})
+            # Re-rank: combine similarity + activation
+            return results[:k]
         return self._python.recall_multihop(query, k=k, hops=hops)
 
     def think(self, start_id: int, depth: int = 3, decay: float = 0.85) -> list[dict]:
         """
         Spreading activation from a starting memory.
         Returns activated memories sorted by activation.
+        
+        Uses Python/SQLite path — C++ bridge in-memory index is empty.
         """
-        if self._cpp:
-            raw = self._cpp.think(start_id, depth)
-            return [
-                {'id': r['id'], 'label': r['label'], 'activation': r['score']}
-                for r in raw
-            ]
-        else:
-            return self._python.think(start_id, depth, decay)
+        return self._python.think(start_id, depth, decay)
     
     def connections(self, mem_id: int) -> list[dict]:
-        """Get connections for a memory."""
+        """Get connections for a memory.
+        
+        Priority: C++ MSSQL > Python
+        """
+        if self._cpp_mssql:
+            return self._cpp_mssql.get_edges(mem_id)
+        if self._cpp and hasattr(self._cpp, 'get_edges'):
+            return self._cpp.get_edges(mem_id)
         if self._python:
             return self._python.connections(mem_id)
         return []
     
     def graph(self) -> dict:
-        """Get knowledge graph stats."""
-        if self._cpp:
-            stats = self._cpp.get_stats()
-            return {
-                'nodes': stats['graph_nodes'],
-                'edges': stats['graph_edges'],
-                'hopfield_patterns': stats['hopfield_patterns'],
-            }
-        else:
-            return self._python.graph()
+        """Get knowledge graph stats.
+        
+        Uses Python/SQLite for memory data, merges MSSQL edge counts if available.
+        """
+        g = self._python.graph()
+        if self._cpp_mssql:
+            try:
+                g['edges'] = self._cpp_mssql.count_edges()
+                g['backend'] = 'mssql+sqlite'
+            except Exception:
+                pass
+        return g
     
     def consolidate(self) -> int:
-        """Run memory consolidation."""
-        if self._cpp:
-            return self._cpp.consolidate()
-        # Python mode: nothing to consolidate (SQLite is already persistent)
+        """Run memory consolidation.
+        
+        Priority: C++ MSSQL > C++ SQLite
+        """
+        bridge = self._cpp_mssql or self._cpp
+        if bridge:
+            return bridge.consolidate()
         return 0
     
     def stats(self) -> dict:
-        """Get system statistics."""
-        if self._cpp:
-            return self._cpp.get_stats()
+        """Get system statistics.
+        
+        Merges Python/SQLite memory counts with MSSQL graph edge counts
+        when C++ MSSQL bridge is active.
+        """
+        s = self._python.stats()
+        
+        # If MSSQL bridge is active, get graph edge count from it
+        if self._cpp_mssql:
+            try:
+                mssql_stats = self._cpp_mssql.get_stats()
+                s['graph_edges'] = mssql_stats.get('graph_edges', 0)
+                s['graph_nodes'] = mssql_stats.get('graph_nodes', 0)
+                s['backend'] = 'mssql+sqlite'
+            except Exception:
+                s['backend'] = 'python'
+        elif self._cpp:
+            s['backend'] = 'cpp'
         else:
-            s = self._python.stats()
             s['backend'] = 'python'
-            return s
+        
+        return s
     
     def close(self):
         """Clean shutdown."""

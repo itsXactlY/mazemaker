@@ -253,25 +253,12 @@ class Memory:
         Retrieve memories related to query text.
         Returns list of {id, label, content, similarity, connections}.
         
-        Priority: C++ MSSQL > C++ SQLite > Python
+        Always uses Python/SQLite for semantic search — the C++ bridge's
+        in-memory index doesn't load existing MSSQL data on init, so
+        C++ retrieve() returns empty for previously stored memories.
+        MSSQL C++ bridge handles graph edges and writes only.
         """
-        embedding = self._embedder.embed(query)
-        
-        bridge = self._cpp_mssql or self._cpp
-        if bridge:
-            raw = bridge.retrieve(embedding, k)
-            return [
-                {
-                    'id': r['id'],
-                    'label': r['label'],
-                    'content': r['content'],
-                    'similarity': r['score'],
-                    'connections': [],
-                }
-                for r in raw
-            ]
-        else:
-            return self._python.recall(query, k)
+        return self._python.recall(query, k)
 
     def recall_multihop(self, query: str, k: int = 5, hops: int = 2) -> list[dict]:
         """
@@ -301,17 +288,9 @@ class Memory:
         Spreading activation from a starting memory.
         Returns activated memories sorted by activation.
         
-        Priority: C++ MSSQL > C++ SQLite > Python
+        Uses Python/SQLite path — C++ bridge in-memory index is empty.
         """
-        bridge = self._cpp_mssql or self._cpp
-        if bridge:
-            raw = bridge.think(start_id, depth)
-            return [
-                {'id': r['id'], 'label': r['label'], 'activation': r['score']}
-                for r in raw
-            ]
-        else:
-            return self._python.think(start_id, depth, decay)
+        return self._python.think(start_id, depth, decay)
     
     def connections(self, mem_id: int) -> list[dict]:
         """Get connections for a memory.
@@ -329,19 +308,16 @@ class Memory:
     def graph(self) -> dict:
         """Get knowledge graph stats.
         
-        Priority: C++ MSSQL > C++ SQLite > Python
+        Uses Python/SQLite for memory data, merges MSSQL edge counts if available.
         """
-        bridge = self._cpp_mssql or self._cpp
-        if bridge:
-            stats = bridge.get_stats()
-            return {
-                'nodes': stats['graph_nodes'],
-                'edges': stats['graph_edges'],
-                'hopfield_patterns': stats['hopfield_patterns'],
-                'backend': 'mssql' if self._cpp_mssql else 'sqlite',
-            }
-        else:
-            return self._python.graph()
+        g = self._python.graph()
+        if self._cpp_mssql:
+            try:
+                g['edges'] = self._cpp_mssql.count_edges()
+                g['backend'] = 'mssql+sqlite'
+            except Exception:
+                pass
+        return g
     
     def consolidate(self) -> int:
         """Run memory consolidation.
@@ -356,17 +332,26 @@ class Memory:
     def stats(self) -> dict:
         """Get system statistics.
         
-        Priority: C++ MSSQL > C++ SQLite > Python
+        Merges Python/SQLite memory counts with MSSQL graph edge counts
+        when C++ MSSQL bridge is active.
         """
-        bridge = self._cpp_mssql or self._cpp
-        if bridge:
-            s = bridge.get_stats()
-            s['backend'] = 'mssql' if self._cpp_mssql else 'sqlite'
-            return s
+        s = self._python.stats()
+        
+        # If MSSQL bridge is active, get graph edge count from it
+        if self._cpp_mssql:
+            try:
+                mssql_stats = self._cpp_mssql.get_stats()
+                s['graph_edges'] = mssql_stats.get('graph_edges', 0)
+                s['graph_nodes'] = mssql_stats.get('graph_nodes', 0)
+                s['backend'] = 'mssql+sqlite'
+            except Exception:
+                s['backend'] = 'python'
+        elif self._cpp:
+            s['backend'] = 'cpp'
         else:
-            s = self._python.stats()
             s['backend'] = 'python'
-            return s
+        
+        return s
     
     def close(self):
         """Clean shutdown."""

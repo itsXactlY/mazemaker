@@ -50,21 +50,10 @@ The installer will:
 
 ## Configuration
 
-### Credentials (`.env`)
+### Config (`config.yaml`) — Single Source of Truth
 
-MSSQL credentials go in `~/.hermes/.env` (never hardcoded):
-
-```bash
-MSSQL_SERVER=localhost
-MSSQL_DATABASE=NeuralMemory
-MSSQL_USERNAME=SA
-MSSQL_PASSWORD=your_password_here
-MSSQL_DRIVER={ODBC Driver 18 for SQL Server}
-```
-
-Resolution order: env vars > `.env` > config.yaml > defaults.
-
-### Config (`config.yaml`)
+All settings — including MSSQL credentials — live in `~/.hermes/config.yaml`.
+No `.env` vars needed. The plugin reads config.yaml and sets C++ bridge env vars internally.
 
 ```yaml
 memory:
@@ -78,10 +67,19 @@ memory:
       enabled: true
       idle_threshold: 300        # seconds before dream cycle
       memory_threshold: 50       # dream after N new memories
-      mssql:                     # optional: MSSQL backend for dreams
-        server: localhost
+      mssql:                     # MSSQL backend config
+        server: 127.0.0.1
         database: NeuralMemory
+        username: SA
+        password: 'your_password_here'
+        driver: '{ODBC Driver 18 for SQL Server}'
 ```
+
+**How it works:**
+1. Plugin loads `config.yaml` via `config.py`
+2. Reads `memory.neural.dream.mssql.*` settings
+3. Sets `MSSQL_SERVER`, `MSSQL_DATABASE`, `MSSQL_USERNAME`, `MSSQL_PASSWORD`, `MSSQL_DRIVER` into `os.environ`
+4. C++ bridge picks them up via `std::getenv()` — no `.env` file needed
 
 ## Tools
 
@@ -130,6 +128,18 @@ python hermes-plugin/dream_worker.py --daemon --idle 300
 ```
 
 ## Architecture
+
+### Hybrid Backend (MSSQL + SQLite)
+
+When MSSQL is configured, the system runs in hybrid mode:
+
+| Operation | Backend | Why |
+|-----------|---------|-----|
+| **Semantic search** (`recall`) | Python → SQLite | SQLite has embeddings indexed for cosine similarity |
+| **Spreading activation** (`think`) | Python → SQLite | Graph connections stored in SQLite `connections` table |
+| **Graph edges** (write) | C++ → MSSQL | Shared database for multi-agent setups |
+| **Graph stats** | Both | Merged from SQLite memories + MSSQL GraphEdges |
+| **Store** | Both | SQLite for embeddings, MSSQL for graph nodes |
 
 ### Python Components
 
@@ -256,9 +266,15 @@ rm ~/.neural_memory/memory.db
 
 ### MSSQL connection
 
-Verify credentials in `~/.hermes/.env`:
+Verify credentials in `~/.hermes/config.yaml`:
 ```bash
-grep MSSQL ~/.hermes/.env
+grep -A5 'mssql:' ~/.hermes/config.yaml
+```
+
+Check if MSSQL is running:
+```bash
+systemctl status mssql-server
+ss -tlnp | grep 1433
 ```
 
 ## License

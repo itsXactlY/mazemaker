@@ -49,17 +49,25 @@ class CSearchResult(ctypes.Structure):
     ]
 
 class CStats(ctypes.Structure):
+    """Must match NeuralMemoryStats in c_api.h exactly."""
     _fields_ = [
+        ("episodic_count", ctypes.c_size_t),
+        ("semantic_count", ctypes.c_size_t),
+        ("episodic_occupancy", ctypes.c_float),
+        ("semantic_occupancy", ctypes.c_float),
+        ("hopfield_patterns", ctypes.c_size_t),
+        ("hopfield_occupancy", ctypes.c_float),
+        ("graph_nodes", ctypes.c_size_t),
+        ("graph_edges", ctypes.c_size_t),
+        ("graph_density", ctypes.c_float),
+        # Note: ctypes will insert padding here for uint64_t alignment, matching C compiler behavior
+        ("avg_store_us", ctypes.c_uint64),
+        ("avg_retrieve_us", ctypes.c_uint64),
+        ("avg_search_us", ctypes.c_uint64),
         ("total_stores", ctypes.c_uint64),
         ("total_retrieves", ctypes.c_uint64),
         ("total_searches", ctypes.c_uint64),
         ("total_consolidations", ctypes.c_uint64),
-        ("avg_store_us", ctypes.c_uint64),
-        ("avg_retrieve_us", ctypes.c_uint64),
-        ("graph_nodes", ctypes.c_size_t),
-        ("graph_edges", ctypes.c_size_t),
-        ("hopfield_patterns", ctypes.c_size_t),
-        ("hopfield_occupancy", ctypes.c_float),
     ]
 
 # ============================================================================
@@ -283,16 +291,22 @@ class NeuralMemoryCpp:
         self._lib.neural_memory_stats(self._handle, ctypes.byref(stats))
         
         return {
+            'episodic_count': stats.episodic_count,
+            'semantic_count': stats.semantic_count,
+            'episodic_occupancy': stats.episodic_occupancy,
+            'semantic_occupancy': stats.semantic_occupancy,
+            'hopfield_patterns': stats.hopfield_patterns,
+            'hopfield_occupancy': stats.hopfield_occupancy,
+            'graph_nodes': stats.graph_nodes,
+            'graph_edges': stats.graph_edges,
+            'graph_density': stats.graph_density,
+            'avg_store_us': stats.avg_store_us,
+            'avg_retrieve_us': stats.avg_retrieve_us,
+            'avg_search_us': stats.avg_search_us,
             'total_stores': stats.total_stores,
             'total_retrieves': stats.total_retrieves,
             'total_searches': stats.total_searches,
             'total_consolidations': stats.total_consolidations,
-            'avg_store_us': stats.avg_store_us,
-            'avg_retrieve_us': stats.avg_retrieve_us,
-            'graph_nodes': stats.graph_nodes,
-            'graph_edges': stats.graph_edges,
-            'hopfield_patterns': stats.hopfield_patterns,
-            'hopfield_occupancy': stats.hopfield_occupancy,
         }
 
     # --- MSSQL Graph Edge Operations ---

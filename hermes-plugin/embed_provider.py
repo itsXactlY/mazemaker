@@ -14,21 +14,22 @@ from pathlib import Path
 CACHE_DIR = Path.home() / ".neural_memory"
 CACHE_FILE = CACHE_DIR / "embed_cache.pkl"
 MODEL_DIR = CACHE_DIR / "models"
-DIMENSION = 384  # all-MiniLM-L6-v2 output dim
+DIMENSION = 1024  # BAAI/bge-m3 output dim (configurable via EMBED_MODEL env var)
 
 # ============================================================================
 # Embedding backends
 # ============================================================================
 
 class SentenceTransformerBackend:
-    """Uses sentence-transformers (all-MiniLM-L6-v2, 384d, ~80MB)
+    """Uses sentence-transformers (BAAI/bge-m3, 1024d, ~2.2GB)
     
     Singleton: model loaded once and shared across all instances.
     Cached locally at ~/.neural_memory/models/.
+    Configurable via EMBED_MODEL env var (e.g. EMBED_MODEL=all-MiniLM-L6-v2 for 384d fallback).
     """
-    MODEL_NAME = 'all-MiniLM-L6-v2'
+    MODEL_NAME = os.environ.get('EMBED_MODEL', 'BAAI/bge-m3')
     _shared_model = None
-    _shared_dim = 384
+    _shared_dim = 1024
     
     def __init__(self):
         if SentenceTransformerBackend._shared_model is not None:
@@ -59,13 +60,15 @@ class SentenceTransformerBackend:
         if device == 'cpu':
             print(f"[embed] CPU only")
         
-        cached_model_dir = MODEL_DIR / f"models--sentence-transformers--{self.MODEL_NAME}"
+        # Build cache dir name: BAAI/bge-m3 → models--BAAI--bge-m3
+        safe_name = self.MODEL_NAME.replace('/', '--')
+        cached_model_dir = MODEL_DIR / f"models--{safe_name}"
         is_cached = cached_model_dir.exists()
         
         if is_cached:
             print(f"[embed] Loading {self.MODEL_NAME} from local cache...")
         else:
-            print(f"[embed] Downloading {self.MODEL_NAME} (~80MB) to {MODEL_DIR}...")
+            print(f"[embed] Downloading {self.MODEL_NAME} (~2.2GB) to {MODEL_DIR}...")
             print("This only happens once. Please wait...", flush=True)
         
         try:
@@ -75,7 +78,10 @@ class SentenceTransformerBackend:
                 device=device,
                 local_files_only=is_cached
             )
-            self.dim = 384
+            try:
+                self.dim = self.model.get_embedding_dimension()
+            except AttributeError:
+                self.dim = self.model.get_sentence_embedding_dimension()
             SentenceTransformerBackend._shared_model = self.model
             SentenceTransformerBackend._shared_dim = self.dim
             

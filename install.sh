@@ -134,10 +134,12 @@ print_info "Installing plugin..."
 mkdir -p "$PLUGIN_DIR"
 
 # Core files
-for f in __init__.py plugin.yaml memory_client.py embed_provider.py neural_memory.py \
-         cpp_bridge.py mssql_store.py dream_mssql_store.py dream_engine.py README.md; do
+for f in __init__.py plugin.yaml config.py memory_client.py embed_provider.py neural_memory.py \
+         cpp_bridge.py cpp_dream_backend.py mssql_store.py dream_mssql_store.py dream_engine.py README.md; do
     if [ -f "$PYTHON_DIR/$f" ]; then
         cp "$PYTHON_DIR/$f" "$PLUGIN_DIR/"
+    elif [ -f "$SCRIPT_DIR/hermes-plugin/$f" ]; then
+        cp "$SCRIPT_DIR/hermes-plugin/$f" "$PLUGIN_DIR/"
     fi
 done
 

@@ -386,6 +386,22 @@ class NeuralMemory:
         
         return False
     
+    def _compute_temporal_score(self, mem_id: int, now: float) -> float:
+        """Compute temporal decay score based on created_at timestamp."""
+        import math
+        try:
+            row = self.store.conn.execute(
+                "SELECT created_at FROM memories WHERE id = ?", (mem_id,)
+            ).fetchone()
+            if row and row[0]:
+                created = row[0]
+                if isinstance(created, (int, float)):
+                    age_hours = (now - created) / 3600
+                    return math.exp(-0.693 * age_hours / 24)
+            return 0.5
+        except Exception:
+            return 0.5
+
     def recall(self, query: str, k: int = 5, temporal_weight: float = 0.2) -> list[dict]:
         """
         Retrieve memories related to query.
@@ -423,8 +439,8 @@ class NeuralMemory:
                             'content': c.get('content', ''),
                             'embedding': node.get('embedding', []),
                             'similarity': sim,
-                            'temporal_score': 0.5,
-                            'combined': (1 - temporal_weight) * sim + temporal_weight * 0.5,
+                            'temporal_score': self._compute_temporal_score(mem_id, now),
+                            'combined': (1 - temporal_weight) * sim + temporal_weight * self._compute_temporal_score(mem_id, now),
                             'connections': list(node.get('connections', {}).keys()),
                         })
 
@@ -447,18 +463,9 @@ class NeuralMemory:
         for mem in self.store.get_all():
             sim = self._cosine_similarity(query_vec, mem['embedding'])
 
-            # Temporal score: exponential decay based on last_accessed
-            try:
-                row = self.store.conn.execute(
-                    "SELECT last_accessed FROM memories WHERE id = ?", (mem['id'],)
-                ).fetchone()
-                if row and row[0]:
-                    age_hours = (now - row[0]) / 3600
-                    temporal_score = math.exp(-0.693 * age_hours / 24)
-                else:
-                    temporal_score = 0.5
-            except Exception:
-                temporal_score = 0.5
+            # Temporal score: exponential decay based on created_at (not last_accessed)
+            # last_accessed gets updated on every touch(), which corrupts temporal queries
+            temporal_score = self._compute_temporal_score(mem['id'], now)
 
             combined = (1 - temporal_weight) * sim + temporal_weight * temporal_score
             entry = {**mem, 'similarity': sim, 'temporal_score': temporal_score, 'combined': combined}

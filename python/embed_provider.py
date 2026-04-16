@@ -42,7 +42,7 @@ class SentenceTransformerBackend:
         
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         
-        # Detect best device (with GPU memory check)
+        # ALWAYS use CUDA when available — CPU embedding DECREASES everything we build
         device = 'cpu'
         if torch.cuda.is_available():
             try:
@@ -50,15 +50,13 @@ class SentenceTransformerBackend:
                 props = torch.cuda.get_device_properties(0)
                 gpu_mem = getattr(props, 'total_mem', None) or getattr(props, 'total_global_memory', 0) / 1024**3
                 free_mem = (torch.cuda.mem_get_info(0)[0]) / 1024**2  # MB free
-                if free_mem > 500:  # Need at least 500MB for sentence-transformers
-                    device = 'cuda'
-                    print(f"[embed] CUDA: {gpu_name} ({gpu_mem:.1f} GB, {free_mem:.0f} MB free)")
-                else:
-                    print(f"[embed] CUDA: {gpu_name} but only {free_mem:.0f} MB free — using CPU")
+                device = 'cuda'
+                print(f"[embed] CUDA: {gpu_name} ({gpu_mem:.1f} GB, {free_mem:.0f} MB free)")
             except Exception:
-                print(f"[embed] CUDA detected but memory check failed — using CPU")
+                device = 'cuda'
+                print(f"[embed] CUDA detected — using GPU")
         if device == 'cpu':
-            print(f"[embed] CPU only")
+            print(f"[embed] CPU only (no CUDA available)")
         
         # Build cache dir name: BAAI/bge-m3 → models--BAAI--bge-m3
         safe_name = self.MODEL_NAME.replace('/', '--')

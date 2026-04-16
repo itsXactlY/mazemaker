@@ -125,6 +125,18 @@ class DreamBackend:
                     confidence: float = 0.0) -> None:
         raise NotImplementedError
 
+    def prune_connection_history(self, keep_days: int = 7) -> int:
+        """Delete history entries older than keep_days. Returns count deleted."""
+        raise NotImplementedError
+
+    def prune_old_dream_sessions(self, keep_days: int = 30) -> int:
+        """Delete dream sessions older than keep_days. Returns count deleted."""
+        raise NotImplementedError
+
+    def prune_orphans(self) -> int:
+        """Delete connections pointing to non-existent memories."""
+        raise NotImplementedError
+
     def get_dream_stats(self) -> Dict[str, Any]:
         raise NotImplementedError
 
@@ -341,6 +353,48 @@ class SQLiteDreamBackend(DreamBackend):
                 (session_id, insight_type, source_memory_id, content, confidence, time.time())
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    def prune_connection_history(self, keep_days: int = 7) -> int:
+        """Delete history entries older than keep_days."""
+        conn = self._connect()
+        try:
+            cutoff = time.time() - (keep_days * 86400)
+            count = conn.execute(
+                "DELETE FROM connection_history WHERE changed_at < ?",
+                (cutoff,)
+            ).rowcount
+            conn.commit()
+            return count
+        finally:
+            conn.close()
+
+    def prune_old_dream_sessions(self, keep_days: int = 30) -> int:
+        """Delete dream sessions older than keep_days."""
+        conn = self._connect()
+        try:
+            cutoff = time.time() - (keep_days * 86400)
+            count = conn.execute(
+                "DELETE FROM dream_sessions WHERE started_at < ?",
+                (cutoff,)
+            ).rowcount
+            conn.commit()
+            return count
+        finally:
+            conn.close()
+
+    def prune_orphans(self) -> int:
+        """Delete connections pointing to non-existent memories."""
+        conn = self._connect()
+        try:
+            count = conn.execute(
+                "DELETE FROM connections "
+                "WHERE source_id NOT IN (SELECT id FROM memories) "
+                "OR target_id NOT IN (SELECT id FROM memories)"
+            ).rowcount
+            conn.commit()
+            return count
         finally:
             conn.close()
 
@@ -718,6 +772,11 @@ class DreamEngine:
                         pruned_s = prune_sessions(keep_days=30)
                         if pruned_s:
                             logger.info("Pruned %d old dream sessions", pruned_s)
+                    prune_orphans = getattr(self._backend, 'prune_orphans', None)
+                    if prune_orphans:
+                        pruned_o = prune_orphans()
+                        if pruned_o:
+                            logger.info("Pruned %d orphan connections", pruned_o)
                 except Exception as e:
                     logger.debug("Prune cleanup error: %s", e)
 

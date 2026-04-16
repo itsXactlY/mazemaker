@@ -493,6 +493,17 @@ class DreamMSSQLStore:
         self.conn.commit()
         return cursor.rowcount
 
+    def prune_orphans(self) -> int:
+        """Delete connections pointing to non-existent memories in MSSQL."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            DELETE FROM connections
+            WHERE from_memory_id NOT IN (SELECT id FROM memories)
+               OR to_memory_id NOT IN (SELECT id FROM memories)
+        """)
+        self.conn.commit()
+        return cursor.rowcount
+
     def close(self):
         """Close the connection."""
         try:

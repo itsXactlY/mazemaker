@@ -778,7 +778,7 @@ class DreamEngine:
                         if pruned_o:
                             logger.info("Pruned %d orphan connections", pruned_o)
                 except Exception as e:
-                    logger.debug("Prune cleanup error: %s", e)
+                    logger.debug("Maintenance cleanup error: %s", e)
 
             self._backend.finish_session(session_id, stats)
 

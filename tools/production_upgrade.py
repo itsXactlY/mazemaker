@@ -16,7 +16,7 @@ What it does (in order):
 Usage:
   python3 neural_memory_production_upgrade.py [--db PATH] [--dry-run] [--history-days 7] [--skip-backup]
 
-  --db PATH          Path to SQLite database (default: ~/.neural_memory/memory.db)
+  --db PATH          Path to SQLite database (default: ~/.hermes/hermes-agent/plugins/memory/neural/neural_memory.db)
   --dry-run          Show what would change without modifying anything
   --history-days N   Keep connection_history entries from last N days (default: 7)
   --skip-backup      Skip backup creation (NOT recommended)
@@ -265,61 +265,59 @@ def deduplicate_and_constrain(conn: sqlite3.Connection, dry_run: bool) -> tuple[
         )
     """).fetchone()[0] or 0
 
-    if dupe_count == 0:
-        return 0, False
-
-    if dry_run:
-        return dupe_count, True
-
     # Check if UNIQUE index already exists
     existing = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_connections_unique'"
     ).fetchone()
 
-    if existing:
-        # Constraint exists, just dedup
-        conn.execute("""
-            DELETE FROM connections WHERE id NOT IN (
-                SELECT MIN(id) FROM connections
-                GROUP BY source_id, target_id, edge_type
-            )
-        """)
-        conn.commit()
+    if existing and dupe_count == 0:
+        # Constraint exists and no dupes — nothing to do
+        return 0, True
+
+    if dry_run:
         return dupe_count, True
 
-    # Full rebuild with constraint
-    conn.execute("BEGIN TRANSACTION")
+    if dupe_count > 0:
+        # Full rebuild with constraint (dedup + create index in one transaction)
+        conn.execute("BEGIN TRANSACTION")
 
-    try:
-        # Create deduplicated table
-        conn.execute("""
-            CREATE TABLE connections_dedup AS
-            SELECT MIN(id) as id, source_id, target_id,
-                   MAX(weight) as weight,
-                   edge_type,
-                   MIN(created_at) as created_at
-            FROM connections
-            GROUP BY source_id, target_id, edge_type
-        """)
+        try:
+            # Create deduplicated table
+            conn.execute("""
+                CREATE TABLE connections_dedup AS
+                SELECT MIN(id) as id, source_id, target_id,
+                       MAX(weight) as weight,
+                       edge_type,
+                       MIN(created_at) as created_at
+                FROM connections
+                GROUP BY source_id, target_id, edge_type
+            """)
 
-        # Drop old table
-        conn.execute("DROP TABLE connections")
+            # Drop old table
+            conn.execute("DROP TABLE connections")
 
-        # Rename
-        conn.execute("ALTER TABLE connections_dedup RENAME TO connections")
+            # Rename
+            conn.execute("ALTER TABLE connections_dedup RENAME TO connections")
 
-        # Recreate indexes
+            # Recreate indexes
+            conn.execute("""
+                CREATE UNIQUE INDEX idx_connections_unique
+                ON connections(source_id, target_id, edge_type)
+            """)
+            conn.execute("CREATE INDEX idx_connections_source ON connections(source_id)")
+            conn.execute("CREATE INDEX idx_connections_target ON connections(target_id)")
+
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+    elif not existing:
+        # No dupes but constraint doesn't exist yet — just add it
         conn.execute("""
             CREATE UNIQUE INDEX idx_connections_unique
             ON connections(source_id, target_id, edge_type)
         """)
-        conn.execute("CREATE INDEX idx_connections_source ON connections(source_id)")
-        conn.execute("CREATE INDEX idx_connections_target ON connections(target_id)")
-
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
+        conn.commit()
 
     return dupe_count, True
 
@@ -412,8 +410,8 @@ def main():
         description="Neural Memory SQLite Production Upgrade — PoC → Production"
     )
     parser.add_argument(
-        "--db", default=os.path.expanduser("~/.neural_memory/memory.db"),
-        help="Path to SQLite database"
+        "--db", default=os.path.expanduser("~/.hermes/hermes-agent/plugins/memory/neural/neural_memory.db"),
+        help="Path to SQLite database (default: ~/.hermes/hermes-agent/plugins/memory/neural/neural_memory.db)"
     )
     parser.add_argument(
         "--dry-run", action="store_true",

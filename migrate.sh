@@ -17,13 +17,13 @@
 #   bash migrate.sh [--db PATH] [--plugin-dir PATH] [--dry-run]
 #
 # Defaults:
-#   --db         ~/.neural_memory/memory.db
-#   --plugin-dir ~/.hermes/plugins/memory/neural
+#   --db         ~/.hermes/hermes-agent/plugins/memory/neural/neural_memory.db
+#   --plugin-dir ~/.hermes/hermes-agent/plugins/memory/neural
 # ============================================================================
 
 set -euo pipefail
 
-# ── Colors ──────────────────────────────────────────────────────────────────
+# ── Colors ──────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -38,8 +38,8 @@ fail()  { echo -e "${RED}[FAIL]${RESET}  $*"; }
 step()  { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
 
 # ── Parse args ──────────────────────────────────────────────────────────────
-DB_PATH="${HOME}/.neural_memory/memory.db"
-PLUGIN_DIR="${HOME}/.hermes/plugins/memory/neural"
+DB_PATH="${HOME}/.hermes/hermes-agent/plugins/memory/neural/neural_memory.db"
+PLUGIN_DIR="${HOME}/.hermes/hermes-agent/plugins/memory/neural"
 DRY_RUN=""
 ADAPTER_DIR="${HOME}/projects/neural-memory-adapter"
 
@@ -214,7 +214,13 @@ with open(path) as f:
 patches_applied = []
 
 # ── Patch A: Abstract DreamBackend — add interface methods ──────────────
-if 'def prune_connection_history(self, keep_days' not in content:
+# Check within abstract class context (before SQLiteDreamBackend) to avoid
+# false negative when Patch B adds prune_connection_history to the concrete class first.
+_abstract_end = content.find('class SQLiteDreamBackend')
+_abstract_section = content[:_abstract_end] if _abstract_end > 0 else content
+_patch_a_needed = 'def prune_connection_history' not in _abstract_section
+
+if _patch_a_needed:
     old = '''    def add_insight(self, session_id: int, insight_type: str,
                     source_memory_id: int, content: str,
                     confidence: float = 0.0) -> None:
@@ -471,20 +477,16 @@ with open(path) as f:
     content = f.read()
 
 if 'def prune_connection_history' not in content:
-    old = '''    def log_connection_change(self, source_id: int, target_id: int,
-                               old_weight: float, new_weight: float,
-                               reason: str) -> None:
-        """Skip — C++ handles this internally via GraphEdges updates."""
-        pass
-
-    def add_insight'''
-
-    new = '''    def log_connection_change(self, source_id: int, target_id: int,
-                               old_weight: float, new_weight: float,
-                               reason: str) -> None:
-        """Skip — C++ handles this internally via GraphEdges updates."""
-        pass
-
+    # Find insertion point: after log_connection_change method ends, before add_insight
+    # Use flexible matching — the log_connection_change body varies between implementations
+    import re
+    _log_end = content.find('    def add_insight')
+    if _log_end > 0:
+        # Find the actual end of log_connection_change by scanning backwards from add_insight
+        _insert_marker = content.rfind('\n\n', 0, _log_end)
+        if _insert_marker > 0:
+            insert_point = _insert_marker
+            stubs = '''
     def prune_connection_history(self, keep_days: int = 7) -> int:
         """Skip — C++/MSSQL handles history internally."""
         return 0
@@ -508,18 +510,18 @@ if 'def prune_connection_history' not in content:
         """Skip — C++/MSSQL handles referential integrity."""
         return 0
 
-    def add_insight'''
-
-    if old in content:
-        if not dry_run:
-            content = content.replace(old, new, 1)
-            with open(path, 'w') as f:
-                f.write(content)
-            print("  Applied: prune stubs")
+'''
+            if not dry_run:
+                content = content[:insert_point] + stubs + content[insert_point:]
+                with open(path, 'w') as f:
+                    f.write(content)
+                print("  Applied: prune stubs (line-based)")
+            else:
+                print("  Would apply: prune stubs (line-based)")
         else:
-            print("  Would apply: prune stubs")
+            print("  WARN: Could not find insertion point between log_connection_change and add_insight")
     else:
-        print("  Pattern not found (maybe already applied)")
+        print("  WARN: add_insight method not found — cannot insert stubs")
 else:
     print("  Already up to date")
 PYEOF

@@ -705,7 +705,7 @@ class DreamEngine:
             # Prune dead connections
             stats["pruned"] = self._backend.prune_weak(0.05)
 
-            # Periodic cleanup: prune old history every 50 cycles
+            # Periodic cleanup: prune old history + orphans every 50 cycles
             if self._dream_count % 50 == 0:
                 try:
                     prune_fn = getattr(self._backend, 'prune_connection_history', None)
@@ -718,8 +718,13 @@ class DreamEngine:
                         pruned_s = prune_sessions(keep_days=30)
                         if pruned_s:
                             logger.info("Pruned %d old dream sessions", pruned_s)
+                    prune_orphans = getattr(self._backend, 'prune_orphans', None)
+                    if prune_orphans:
+                        pruned_o = prune_orphans()
+                        if pruned_o:
+                            logger.info("Pruned %d orphan connections", pruned_o)
                 except Exception as e:
-                    logger.debug("Prune cleanup error: %s", e)
+                    logger.debug("Maintenance cleanup error: %s", e)
 
             self._backend.finish_session(session_id, stats)
 

@@ -97,14 +97,33 @@ class SharedEmbedServer:
         if device == 'cpu' and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             device = 'mps'
         
+        # Use snapshot path directly (works offline, avoids HF hub issues)
         safe_name = self.model_name.replace('/', '--')
-        is_cached = (MODEL_DIR / f"models--{safe_name}").exists()
+        cache_base = MODEL_DIR / f"models--{safe_name}"
+        refs_main = cache_base / "refs" / "main"
         
-        print(f"[embed-server] Loading {self.model_name} on {device}...")
-        self.model = SentenceTransformer(
-            self.model_name, cache_folder=str(MODEL_DIR),
-            device=device, local_files_only=is_cached
-        )
+        model_path = None
+        if refs_main.exists():
+            snapshot_hash = refs_main.read_text().strip()
+            snapshot_path = cache_base / "snapshots" / snapshot_hash
+            if (snapshot_path / "config.json").exists():
+                model_path = str(snapshot_path)
+        
+        if model_path is None:
+            # Fallback: find any snapshot with config.json
+            snapshots_dir = cache_base / "snapshots"
+            if snapshots_dir.exists():
+                for snap in snapshots_dir.iterdir():
+                    if (snap / "config.json").exists():
+                        model_path = str(snap)
+                        break
+        
+        if model_path is None:
+            print(f"[embed-server] ERROR: No cached model found at {cache_base}", file=sys.stderr)
+            raise FileNotFoundError(f"No cached model: {self.model_name}")
+        
+        print(f"[embed-server] Loading {model_path} on {device}...")
+        self.model = SentenceTransformer(model_path, device=device)
         self.dim = self.model.get_sentence_embedding_dimension()
         self._original_device = device
         self._last_used = time.time()
@@ -305,7 +324,7 @@ class SentenceTransformerBackend:
       EMBED_DEVICE — force device (cuda/cpu/mps, default: auto)
     """
     MODEL_NAME = os.environ.get('EMBED_MODEL', os.environ.get('SENTENCE_TRANSFORMER_MODEL', 'BAAI/bge-m3'))
-    IDLE_TIMEOUT = int(os.environ.get('EMBED_IDLE_TIMEOUT', '300'))
+    IDLE_TIMEOUT = int(os.environ.get('EMBED_IDLE_TIMEOUT', '20'))
     FORCED_DEVICE = os.environ.get('EMBED_DEVICE', None)
     
     _shared_model = None
@@ -377,14 +396,28 @@ class SentenceTransformerBackend:
         if device == 'cpu' and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             device = 'mps'
         
+        # Use snapshot path directly (works offline)
         safe_name = self.MODEL_NAME.replace('/', '--')
-        is_cached = (MODEL_DIR / f"models--{safe_name}").exists()
+        cache_base = MODEL_DIR / f"models--{safe_name}"
+        model_path = None
+        refs_main = cache_base / "refs" / "main"
+        if refs_main.exists():
+            snapshot_hash = refs_main.read_text().strip()
+            snap = cache_base / "snapshots" / snapshot_hash
+            if (snap / "config.json").exists():
+                model_path = str(snap)
+        if model_path is None:
+            snapshots_dir = cache_base / "snapshots"
+            if snapshots_dir.exists():
+                for snap in snapshots_dir.iterdir():
+                    if (snap / "config.json").exists():
+                        model_path = str(snap)
+                        break
+        if model_path is None:
+            raise FileNotFoundError(f"No cached model: {self.MODEL_NAME}")
         
-        print(f"[embed] Loading {self.MODEL_NAME} directly on {device}...")
-        self.model = SentenceTransformer(
-            self.MODEL_NAME, cache_folder=str(MODEL_DIR),
-            device=device, local_files_only=is_cached
-        )
+        print(f"[embed] Loading {model_path} directly on {device}...")
+        self.model = SentenceTransformer(model_path, device=device)
         self.dim = self.model.get_sentence_embedding_dimension()
         SentenceTransformerBackend._shared_model = self.model
         SentenceTransformerBackend._shared_dim = self.dim

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Neural Memory — Desktop</title>
+__PLOTLY_SCRIPT__
+__THREEJS_SCRIPT__
+__FORCEGRAPH_SCRIPT__
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: transparent; overflow: hidden; height: 100vh; width: 100vw; font-family: 'JetBrains Mono', monospace; }
+
+  /* Layers: bloom behind, graph on top */
+  #bloom-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; opacity: 0.55; filter: blur(6px) brightness(2) saturate(1.6); }
+  #graph-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+  #trail-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2; pointer-events: none; opacity: 0.15; }
+  .ambient-glow { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 30% 70%, rgba(245,183,49,0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 30%, rgba(85,184,208,0.05) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(168,85,247,0.04) 0%, transparent 60%); }
+  .scanline { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999; pointer-events: none;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.02) 2px, rgba(0,0,0,0.02) 4px); mix-blend-mode: multiply; }
+
+  /* HUD */
+  .hud { position: fixed; bottom: 20px; right: 20px; z-index: 100; font-size: 9px; letter-spacing: 0.5px;
+    color: rgba(245,183,49,0.25); text-align: right; transition: opacity 0.4s; }
+  .hud:hover { opacity: 1 !important; }
+  .hud-line { margin: 3px 0; }
+  .hud-val { color: rgba(245,183,49,0.5); font-weight: 700; }
+  .hud-dim { color: rgba(80,75,60,0.4); }
+  .hud-label { color: rgba(100,95,80,0.35); font-size: 8px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+
+  /* Live dot */
+  .live-dot { position: fixed; bottom: 18px; right: 8px; z-index: 100; width: 4px; height: 4px; border-radius: 50%;
+    background: #55c878; opacity: 0.3; animation: breathe 4s ease-in-out infinite; }
+  .live-dot.off { background: #e05555; }
+  @keyframes breathe { 0%,100% { opacity: 0.15; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.4); box-shadow: 0 0 8px currentColor; } }
+
+  /* Center flash on update */
+  .center-pulse { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: 4px; height: 4px; border-radius: 50%; background: #f5b731; opacity: 0; z-index: 50; pointer-events: none; }
+  .center-pulse.flash { animation: cpulse 2s ease-out forwards; }
+  @keyframes cpulse { 0% { opacity: 0.6; transform: translate(-50%,-50%) scale(1); box-shadow: 0 0 30px #f5b731; }
+    100% { opacity: 0; transform: translate(-50%,-50%) scale(50); box-shadow: 0 0 0 transparent; } }
+
+  /* Edge energy ring — appears on graph */
+  .energy-ring { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: 200px; height: 200px; border-radius: 50%; border: 1px solid rgba(245,183,49,0.08);
+    z-index: 3; pointer-events: none; animation: ringExpand 8s linear infinite; }
+  @keyframes ringExpand { 0% { width: 10px; height: 10px; opacity: 0.3; border-color: rgba(245,183,49,0.2); }
+    100% { width: 800px; height: 800px; opacity: 0; border-color: rgba(245,183,49,0); } }
+</style>
+</head>
+<body>
+
+<div class="ambient-glow"></div>
+<canvas id="bloom-canvas"></canvas>
+<div id="graph-container"></div>
+<canvas id="trail-canvas"></canvas>
+<div class="scanline"></div>
+<div class="center-pulse" id="cpulse"></div>
+<div class="energy-ring"></div>
+<div class="live-dot" id="ldot"></div>
+
+<div class="hud" id="hud">
+  <div class="hud-label">Neural Memory</div>
+  <div class="hud-line"><span class="hud-val" id="hm">—</span> <span class="hud-dim">memories</span></div>
+  <div class="hud-line"><span class="hud-val" id="hc">—</span> <span class="hud-dim">connections</span></div>
+  <div class="hud-line"><span class="hud-val" id="hd">—</span> <span class="hud-dim">dreams</span></div>
+  <div class="hud-line"><span class="hud-dim" id="hs"></span></div>
+  <div class="hud-line"><span class="hud-dim" id="hf"></span></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+const CC = {
+  'Conversation': '#f5b731', 'Peer': '#55c878', 'Session': '#e05555',
+  'Document': '#55b8d0', 'Skill': '#a855f7', 'Other': '#5a5a6a',
+};
+const GLOW = {
+  'Conversation': 'rgba(245,183,49,', 'Peer': 'rgba(85,200,120,', 'Session': 'rgba(224,85,85,',
+  'Document': 'rgba(85,184,208,', 'Skill': 'rgba(168,85,247,', 'Other': 'rgba(90,90,106,',
+};
+
+let D = __DATA_JSON__;
+let Graph = null, gNodes = [], gLinks = [];
+let ws = null, rDelay = 1000;
+
+// ═══ Ambient camera ═══
+let aA = Math.random() * Math.PI * 2;
+const aR = 360, aY = 90;
+let aSpd = 0.00025, aTarget = 0.00025;
+
+function ambRot() {
+  if (!Graph) { requestAnimationFrame(ambRot); return; }
+  aSpd += (aTarget - aSpd) * 0.015;
+  aA += aSpd;
+  const x = Math.cos(aA) * aR;
+  const z = Math.sin(aA) * aR;
+  const y = aY + Math.sin(aA * 0.5) * 80 + Math.cos(aA * 1.1) * 25;
+  Graph.cameraPosition({ x, y, z }, { x: 0, y: 0, z: 0 }, 0);
+  requestAnimationFrame(ambRot);
+}
+
+// ═══ Graph ═══
+function build() {
+  gNodes = D.nodes.map(n => ({
+    id: n.id, label: n.label, category: n.category,
+    salience: n.salience, total_degree: n.total_degree,
+    out_degree: n.out_degree, in_degree: n.in_degree,
+    avg_weight: n.avg_weight, access_count: n.access_count,
+    val: Math.max(3, Math.sqrt(n.total_degree) * 2.2),
+    color: CC[n.category] || CC['Other'],
+  }));
+
+  gLinks = D.edges.map(e => {
+    const sc = gNodes.find(n => n.id === e.source);
+    const cat = sc ? sc.category : 'Other';
+    const glow = GLOW[cat] || GLOW['Other'];
+    return {
+      source: e.source, target: e.target, weight: e.weight,
+      color: glow + Math.max(0.06, e.weight * 0.3) + ')',
+    };
+  });
+
+  if (!Graph) {
+    Graph = ForceGraph3D()(document.getElementById('graph-container'))
+      .backgroundColor('rgba(3,3,8,0.0)')
+      .nodeRelSize(4)
+      .nodeVal('val')
+      .nodeColor(n => n.color)
+      .nodeOpacity(0.9)
+      .nodeResolution(20)
+      .linkWidth(l => Math.max(0.2, l.weight * 1.5))
+      .linkOpacity(0.12)
+      .linkDirectionalParticles(2)
+      .linkDirectionalParticleWidth(l => Math.max(0.4, l.weight * 1.0))
+      .linkDirectionalParticleSpeed(0.0015)
+      .linkColor(l => l.color)
+      .nodeThreeObject(null)
+      .d3AlphaDecay(0.012)
+      .d3VelocityDecay(0.3)
+      .warmupTicks(300)
+      .cooldownTicks(0);
+
+    // Cinematic rendering
+    const r = Graph.renderer();
+    if (r) {
+      r.toneMapping = 3; // ACESFilmic
+      r.toneMappingExposure = 1.4;
+      r.setClearColor(0x030308, 0);
+    }
+
+    Graph.cameraPosition({ x: aR, y: aY, z: 0 });
+  }
+
+  Graph.graphData({ nodes: gNodes, links: gLinks });
+  hud();
+}
+
+// ═══ Bloom capture ═══
+function setupBloom() {
+  const src = document.querySelector('#graph-container canvas');
+  const dst = document.getElementById('bloom-canvas');
+  if (!src || !dst) return;
+  dst.width = src.width; dst.height = src.height;
+  const ctx = dst.getContext('2d');
+
+  function capture() {
+    if (src.width > 0) {
+      if (dst.width !== src.width) { dst.width = src.width; dst.height = src.height; }
+      ctx.drawImage(src, 0, 0);
+    }
+    requestAnimationFrame(capture);
+  }
+  capture();
+}
+
+// ═══ Afterimage trail ═══
+function setupTrail() {
+  const src = document.querySelector('#graph-container canvas');
+  const dst = document.getElementById('trail-canvas');
+  if (!src || !dst) return;
+  dst.width = src.width; dst.height = src.height;
+  const ctx = dst.getContext('2d');
+  ctx.fillStyle = 'rgba(3,3,8,0.15)';
+
+  let lastFrame = null;
+  function trail() {
+    if (src.width > 0) {
+      if (dst.width !== src.width) { dst.width = src.width; dst.height = src.height; }
+      // Fade previous
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillRect(0, 0, dst.width, dst.height);
+      // Draw dimmed last frame
+      ctx.globalAlpha = 0.85;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.drawImage(src, 0, 0);
+      ctx.globalAlpha = 1.0;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    requestAnimationFrame(trail);
+  }
+  trail();
+}
+
+// ═══ HUD ═══
+function hud() {
+  const f = n => n >= 1000 ? (n/1000).toFixed(1) + 'K' : String(n);
+  document.getElementById('hm').textContent = f(D.stats.memories);
+  document.getElementById('hc').textContent = f(D.stats.connections);
+  document.getElementById('hd').textContent = f(D.stats.dream_sessions || 0);
+  document.getElementById('hs').textContent = D.stats.source;
+}
+
+// ═══ FPS ═══
+let fc = 0, lt = performance.now();
+function fps() { fc++; const n = performance.now(); if (n - lt > 2000) {
+  document.getElementById('hf').textContent = Math.round(fc / ((n-lt)/1000)) + ' fps'; fc = 0; lt = n; }
+  requestAnimationFrame(fps); }
+
+// ═══ Activity ═══
+function flash() {
+  const e = document.getElementById('cpulse');
+  e.classList.remove('flash'); void e.offsetWidth; e.classList.add('flash');
+}
+
+// ═══ WebSocket ═══
+function connect() {
+  const p = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(p + '//' + location.host + '/ws/stream');
+  ws.onopen = () => { rDelay = 1000; document.getElementById('ldot').classList.remove('off'); };
+  ws.onclose = () => { document.getElementById('ldot').classList.add('off'); setTimeout(connect, rDelay); rDelay = Math.min(rDelay*1.5, 30000); };
+  ws.onerror = () => {};
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === 'initial') { D = { nodes: m.nodes, edges: m.edges, categories: m.categories, weights: m.weights, stats: m.stats }; build(); }
+    else if (m.type === 'update') {
+      D = { nodes: m.nodes, edges: m.edges, categories: m.categories, weights: m.weights, stats: m.stats };
+      build(); aTarget = 0.004; flash(); setTimeout(() => { aTarget = 0.00025; }, 3000);
+    }
+  };
+}
+
+// ═══ Init ═══
+build(); connect(); fps();
+setTimeout(ambRot, 2000);
+setTimeout(setupBloom, 2500);
+setTimeout(setupTrail, 3000);
+</script>
+<script>
+class SpriteText extends THREE.Sprite {
+  constructor(t,s,c) { const cv=document.createElement('canvas'); const tx=new THREE.CanvasTexture(cv);
+    const m=new THREE.SpriteMaterial({map:tx,transparent:true,depthWrite:false}); super(m);
+    this._text=t||''; this._textSize=s||1; this._color=c||'#fff'; this._canvas=cv; this._tex=tx;
+    this.fontFace='sans-serif'; this.fontWeight='normal'; this.backgroundColor='transparent'; this.padding=0; this.borderRadius=0; }
+  _update() { const c=this._canvas,ctx=c.getContext('2d'); const fs=Math.max(20,Math.round(this._textSize*18));
+    const f=this.fontWeight+' '+fs+'px '+this.fontFace; ctx.font=f;
+    const tw=Math.ceil(ctx.measureText(this._text).width)+20, th=Math.ceil(fs*1.5);
+    c.width=tw; c.height=th; ctx.font=f; ctx.fillStyle=this._color; ctx.textBaseline='middle'; ctx.fillText(this._text,10,th/2);
+    this._tex.image=c; this._tex.needsUpdate=true; this.scale.set(tw/th*this._textSize*3,this._textSize*3,1); }
+}
+SpriteText.prototype.onBeforeRender = function() { if (!this._r) { this._r=true; this._update(); } };
+</script>
+</body>
+</html>

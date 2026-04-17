@@ -32,7 +32,7 @@ CACHE_DIR = Path.home() / ".neural_memory"
 CACHE_FILE = CACHE_DIR / "embed_cache.pkl"
 MODEL_DIR = CACHE_DIR / "models"
 SOCKET_PATH = Path(os.environ.get('EMBED_SOCKET', str(CACHE_DIR / "embed.sock")))
-DIMENSION = 384  # all-MiniLM-L6-v2 output dim
+DIMENSION = 1024  # all-MiniLM-L6-v2 output dim
 
 # ============================================================================
 # Shared Embed Server (UNIX socket)

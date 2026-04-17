@@ -32,7 +32,7 @@ CACHE_DIR = Path.home() / ".neural_memory"
 CACHE_FILE = CACHE_DIR / "embed_cache.pkl"
 MODEL_DIR = CACHE_DIR / "models"
 SOCKET_PATH = Path(os.environ.get('EMBED_SOCKET', str(CACHE_DIR / "embed.sock")))
-DIMENSION = 384  # all-MiniLM-L6-v2 output dim
+DIMENSION = 1024  # BAAI/bge-m3 output dim
 
 # ============================================================================
 # Shared Embed Server (UNIX socket)
@@ -817,10 +817,10 @@ if __name__ == "__main__":
     provider = EmbeddingProvider()
     
     texts = [
-        "The user has a dog named Lou",
-        "Working on BTQuant trading platform",
-        "Neural memory adapter with Hopfield networks",
-        "The dog is a Chihuahua",
+        "Les langues officielles du Cameroun sont le français et l'anglais",
+        "Habari za mzunguko wa mwezi katika sayansi",
+        "什么是量子纠缠？用简单的话解释",
+        "Berapa banyak bahasa yang digunakan di Indonesia?",
     ]
     
     for text in texts:
@@ -835,10 +835,10 @@ if __name__ == "__main__":
         nb = math.sqrt(sum(x*x for x in b))
         return dot / (na * nb) if na * nb > 0 else 0
     
-    v1 = provider.embed("The user has a dog named Lou")
-    v2 = provider.embed("The dog is a Chihuahua")
-    v3 = provider.embed("Neural memory adapter with Hopfield networks")
+    v1 = provider.embed("Les langues officielles du Cameroun sont le français et l'anglais")
+    v2 = provider.embed("Berapa banyak bahasa yang digunakan di Indonesia?")
+    v3 = provider.embed("什么是量子纠缠？用简单的话解释")
     
-    print(f"\nSimilarity 'dog/Lou' vs 'Chihuahua': {cosine(v1, v2):.3f}")
-    print(f"Similarity 'dog/Lou' vs 'neural memory': {cosine(v1, v3):.3f}")
-    print(f"(Dog-dog should be higher than dog-tech)")
+    print(f"\nSimilarity 'Cameroun' vs 'Indonesia': {cosine(v1, v2):.3f}")
+    print(f"Similarity 'Cameroun' vs 'quantum': {cosine(v1, v3):.3f}")
+    print(f"(Similar languages should score higher than unrelated topics)")

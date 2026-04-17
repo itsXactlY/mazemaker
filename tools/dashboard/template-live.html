@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Memory — 3D Knowledge Graph</title>
+__PLOTLY_SCRIPT__
+__THREEJS_SCRIPT__
+__FORCEGRAPH_SCRIPT__
+<style>
+  /* Fonts: system fallbacks (JetBrains Mono / Inter) — no CDN */
+
+  :root {
+    --bg: #0a0a12;
+    --surface: rgba(15, 14, 20, 0.92);
+    --surface2: rgba(22, 20, 30, 0.8);
+    --border: rgba(245, 183, 49, 0.12);
+    --border-glow: rgba(245, 183, 49, 0.3);
+    --text: #c8b890;
+    --text-bright: #f5e6c8;
+    --text-dim: #6a5e48;
+    --amber: #f5b731;
+    --amber-dark: #c49220;
+    --amber-glow: rgba(245, 183, 49, 0.35);
+    --amber-dim: rgba(245, 183, 49, 0.08);
+    --red: #e05555;
+    --green: #55c878;
+    --cyan: #55b8d0;
+    --purple: #a855f7;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* ═══ 3D Graph — full viewport ═══ */
+  #graph-container {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    z-index: 0;
+    background: radial-gradient(ellipse at 50% 50%, rgba(30, 25, 10, 0.6) 0%, var(--bg) 70%);
+  }
+
+  /* ═══ HUD — top-left floating panel ═══ */
+  .hud {
+    position: fixed;
+    top: 16px; left: 16px;
+    z-index: 100;
+    background: var(--surface);
+    backdrop-filter: blur(24px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    min-width: 220px;
+    box-shadow: 0 4px 30px rgba(0,0,0,0.4), inset 0 0 20px var(--amber-dim);
+    font-family: 'JetBrains Mono', monospace;
+    user-select: none;
+  }
+  .hud h1 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--amber);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    text-shadow: 0 0 20px var(--amber-glow);
+  }
+  .hud-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 11px;
+  }
+  .hud-label { color: var(--text-dim); }
+  .hud-value {
+    color: var(--text-bright);
+    font-weight: 600;
+  }
+  .hud-value.amber { color: var(--amber); }
+  .hud-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 8px 0;
+  }
+  .hud-source {
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    opacity: 0.7;
+  }
+
+  /* ═══ Legend — top-right ═══ */
+  .legend {
+    position: fixed;
+    top: 16px; right: 16px;
+    z-index: 100;
+    background: var(--surface);
+    backdrop-filter: blur(24px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    box-shadow: 0 4px 30px rgba(0,0,0,0.4);
+  }
+  .legend h3 {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .legend-item:hover { opacity: 0.8; }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    box-shadow: 0 0 6px currentColor;
+  }
+  .legend-name { color: var(--text-bright); }
+  .legend-count { color: var(--text-dim); margin-left: auto; padding-left: 12px; }
+
+  /* ═══ Detail panel — right side, slides in ═══ */
+  .detail-panel {
+    position: fixed;
+    top: 0; right: -400px;
+    width: 380px; height: 100vh;
+    z-index: 200;
+    background: var(--surface);
+    backdrop-filter: blur(30px);
+    border-left: 1px solid var(--border-glow);
+    box-shadow: -10px 0 40px rgba(0,0,0,0.5);
+    transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+    padding: 24px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .detail-panel.open { right: 0; }
+  .detail-close {
+    position: absolute;
+    top: 12px; right: 16px;
+    background: none; border: none;
+    color: var(--text-dim);
+    font-size: 20px;
+    cursor: pointer;
+    transition: color 0.2s;
+  }
+  .detail-close:hover { color: var(--amber); }
+  .detail-id {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--amber);
+    text-shadow: 0 0 20px var(--amber-glow);
+  }
+  .detail-label {
+    font-size: 14px;
+    color: var(--text-bright);
+    margin: 8px 0 16px;
+    line-height: 1.4;
+  }
+  .detail-section {
+    margin-bottom: 16px;
+  }
+  .detail-section-title {
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 6px;
+  }
+  .detail-bar {
+    height: 4px;
+    background: rgba(245, 183, 49, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .detail-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--amber-dark), var(--amber));
+    border-radius: 2px;
+    transition: width 0.5s ease;
+  }
+  .detail-connections {
+    margin-top: 16px;
+  }
+  .detail-conn-item {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    display: flex;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .detail-conn-item:hover { background: var(--amber-dim); }
+  .detail-conn-label { color: var(--text-bright); flex: 1; }
+  .detail-conn-weight { color: var(--amber); margin-left: 8px; }
+
+  /* ═══ Mini charts — bottom bar ═══ */
+  .mini-charts {
+    position: fixed;
+    bottom: 12px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    display: flex;
+    gap: 10px;
+  }
+  .mini-card {
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: 200px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+  .mini-card-title {
+    padding: 6px 10px;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--surface2);
+  }
+  .mini-plot { width: 100%; height: 120px; }
+
+  /* ═══ Controls — bottom-left ═══ */
+  .controls {
+    position: fixed;
+    bottom: 12px; left: 16px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ctrl-btn {
+    width: 36px; height: 36px;
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .ctrl-btn:hover {
+    border-color: var(--border-glow);
+    color: var(--amber);
+    box-shadow: 0 0 12px var(--amber-dim);
+  }
+
+  /* ═══ Search — top-center ═══ */
+  .search-bar {
+    position: fixed;
+    top: 16px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    background: var(--surface);
+    backdrop-filter: blur(24px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    transition: border-color 0.3s;
+  }
+  .search-bar:focus-within {
+    border-color: var(--border-glow);
+    box-shadow: 0 0 20px var(--amber-dim);
+  }
+  .search-icon {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-right: 8px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .search-input {
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-bright);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 10px 0;
+    width: 260px;
+  }
+  .search-input::placeholder { color: var(--text-dim); }
+  .search-results {
+    position: absolute;
+    top: 100%;
+    left: 0; right: 0;
+    margin-top: 4px;
+    background: var(--surface);
+    backdrop-filter: blur(24px);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+    display: none;
+  }
+  .search-results.visible { display: block; }
+  .search-result-item {
+    padding: 8px 14px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+  }
+  .search-result-item:hover { background: var(--amber-dim); }
+  .search-result-id { color: var(--amber); margin-right: 8px; }
+  .search-result-label { color: var(--text-bright); }
+
+  /* ═══ Scanline overlay ═══ */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px, rgba(0,0,0,0.02) 2px, rgba(0,0,0,0.02) 4px
+    );
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* ═══ Tooltip for 3D graph ═══ */
+  .graph-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-glow);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-bright);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    z-index: 300;
+    max-width: 300px;
+    display: none;
+  }
+  .graph-tooltip .tt-id { color: var(--amber); font-weight: 700; font-size: 14px; }
+  .graph-tooltip .tt-label { margin: 4px 0; line-height: 1.3; }
+  .graph-tooltip .tt-stats { color: var(--text-dim); font-size: 10px; }
+
+  /* ═══ Animations ═══ */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .hud { animation: fadeIn 0.6s ease-out 0.1s backwards; }
+  .legend { animation: fadeIn 0.6s ease-out 0.2s backwards; }
+  .search-bar { animation: fadeIn 0.6s ease-out 0.15s backwards; }
+  .mini-charts { animation: fadeIn 0.6s ease-out 0.3s backwards; }
+  .controls { animation: fadeIn 0.6s ease-out 0.35s backwards; }
+
+
+  /* ═══ WebSocket additions ═══ */
+  .live-indicator {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 500; display: flex; align-items: center; gap: 8px;
+    background: var(--surface); backdrop-filter: blur(24px);
+    border: 1px solid var(--border); border-radius: 20px;
+    padding: 6px 16px; font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--text-dim);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    transition: border-color 0.3s, color 0.3s;
+  }
+  .live-indicator.connected { border-color: var(--green); color: var(--green); }
+  .live-indicator.disconnected { border-color: var(--red); color: var(--red); }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: livePulse 2s infinite; }
+  @keyframes livePulse { 0%,100% { opacity: 1; box-shadow: 0 0 4px currentColor; } 50% { opacity: 0.4; box-shadow: 0 0 12px currentColor; } }
+
+  .delta-toast {
+    position: fixed; top: 52px; left: 50%; transform: translateX(-50%) translateY(-20px);
+    z-index: 500; background: var(--surface); backdrop-filter: blur(24px);
+    border: 1px solid var(--amber); border-radius: 8px; padding: 8px 16px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--amber); box-shadow: 0 0 20px var(--amber-dim);
+    opacity: 0; transition: all 0.4s ease; pointer-events: none;
+  }
+  .delta-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .hud-value.flash { animation: valFlash 0.6s ease; }
+  @keyframes valFlash { 0% { color: var(--green); text-shadow: 0 0 8px var(--green); } 100% { color: var(--text-bright); text-shadow: none; } }
+
+  /* Ambient glow for desktop */
+  .ambient-glow {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    z-index: -1; pointer-events: none;
+    background: radial-gradient(ellipse at 30% 70%, rgba(245,183,49,0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 30%, rgba(85,184,208,0.04) 0%, transparent 50%);
+  }
+
+</style>
+</head>
+<body>
+<div class="ambient-glow"></div>
+<div class="live-indicator" id="live_status"><div class="live-dot"></div><span id="live_text">Connecting...</span></div>
+<div class="delta-toast" id="delta_toast"></div>
+
+
+<!-- 3D Graph Container -->
+<div id="graph-container"></div>
+
+<!-- Tooltip -->
+<div class="graph-tooltip" id="tooltip">
+  <div class="tt-id"></div>
+  <div class="tt-label"></div>
+  <div class="tt-stats"></div>
+</div>
+
+<!-- HUD — top-left -->
+<div class="hud">
+  <h1>Neural Memory</h1>
+  <div class="hud-row">
+    <span class="hud-label">Memories</span>
+    <span class="hud-value amber" id="h_mem">—</span>
+  </div>
+  <div class="hud-row">
+    <span class="hud-label">Connections</span>
+    <span class="hud-value" id="h_conn">—</span>
+  </div>
+  <div class="hud-row">
+    <span class="hud-label">Avg Degree</span>
+    <span class="hud-value" id="h_deg">—</span>
+  </div>
+  <hr class="hud-divider">
+  <div class="hud-row">
+    <span class="hud-label">Density</span>
+    <span class="hud-value" id="h_density">—</span>
+  </div>
+  <div class="hud-row">
+    <span class="hud-label">Embed Dim</span>
+    <span class="hud-value" id="h_dim">—</span>
+  </div>
+  <div class="hud-source" id="h_source"></div>
+</div>
+
+<!-- Search — top-center -->
+<div class="search-bar">
+  <span class="search-icon">⌕</span>
+  <input type="text" class="search-input" id="search_input" placeholder="Search memories..." autocomplete="off">
+  <div class="search-results" id="search_results"></div>
+</div>
+
+<!-- Legend — top-right -->
+<div class="legend" id="legend">
+  <h3>Categories</h3>
+  <!-- filled by JS -->
+</div>
+
+<!-- Controls — bottom-left -->
+<div class="controls">
+  <button class="ctrl-btn" id="btn_reset" title="Reset camera">⟲</button>
+  <button class="ctrl-btn" id="btn_pause" title="Pause/resume simulation">⏸</button>
+  <button class="ctrl-btn" id="btn_labels" title="Toggle labels">Aa</button>
+</div>
+
+<!-- Mini charts — bottom bar -->
+<div class="mini-charts">
+  <div class="mini-card">
+    <div class="mini-card-title">Categories</div>
+    <div id="mini_pie" class="mini-plot"></div>
+  </div>
+  <div class="mini-card">
+    <div class="mini-card-title">Connection Strength</div>
+    <div id="mini_bar" class="mini-plot"></div>
+  </div>
+  <div class="mini-card">
+    <div class="mini-card-title">Degree Distribution</div>
+    <div id="mini_hist" class="mini-plot"></div>
+  </div>
+</div>
+
+<!-- Detail panel — right side -->
+<div class="detail-panel" id="detail_panel">
+  <button class="detail-close" id="detail_close">✕</button>
+  <div class="detail-id" id="det_id"></div>
+  <div class="detail-label" id="det_label"></div>
+  <div class="detail-section">
+    <div class="detail-section-title">Category</div>
+    <div id="det_category" style="color:var(--text-bright)"></div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-section-title">Salience</div>
+    <div id="det_salience" style="color:var(--text-bright)"></div>
+    <div class="detail-bar"><div class="detail-bar-fill" id="det_salience_bar"></div></div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-section-title">Degree</div>
+    <div class="hud-row"><span class="hud-label">Out</span><span class="hud-value" id="det_out">—</span></div>
+    <div class="hud-row"><span class="hud-label">In</span><span class="hud-value" id="det_in">—</span></div>
+    <div class="hud-row"><span class="hud-label">Total</span><span class="hud-value amber" id="det_total">—</span></div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-section-title">Access Count</div>
+    <div id="det_access" style="color:var(--text-bright)"></div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-section-title">Avg Weight</div>
+    <div id="det_weight" style="color:var(--text-bright)"></div>
+  </div>
+  <div class="detail-connections" id="det_connections">
+    <div class="detail-section-title">Connected To</div>
+  </div>
+</div>
+
+<script>
+const D = __DATA_JSON__;
+
+// ═══════════════════════════════════════════
+// Color config — amber theme categories
+// ═══════════════════════════════════════════
+const cc = {
+  'Conversation': '#f5b731',
+  'Peer': '#55c878',
+  'Session': '#e05555',
+  'Document': '#55b8d0',
+  'Skill': '#a855f7',
+  'Other': '#5a5a6a',
+};
+
+// ═══════════════════════════════════════════
+// HUD stats
+// ═══════════════════════════════════════════
+function animateNum(id, target) {
+  const el = document.getElementById(id);
+  const dur = 1000;
+  const t0 = performance.now();
+  (function tick(now) {
+    const p = Math.min((now - t0) / dur, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(target * ease).toLocaleString();
+    if (p < 1) requestAnimationFrame(tick);
+  })(t0);
+}
+animateNum('h_mem', D.stats.memories);
+animateNum('h_conn', D.stats.connections);
+const avgDeg = D.nodes.length ? Math.round(D.nodes.reduce((s, n) => s + n.total_degree, 0) / D.nodes.length) : 0;
+animateNum('h_deg', avgDeg);
+const maxPossible = D.nodes.length * (D.nodes.length - 1);
+const density = maxPossible > 0 ? ((D.stats.connections / maxPossible) * 100).toFixed(1) : '0.0';
+document.getElementById('h_density').textContent = density + '%';
+document.getElementById('h_dim').textContent = D.stats.embedding_dim;
+document.getElementById('h_source').textContent = D.stats.source + ' :: ' + D.stats.path;
+
+// ═══════════════════════════════════════════
+// Legend
+// ═══════════════════════════════════════════
+const cats = [...new Set(D.nodes.map(n => n.category))];
+const catCounts = {};
+cats.forEach(c => { catCounts[c] = D.nodes.filter(n => n.category === c).length; });
+const legendEl = document.getElementById('legend');
+cats.forEach(c => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.dataset.cat = c;
+  item.innerHTML = `<div class="legend-dot" style="background:${cc[c]};color:${cc[c]}"></div>
+    <span class="legend-name">${c}</span>
+    <span class="legend-count">${catCounts[c]}</span>`;
+  item.addEventListener('click', () => highlightCategory(c));
+  legendEl.appendChild(item);
+});
+
+// ═══════════════════════════════════════════
+// Build 3D force graph data
+// ═══════════════════════════════════════════
+const graphNodes = D.nodes.map(n => ({
+  id: n.id,
+  label: n.label,
+  category: n.category,
+  salience: n.salience,
+  access_count: n.access_count,
+  total_degree: n.total_degree,
+  out_degree: n.out_degree,
+  in_degree: n.in_degree,
+  avg_weight: n.avg_weight,
+  val: Math.max(2, Math.sqrt(n.total_degree) * 1.8),
+  color: cc[n.category] || cc['Other'],
+}));
+
+const graphLinks = D.edges.map(e => ({
+  source: e.source,
+  target: e.target,
+  weight: e.weight,
+  color: `rgba(245,183,49,${Math.max(0.05, e.weight * 0.3)})`,
+}));
+
+// Build adjacency map for detail panel
+const adjMap = {};
+graphNodes.forEach(n => { adjMap[n.id] = []; });
+graphLinks.forEach(l => {
+  const sid = typeof l.source === 'object' ? l.source.id : l.source;
+  const tid = typeof l.target === 'object' ? l.target.id : l.target;
+  if (adjMap[sid]) adjMap[sid].push({ id: tid, weight: l.weight, dir: 'out' });
+  if (adjMap[tid]) adjMap[tid].push({ id: sid, weight: l.weight, dir: 'in' });
+});
+const nodeById = {};
+graphNodes.forEach(n => { nodeById[n.id] = n; });
+
+// ═══════════════════════════════════════════
+// 3D Force Graph
+// ═══════════════════════════════════════════
+let showLabels = true;
+let isPaused = false;
+
+const Graph = ForceGraph3D()
+  (document.getElementById('graph-container'))
+  .graphData({ nodes: graphNodes, links: graphLinks })
+  .backgroundColor('rgba(10,10,18,1)')
+  .nodeRelSize(4)
+  .nodeVal('val')
+  .nodeColor(n => n.color)
+  .nodeOpacity(0.92)
+  .nodeResolution(12)
+  .linkWidth(l => Math.max(0.3, l.weight * 2))
+  .linkOpacity(0.25)
+  .linkDirectionalParticles(1)
+  .linkDirectionalParticleWidth(l => l.weight * 1.5)
+  .linkDirectionalParticleSpeed(0.003)
+  .linkColor(l => l.color)
+  .nodeLabel(n => `<div style="font-family:JetBrains Mono,monospace;font-size:12px;background:rgba(15,14,20,0.95);border:1px solid rgba(245,183,49,0.3);border-radius:6px;padding:8px 12px;color:#f5e6c8;">
+    <div style="color:#f5b731;font-weight:700;font-size:14px;">#${n.id}</div>
+    <div style="margin:4px 0;">${n.label}</div>
+    <div style="color:#6a5e48;font-size:10px;">Deg: ${n.total_degree} | W: ${n.avg_weight} | Sal: ${n.salience.toFixed(2)}</div>
+  </div>`)
+  .nodeThreeObject(node => {
+    if (!showLabels) return null;
+    const sprite = new SpriteText(node.label, 3, node.color);
+    sprite.fontFace = 'JetBrains Mono, monospace';
+    sprite.fontWeight = '600';
+    sprite.backgroundColor = 'rgba(10,10,18,0.6)';
+    sprite.padding = 2;
+    sprite.borderRadius = 3;
+    return sprite;
+  })
+  .nodeThreeObjectExtend(true)
+  .onNodeClick(node => openDetail(node))
+  .onNodeHover(node => {
+    const tooltip = document.getElementById('tooltip');
+    if (node) {
+      tooltip.style.display = 'block';
+      tooltip.querySelector('.tt-id').textContent = '#' + node.id;
+      tooltip.querySelector('.tt-label').textContent = node.label;
+      tooltip.querySelector('.tt-stats').textContent = `Deg: ${node.total_degree} | Cat: ${node.category} | Sal: ${node.salience.toFixed(2)}`;
+    } else {
+      tooltip.style.display = 'none';
+    }
+  })
+  .d3AlphaDecay(0.02)
+  .d3VelocityDecay(0.3)
+  .warmupTicks(100)
+  .cooldownTicks(200);
+
+// Camera
+Graph.cameraPosition({ x: 0, y: 0, z: 400 });
+
+// Tooltip follows mouse
+document.addEventListener('mousemove', e => {
+  const tooltip = document.getElementById('tooltip');
+  if (tooltip.style.display === 'block') {
+    tooltip.style.left = (e.clientX + 16) + 'px';
+    tooltip.style.top = (e.clientY - 10) + 'px';
+  }
+});
+
+// ═══════════════════════════════════════════
+// Controls
+// ═══════════════════════════════════════════
+document.getElementById('btn_reset').addEventListener('click', () => {
+  Graph.cameraPosition({ x: 0, y: 0, z: 400 }, { x: 0, y: 0, z: 0 }, 1000);
+});
+
+document.getElementById('btn_pause').addEventListener('click', function() {
+  isPaused = !isPaused;
+  this.textContent = isPaused ? '▶' : '⏸';
+  if (isPaused) {
+    Graph.pauseAnimation();
+  } else {
+    Graph.resumeAnimation();
+  }
+});
+
+document.getElementById('btn_labels').addEventListener('click', () => {
+  showLabels = !showLabels;
+  Graph.nodeThreeObject(showLabels ? (node => {
+    const sprite = new SpriteText(node.label, 3, node.color);
+    sprite.fontFace = 'JetBrains Mono, monospace';
+    sprite.fontWeight = '600';
+    sprite.backgroundColor = 'rgba(10,10,18,0.6)';
+    sprite.padding = 2;
+    sprite.borderRadius = 3;
+    return sprite;
+  }) : null);
+});
+
+// ═══════════════════════════════════════════
+// Detail panel
+// ═══════════════════════════════════════════
+function openDetail(node) {
+  const panel = document.getElementById('detail_panel');
+  panel.classList.add('open');
+  document.getElementById('det_id').textContent = '#' + node.id;
+  document.getElementById('det_label').textContent = node.label;
+  document.getElementById('det_category').textContent = node.category;
+  document.getElementById('det_category').style.color = node.color;
+  document.getElementById('det_salience').textContent = node.salience.toFixed(3);
+  document.getElementById('det_salience_bar').style.width = (node.salience * 100) + '%';
+  document.getElementById('det_out').textContent = node.out_degree;
+  document.getElementById('det_in').textContent = node.in_degree;
+  document.getElementById('det_total').textContent = node.total_degree;
+  document.getElementById('det_access').textContent = node.access_count;
+  document.getElementById('det_weight').textContent = node.avg_weight;
+
+  // Connections
+  const connEl = document.getElementById('det_connections');
+  connEl.innerHTML = '<div class="detail-section-title">Connected To</div>';
+  const conns = adjMap[node.id] || [];
+  conns.sort((a, b) => b.weight - a.weight);
+  conns.forEach(c => {
+    const target = nodeById[c.id];
+    if (!target) return;
+    const item = document.createElement('div');
+    item.className = 'detail-conn-item';
+    item.innerHTML = `<span class="detail-conn-label">${c.dir === 'out' ? '→' : '←'} ${target.label}</span>
+      <span class="detail-conn-weight">${c.weight.toFixed(2)}</span>`;
+    item.addEventListener('click', () => {
+      openDetail(target);
+      focusNode(target);
+    });
+    connEl.appendChild(item);
+  });
+
+  // Focus camera on node
+  focusNode(node);
+}
+
+function focusNode(node) {
+  const distance = 120;
+  const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+  Graph.cameraPosition(
+    { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
+    { x: node.x, y: node.y, z: node.z },
+    800
+  );
+}
+
+document.getElementById('detail_close').addEventListener('click', () => {
+  document.getElementById('detail_panel').classList.remove('open');
+});
+
+// Close on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.getElementById('detail_panel').classList.remove('open');
+    document.getElementById('search_results').classList.remove('visible');
+  }
+});
+
+// ═══════════════════════════════════════════
+// Category highlight
+// ═══════════════════════════════════════════
+let activeCategory = null;
+function highlightCategory(cat) {
+  if (activeCategory === cat) {
+    activeCategory = null;
+    Graph.nodeOpacity(0.92).linkOpacity(0.25);
+    return;
+  }
+  activeCategory = cat;
+  Graph
+    .nodeOpacity(n => n.category === cat ? 1 : 0.08)
+    .linkOpacity(l => {
+      const sn = typeof l.source === 'object' ? l.source : nodeById[l.source];
+      const tn = typeof l.target === 'object' ? l.target : nodeById[l.target];
+      return (sn && sn.category === cat) || (tn && tn.category === cat) ? 0.4 : 0.02;
+    });
+}
+
+// ═══════════════════════════════════════════
+// Search
+// ═══════════════════════════════════════════
+const searchInput = document.getElementById('search_input');
+const searchResults = document.getElementById('search_results');
+
+searchInput.addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  if (q.length < 2) {
+    searchResults.classList.remove('visible');
+    return;
+  }
+  const matches = D.nodes.filter(n =>
+    n.label.toLowerCase().includes(q) || String(n.id) === q
+  ).slice(0, 15);
+
+  searchResults.innerHTML = '';
+  matches.forEach(n => {
+    const item = document.createElement('div');
+    item.className = 'search-result-item';
+    item.innerHTML = `<span class="search-result-id">#${n.id}</span>
+      <span class="search-result-label">${n.label}</span>`;
+    item.addEventListener('click', () => {
+      const gn = graphNodes.find(g => g.id === n.id);
+      if (gn) {
+        openDetail(gn);
+        focusNode(gn);
+      }
+      searchResults.classList.remove('visible');
+      searchInput.value = '';
+    });
+    searchResults.appendChild(item);
+  });
+  searchResults.classList.add('visible');
+});
+
+searchInput.addEventListener('blur', () => {
+  setTimeout(() => searchResults.classList.remove('visible'), 200);
+});
+
+// ═══════════════════════════════════════════
+// Mini Plotly charts (bottom bar)
+// ═══════════════════════════════════════════
+const miniLayout = {
+  paper_bgcolor: 'rgba(0,0,0,0)',
+  plot_bgcolor: 'rgba(0,0,0,0)',
+  font: { color: '#c8b890', family: 'JetBrains Mono', size: 9 },
+  margin: { t: 6, r: 6, b: 24, l: 28 },
+  xaxis: { gridcolor: 'rgba(245,183,49,0.06)', zerolinecolor: 'rgba(245,183,49,0.08)', tickfont: { size: 8 } },
+  yaxis: { gridcolor: 'rgba(245,183,49,0.06)', zerolinecolor: 'rgba(245,183,49,0.08)', tickfont: { size: 8 } },
+};
+const miniConfig = { responsive: true, displayModeBar: false };
+
+// Pie
+Plotly.newPlot('mini_pie', [{
+  type: 'pie', hole: 0.55,
+  labels: D.categories.map(c => c.name),
+  values: D.categories.map(c => c.count),
+  marker: {
+    colors: D.categories.map(c => cc[c.name] || '#5a5a6a'),
+    line: { color: '#0a0a12', width: 1 },
+  },
+  textinfo: 'label+percent',
+  textfont: { color: '#f5e6c8', size: 8, family: 'JetBrains Mono' },
+  hovertemplate: '<b>%{label}</b><br>%{value}<extra></extra>',
+}], { ...miniLayout, showlegend: false, margin: { t: 4, r: 4, b: 4, l: 4 } }, miniConfig);
+
+// Weight bar
+const wOrder = ['Very Weak (0-0.2)', 'Weak (0.2-0.4)', 'Medium (0.4-0.6)', 'Med-Strong (0.6-0.8)', 'Strong (0.8-1.0)'];
+const wColors = ['rgba(90,90,100,0.4)', 'rgba(90,90,100,0.6)', '#55b8d0', '#f5b731', '#55c878'];
+const sW = wOrder.map(w => D.weights.find(x => x.bucket === w) || { bucket: w, count: 0 });
+Plotly.newPlot('mini_bar', [{
+  type: 'bar',
+  x: sW.map(w => w.bucket.replace(/ \(.*\)/, '')),
+  y: sW.map(w => w.count),
+  marker: { color: wColors, line: { color: 'rgba(245,183,49,0.15)', width: 0.5 } },
+  hovertemplate: '<b>%{x}</b><br>%{y:,}<extra></extra>',
+}], miniLayout, miniConfig);
+
+// Degree histogram
+Plotly.newPlot('mini_hist', [{
+  type: 'histogram',
+  x: D.nodes.map(n => n.total_degree),
+  nbinsx: 25,
+  marker: {
+    color: 'rgba(245,183,49,0.4)',
+    line: { color: 'rgba(245,183,49,0.7)', width: 0.5 },
+  },
+  hovertemplate: 'Degree: %{x}<br>Count: %{y}<extra></extra>',
+}], miniLayout, miniConfig);
+</script>
+
+<script>
+// ═══════════════════════════════════════════
+// WebSocket Live Updates (adds to existing D, graphNodes, etc.)
+// ═══════════════════════════════════════════
+let ws = null, reconnectDelay = 1000;
+
+// Ambient camera rotation
+let ambAngle = 0, ambSpeed = 0, ambTargetSpeed = 0;
+let ambientMode = false;
+
+function ambientRotate() {
+  if (!ambientMode) { requestAnimationFrame(ambientRotate); return; }
+  ambSpeed += (ambTargetSpeed - ambSpeed) * 0.015;
+  ambAngle += ambSpeed;
+  const r = 380, by = 80;
+  const x = Math.cos(ambAngle) * r;
+  const z = Math.sin(ambAngle) * r;
+  const y = by + Math.sin(ambAngle * 0.5) * 80;
+  Graph.cameraPosition({ x, y, z }, { x: 0, y: 0, z: 0 }, 0);
+  requestAnimationFrame(ambientRotate);
+}
+
+// ACES Tonemapping on renderer
+try {
+  const r = Graph.renderer();
+  if (r) { r.toneMapping = 3; r.toneMappingExposure = 1.3; }
+} catch(e) {}
+
+function rebuildFromData(newData) {
+  D = newData;
+
+  // Rebuild graph nodes/links
+  const newNodes = D.nodes.map(n => ({
+    id: n.id, label: n.label, category: n.category, salience: n.salience,
+    access_count: n.access_count, total_degree: n.total_degree,
+    out_degree: n.out_degree, in_degree: n.in_degree, avg_weight: n.avg_weight,
+    val: Math.max(2, Math.sqrt(n.total_degree) * 1.8),
+    color: cc[n.category] || cc['Other'],
+  }));
+  const newLinks = D.edges.map(e => ({
+    source: e.source, target: e.target, weight: e.weight,
+    color: `rgba(245,183,49,${Math.max(0.05, e.weight * 0.3)})`,
+  }));
+
+  // Rebuild adjMap
+  const newAdj = {};
+  newNodes.forEach(n => { newAdj[n.id] = []; });
+  newLinks.forEach(l => {
+    const sid = typeof l.source === 'object' ? l.source.id : l.source;
+    const tid = typeof l.target === 'object' ? l.target.id : l.target;
+    if (newAdj[sid]) newAdj[sid].push({ id: tid, weight: l.weight, dir: 'out' });
+    if (newAdj[tid]) newAdj[tid].push({ id: sid, weight: l.weight, dir: 'in' });
+  });
+
+  // Update graph
+  Graph.graphData({ nodes: newNodes, links: newLinks });
+
+  // Update HUD
+  animateNum('h_mem', D.stats.memories);
+  animateNum('h_conn', D.stats.connections);
+  const avgD = newNodes.length ? Math.round(newNodes.reduce((s, n) => s + n.total_degree, 0) / newNodes.length) : 0;
+  animateNum('h_deg', avgD);
+  document.getElementById('h_source').textContent = D.stats.source + ' :: ' + D.stats.path;
+
+  // Update charts with Plotly.react (smooth update, no re-render)
+  try {
+    Plotly.react('mini_pie', [{
+      type: 'pie', hole: 0.55,
+      labels: D.categories.map(c => c.name), values: D.categories.map(c => c.count),
+      marker: { colors: D.categories.map(c => cc[c.name] || '#5a5a6a'), line: { color: '#0a0a12', width: 1 } },
+      textinfo: 'label+percent', textfont: { color: '#f5e6c8', size: 8, family: 'JetBrains Mono' },
+      hovertemplate: '<b>%{label}</b><br>%{value}<extra></extra>',
+    }], { ...miniLayout, showlegend: false, margin: { t: 4, r: 4, b: 4, l: 4 } }, miniConfig);
+
+    const wO = ['Very Weak (0-0.2)', 'Weak (0.2-0.4)', 'Medium (0.4-0.6)', 'Med-Strong (0.6-0.8)', 'Strong (0.8-1.0)'];
+    const wC = ['rgba(90,90,100,0.4)', 'rgba(90,90,100,0.6)', '#55b8d0', '#f5b731', '#55c878'];
+    const sW = wO.map(w => D.weights.find(x => x.bucket === w) || { bucket: w, count: 0 });
+    Plotly.react('mini_bar', [{
+      type: 'bar', x: sW.map(w => w.bucket.replace(/ \(.*\)/, '')), y: sW.map(w => w.count),
+      marker: { color: wC, line: { color: 'rgba(245,183,49,0.15)', width: 0.5 } },
+      hovertemplate: '<b>%{x}</b><br>%{y:,}<extra></extra>',
+    }], miniLayout, miniConfig);
+
+    Plotly.react('mini_hist', [{
+      type: 'histogram', x: D.nodes.map(n => n.total_degree), nbinsx: 25,
+      marker: { color: 'rgba(245,183,49,0.4)', line: { color: 'rgba(245,183,49,0.7)', width: 0.5 } },
+      hovertemplate: 'Degree: %{x}<br>Count: %{y}<extra></extra>',
+    }], miniLayout, miniConfig);
+  } catch(e) {}
+
+  // Update legend
+  const legendEl = document.getElementById('legend');
+  legendEl.innerHTML = '<h3>Categories</h3>';
+  const cats = [...new Set(D.nodes.map(n => n.category))];
+  const ccnt = {};
+  cats.forEach(c => { ccnt[c] = D.nodes.filter(n => n.category === c).length; });
+  cats.forEach(c => {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = '<div class="legend-dot" style="background:' + cc[c] + ';color:' + cc[c] + '"></div><span class="legend-name">' + c + '</span><span class="legend-count">' + ccnt[c] + '</span>';
+    item.addEventListener('click', () => highlightCategory(c));
+    legendEl.appendChild(item);
+  });
+}
+
+function showDeltaToast(text) {
+  const t = document.getElementById('delta_toast');
+  t.textContent = text; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function flashValue(id) {
+  const el = document.getElementById(id);
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+}
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws/stream');
+  ws.onopen = () => {
+    reconnectDelay = 1000;
+    document.getElementById('live_status').className = 'live-indicator connected';
+    document.getElementById('live_text').textContent = 'Live';
+  };
+  ws.onclose = () => {
+    document.getElementById('live_status').className = 'live-indicator disconnected';
+    document.getElementById('live_text').textContent = 'Reconnecting...';
+    setTimeout(connectWS, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
+  };
+  ws.onerror = () => {};
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'initial') {
+      rebuildFromData({ nodes: msg.nodes, edges: msg.edges, categories: msg.categories, weights: msg.weights, stats: msg.stats });
+    } else if (msg.type === 'update') {
+      const d = msg.delta;
+      const parts = [];
+      if (d.new_memories > 0) parts.push('+' + d.new_memories + ' memory');
+      if (d.new_connections > 0) parts.push('+' + d.new_connections + ' conn');
+      if (parts.length) showDeltaToast(parts.join('  '));
+      if (d.new_memories > 0) flashValue('h_mem');
+      if (d.new_connections > 0) flashValue('h_conn');
+      rebuildFromData({ nodes: msg.nodes, edges: msg.edges, categories: msg.categories, weights: msg.weights, stats: msg.stats });
+      // Ambient pulse on update
+      if (ambientMode) { ambTargetSpeed = 0.004; setTimeout(() => { ambTargetSpeed = 0.00025; }, 3000); }
+    }
+  };
+}
+
+// Toggle ambient mode with 'A' key
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'a' || e.key === 'A') {
+    ambientMode = !ambientMode;
+    if (ambientMode) {
+      ambTargetSpeed = 0.00025;
+      ambAngle = 0;
+    }
+  }
+});
+
+// Start WS
+connectWS();
+setTimeout(ambientRotate, 2000);
+</script>
+
+<!-- SpriteText inline fallback — zero external deps -->
+<script>
+// Canvas-based SpriteText — drop-in replacement for three-spritetext
+class SpriteText extends THREE.Sprite {
+  constructor(text, textSize, color) {
+    const canvas = document.createElement('canvas');
+    const tex = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+    super(mat);
+    this._text = text || '';
+    this._textSize = textSize || 1;
+    this._color = color || '#ffffff';
+    this._canvas = canvas;
+    this._tex = tex;
+    this.fontFace = 'sans-serif';
+    this.fontWeight = 'normal';
+    this.backgroundColor = 'transparent';
+    this.padding = 0;
+    this.borderRadius = 0;
+  }
+  _update() {
+    const c = this._canvas;
+    const ctx = c.getContext('2d');
+    const fs = Math.max(20, Math.round(this._textSize * 18));
+    const font = `${this.fontWeight} ${fs}px ${this.fontFace}`;
+    ctx.font = font;
+    const tw = Math.ceil(ctx.measureText(this._text).width) + 20;
+    const th = Math.ceil(fs * 1.5);
+    c.width = tw; c.height = th;
+    if (this.backgroundColor && this.backgroundColor !== 'transparent') {
+      ctx.fillStyle = this.backgroundColor;
+      const p = this.padding, r = this.borderRadius;
+      const x = p, y = p, w = tw - 2*p, h = th - 2*p;
+      ctx.beginPath();
+      ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+      ctx.quadraticCurveTo(x+w,y,x+w,y+r); ctx.lineTo(x+w,y+h-r);
+      ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h); ctx.lineTo(x+r,y+h);
+      ctx.quadraticCurveTo(x,y+h,x,y+h-r); ctx.lineTo(x,y+r);
+      ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath(); ctx.fill();
+    }
+    ctx.font = font; ctx.fillStyle = this._color;
+    ctx.textBaseline = 'middle'; ctx.fillText(this._text, 10, th / 2);
+    this._tex.image = c; this._tex.needsUpdate = true;
+    this.scale.set(tw / th * this._textSize * 3, this._textSize * 3, 1);
+  }
+}
+// Monkey-patch: trigger canvas rebuild on first access
+const _origUpdate = SpriteText.prototype._update;
+const _origDesc = Object.getOwnPropertyDescriptor(THREE.Sprite.prototype, 'material');
+// Override to auto-update on first render
+SpriteText.prototype.onBeforeRender = function() {
+  if (!this._rendered) { this._rendered = true; this._update(); }
+};
+</script>
+</body>
+</html>

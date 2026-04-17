@@ -2,13 +2,14 @@
 
 Semantic memory system with knowledge graph, spreading activation, embedding-based recall, **autonomous dream consolidation**, and **C++ LSTM+kNN pattern learning** for the Hermes Agent.
 
-> **Day-0 testers: run the migration first!**
-> The database growth fix + auto-retention patches landed. One command, zero data loss:
+> **MSSQL users: run the production migration!**
+> Fixes NREM bloat, deduplicates everything, adds UNIQUE constraints:
 > ```bash
-> cd ~/projects/neural-memory-adapter && bash migrate.sh
+> cd ~/projects/neural-memory-adapter
+> python3 tools/mssql_production_migrate.py --force
 > ```
-> Brings your install from PoC to production grade. Safe to re-run (idempotent).
-> See [Migration](#migration) for details.
+> SQLite users: `bash migrate.sh` still works.
+> See [Production Migration](#production-migration) for details.
 
 
 [![Demo](assets/cover.png)](https://github.com/user-attachments/assets/2d938624-cc39-4f8b-b35b-485b23e93355)
@@ -58,9 +59,77 @@ The installer will:
 - `pyodbc` (`pip install pyodbc`)
 - C++ build: `cmake`, C++17 compiler
 
-## Migration
+## Production Migration (MSSQL)
 
-If you installed Neural Memory **before 2026-04-16**, run the migration once to fix database growth issues and enable auto-retention:
+If you're running MSSQL, the production migration script handles everything — diagnose, sync, dedup, V1→V2, constraints, verify:
+
+```bash
+cd ~/projects/neural-memory-adapter
+
+# Quick verification (no changes)
+python3 tools/mssql_production_migrate.py --verify-only
+
+# Full migration
+python3 tools/mssql_production_migrate.py --force
+
+# Dry run (preview)
+python3 tools/mssql_production_migrate.py --dry-run
+```
+
+### What it does
+
+| Step | Action | Result |
+|------|--------|--------|
+| 1 | Diagnose | Tables, sizes, duplicates, orphans |
+| 2 | SQLite → MSSQL sync | Merge all SQLite databases (no overwrite) |
+| 3 | Deduplicate connections | 210 duplicates removed, keep highest weight |
+| 4 | Deduplicate history | 709K → 42K rows (UNIQUE prevents future bloat) |
+| 5 | V1 → V2 migration | Drop legacy GraphNodes/Edges, keep V2 |
+| 6 | Drop legacy tables | NeuralMemory_old (117MB), connection_history_v2 duplicates |
+| 7 | UNIQUE constraints | `connections(source_id, target_id)`, `connection_history(source_id, target_id)` |
+| 8 | Code verification | All INSERTs → MERGE/UPSERT confirmed |
+| 9 | Functional verification | 14 automated checks |
+
+### Typical results
+
+```
+Before:  490 MB, 11 tables, 709K history rows, 210 connection dupes
+After:   284 MB, 8 tables, 42K history rows, zero dupes
+Saved:   42% disk space
+```
+
+### Test Suite
+
+24 production verification tests across 7 categories:
+
+```bash
+# Full suite
+python3 tools/test_mssql_production.py
+
+# By tag
+python3 tools/test_mssql_production.py --tags constraints,merge
+python3 tools/test_mssql_production.py --tags schema,data
+```
+
+| Tag | Tests |
+|-----|-------|
+| schema | Tables exist, no legacy, column types |
+| constraints | UNIQUE indexes, FK relationships |
+| data | Counts, zero dupes, zero orphans, bloat check |
+| merge | MERGE on connections, MERGE on history, UNIQUE enforcement |
+| integration | V2 sufficient, NeuralMemory, dream_sessions, DB size |
+| performance | Recall <100ms, history lookup <50ms |
+
+### Safety
+
+- **Idempotent** — safe to re-run, skips what's already clean
+- **`--dry-run`** — preview without changes
+- **`--verify-only`** — only run checks, no modifications
+- **Full test suite** — 24 tests verify everything
+
+## Migration (SQLite)
+
+For SQLite-only setups, the shell migration still works:
 
 ```bash
 cd ~/projects/neural-memory-adapter
@@ -100,13 +169,22 @@ Saved:   60-80% disk space
 
 ### After migration
 
-The Dream Engine will now automatically prune old data every 50 cycles. No manual maintenance needed going forward. If your database still grows faster than expected, check `connection_history` row count:
+The Dream Engine will now automatically prune old data every 50 cycles. No manual maintenance needed going forward.
 
+**MSSQL:** UNIQUE constraints on `connections` and `connection_history` prevent NREM from creating duplicates. The Dream Engine uses MERGE/UPSERT — existing rows get updated, not duplicated.
+
+**SQLite:** `ON CONFLICT DO UPDATE` provides the same protection.
+
+Check database health:
 ```bash
+# MSSQL
+python3 tools/mssql_production_migrate.py --verify-only
+
+# SQLite
 sqlite3 ~/.neural_memory/memory.db "SELECT COUNT(*) FROM connection_history"
 ```
 
-Should stay under 500K in normal operation.
+Should stay under 50K in normal operation.
 
 ## Configuration
 
@@ -285,6 +363,17 @@ cd ~/projects/neural-memory-adapter/python
 python3 demo.py
 ```
 
+### MSSQL Production Tests
+
+```bash
+# Full suite (24 tests)
+python3 tools/test_mssql_production.py
+
+# Specific tags
+python3 tools/test_mssql_production.py --tags constraints,merge
+python3 tools/test_mssql_production.py --tags performance
+```
+
 ## File Structure
 
 ```
@@ -319,18 +408,33 @@ neural-memory-adapter/
 │   ├── knn.h                     # kNN config, multi-signal scoring
 │   └── c_api.h                   # C API declarations
 ├── tools/
-│   ├── production_upgrade.py       # DB cleanup script (orphans, dedup, VACUUM)
+│   ├── mssql_production_migrate.py # MSSQL migration + verification pipeline
+│   ├── test_mssql_production.py    # 24 production verification tests
+│   ├── production_upgrade.py       # SQLite cleanup script (orphans, dedup, VACUUM)
 │   └── dashboard/                  # Interactive HTML dashboard
 └── README.md
 ```
 
 ## Memory Storage
 
-- **Database**: SQLite at `~/.neural_memory/memory.db` (always active)
-- **MSSQL**: `localhost/NeuralMemory` (Full Stack, `connections` table as primary)
+- **MSSQL (primary)**: `127.0.0.1/NeuralMemory` — 8 tables, V2 canonical layout
+- **SQLite (fallback)**: `~/.neural_memory/memory.db` (always active)
 - **Embeddings**: `BAAI/bge-m3` (1024d) — auto-downloaded on first use, cached at `~/.neural_memory/models/` (~2.2 GB)
 - **LSTM weights**: `~/.neural_memory/lstm_weights.bin` (persisted after training)
 - **Access logs**: `~/.neural_memory/access_logs/` (JSON Lines, LSTM training data)
+
+### MSSQL Tables (V2 — Production)
+
+| Table | Purpose | Constraint |
+|-------|---------|------------|
+| memories | Semantic memories with embeddings | PK: `id` |
+| connections | Knowledge graph edges | UNIQUE: `(source_id, target_id)` |
+| connection_history | Latest weight per edge (UPSERT) | UNIQUE: `(source_id, target_id)` |
+| dream_sessions | Dream cycle tracking | PK: `id` |
+| dream_insights | Community detection results | PK: `id` |
+| NeuralMemory | Vector store (C++ bridge) | UNIQUE: `legacy_id` |
+| GraphNodes_v2 | Graph node metadata | PK: `node_id` |
+| GraphEdges_v2 | Graph edge metadata | PK: `edge_id` |
 
 ### Embedding Auto-Setup
 

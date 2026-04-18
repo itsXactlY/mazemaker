@@ -135,15 +135,15 @@ class CppDreamBackend(DreamBackend):
     # -- Graph Operations (ALL via C++ → MSSQL) --
 
     def get_recent_memories(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get recent memories directly from MSSQL."""
+        """Get recent memories from MSSQL. Returns [{id, label, content}]."""
         if not self._mssql_conn:
             return []
         try:
             rows = self._mssql_conn.execute(
-                "SELECT TOP (?) id FROM memories ORDER BY created_at DESC",
+                "SELECT TOP (?) id, label, content FROM memories ORDER BY created_at DESC",
                 (limit,)
             ).fetchall()
-            return [{"id": r[0]} for r in rows]
+            return [{"id": r[0], "label": r[1] or "", "content": r[2] or ""} for r in rows]
         except Exception as e:
             logger.debug("get_recent_memories failed: %s", e)
             return []
@@ -206,31 +206,47 @@ class CppDreamBackend(DreamBackend):
             return
         try:
             self._mssql_conn.execute(
-                "UPDATE connections SET weight = MIN(weight + ?, 1.0) "
+                "UPDATE connections SET weight = CASE WHEN weight + ? > 1.0 THEN 1.0 ELSE weight + ? END "
                 "WHERE source_id = ? AND target_id = ?",
-                delta, source_id, target_id
+                delta, delta, source_id, target_id
             )
         except Exception as e:
             logger.debug("strengthen_connection failed: %s", e)
 
     def batch_strengthen_connections(self, edges: list, delta: float = 0.05) -> int:
-        """Batch update strengthened edge weights in connections table.
-        
-        Accepts list of (new_weight, source_id, target_id) tuples from the
-        dream engine's NREM phase.
+        """Batch strengthen activated edges.
+
+        Accepts 2-tuples (source_id, target_id) — fetches current weight and adds delta.
+        Also accepts 3-tuples (new_weight, source_id, target_id) for direct weight set.
         """
         if not edges or not self._mssql_conn:
             return 0
         try:
             cursor = self._mssql_conn.cursor()
+            count = 0
             for item in edges:
-                new_w, src, tgt = item
+                try:
+                    new_w, src, tgt = item
+                except ValueError:
+                    # 2-tuple: (source_id, target_id) — fetch weight then add delta
+                    src, tgt = item
+                    try:
+                        cursor.execute(
+                            "SELECT weight FROM connections WHERE source_id = ? AND target_id = ?",
+                            (src, tgt)
+                        )
+                        row = cursor.fetchone()
+                        old_w = row[0] if row else 0.5
+                    except Exception:
+                        old_w = 0.5
+                    new_w = min(old_w + delta, 1.0)
                 cursor.execute(
                     "UPDATE connections SET weight = ? "
                     "WHERE source_id = ? AND target_id = ?",
-                    new_w, src, tgt
+                    (new_w, src, tgt)
                 )
-            return len(edges)
+                count += 1
+            return count
         except Exception as e:
             logger.debug("batch_strengthen failed: %s", e)
             return 0
@@ -242,20 +258,41 @@ class CppDreamBackend(DreamBackend):
             return
         try:
             self._mssql_conn.execute(
-                "UPDATE connections SET weight = MAX(weight - ?, 0.0) "
+                "UPDATE connections SET weight = CASE WHEN weight - ? < 0.0 THEN 0.0 ELSE weight - ? END "
                 "WHERE source_id = ? AND target_id = ?",
-                delta, source_id, target_id
+                delta, delta, source_id, target_id
             )
         except Exception as e:
             logger.debug("weaken_connection failed: %s", e)
 
-    def batch_weaken_connections(self, updates: list, **kwargs) -> int:
-        """Batch update weakened edge weights in connections table.
+    def batch_weaken_connections(self, updates: list = None, **kwargs) -> int:
+        """Batch weaken connections.
         
-        Accepts list of (new_weight, source_id, target_id) tuples from the
-        dream engine's NREM phase.
+        Two modes:
+        1. Explicit: updates = [(new_weight, source_id, target_id), ...]
+        2. Bulk: threshold=0.05, delta=0.01 — single SQL UPDATE for all edges above threshold
         """
-        if not updates or not self._mssql_conn:
+        if not self._mssql_conn:
+            return 0
+        
+        # Bulk mode: threshold + delta
+        threshold = kwargs.get('threshold')
+        delta = kwargs.get('delta', 0.01)
+        if threshold is not None:
+            try:
+                cursor = self._mssql_conn.cursor()
+                cursor.execute(
+                    "UPDATE connections SET weight = CASE WHEN weight - ? < 0.0 THEN 0.0 ELSE weight - ? END "
+                    "WHERE weight > ?",
+                    delta, delta, threshold
+                )
+                return cursor.rowcount
+            except Exception as e:
+                logger.debug("batch_weaken (bulk) failed: %s", e)
+                return 0
+        
+        # Explicit mode: list of tuples
+        if not updates:
             return 0
         try:
             cursor = self._mssql_conn.cursor()
@@ -272,23 +309,19 @@ class CppDreamBackend(DreamBackend):
 
     def add_bridge(self, source_id: int, target_id: int,
                     weight: float = 0.3) -> None:
-        """Add bridge edge to connections table via MSSQL."""
+        """Add bridge edge to connections table via MSSQL (UPSERT)."""
         if not self._mssql_conn:
             return
         try:
-            # Check if connection already exists (either direction)
-            existing = self._mssql_conn.execute(
-                "SELECT id FROM connections "
-                "WHERE (source_id = ? AND target_id = ?) "
-                "OR (source_id = ? AND target_id = ?)",
-                source_id, target_id, target_id, source_id
-            ).fetchone()
-            if not existing:
-                self._mssql_conn.execute(
-                    "INSERT INTO connections (source_id, target_id, weight, edge_type) "
-                    "VALUES (?, ?, ?, ?)",
-                    source_id, target_id, weight, "bridge"
-                )
+            self._mssql_conn.execute(
+                "MERGE connections AS target "
+                "USING (VALUES (?, ?)) AS src(source_id, target_id) "
+                "ON target.source_id = src.source_id AND target.target_id = src.target_id "
+                "WHEN NOT MATCHED THEN INSERT (source_id, target_id, weight, edge_type) "
+                "VALUES (?, ?, ?, 'bridge');",
+                source_id, target_id,     # USING
+                source_id, target_id, weight  # INSERT
+            )
         except Exception as e:
             logger.debug("add_bridge failed: %s", e)
 
@@ -309,18 +342,47 @@ class CppDreamBackend(DreamBackend):
     def log_connection_change(self, source_id: int, target_id: int,
                                old_weight: float, new_weight: float,
                                reason: str) -> None:
-        """Log connection change to connection_history table."""
+        """Log connection change to connection_history table (UPSERT)."""
         if not self._mssql_conn:
             return
         try:
             self._mssql_conn.execute(
-                "INSERT INTO connection_history "
-                "(source_id, target_id, old_weight, new_weight, reason, changed_at) "
-                "VALUES (?, ?, ?, ?, ?, SYSUTCDATETIME())",
-                source_id, target_id, old_weight, new_weight, reason
+                "MERGE connection_history AS target "
+                "USING (VALUES (?, ?)) AS src(source_id, target_id) "
+                "ON target.source_id = src.source_id AND target.target_id = src.target_id "
+                "WHEN MATCHED THEN UPDATE SET old_weight=?, new_weight=?, reason=?, changed_at=SYSUTCDATETIME() "
+                "WHEN NOT MATCHED THEN INSERT (source_id, target_id, old_weight, new_weight, reason, changed_at) "
+                "VALUES (?, ?, ?, ?, ?, SYSUTCDATETIME());",
+                source_id, target_id,   # USING
+                old_weight, new_weight, reason,  # UPDATE SET
+                source_id, target_id, old_weight, new_weight, reason  # INSERT
             )
         except Exception as e:
             logger.debug("log_connection_change failed: %s", e)
+    def prune_connection_history(self, keep_days: int = 7) -> int:
+        """Skip — C++/MSSQL handles history internally."""
+        return 0
+
+    def prune_old_dream_sessions(self, keep_days: int = 30) -> int:
+        """Prune old dream sessions from SQLite tracking DB."""
+        import sqlite3, time
+        conn = sqlite3.connect(self._session_db)
+        try:
+            cutoff = time.time() - (keep_days * 86400)
+            count = conn.execute(
+                "DELETE FROM dream_sessions WHERE started_at < ?",
+                (cutoff,)
+            ).rowcount
+            conn.commit()
+            return count
+        finally:
+            conn.close()
+
+    def prune_orphans(self) -> int:
+        """Skip — C++/MSSQL handles referential integrity."""
+        return 0
+
+
 
     def add_insight(self, session_id: int, insight_type: str,
                     source_memory_id: int, content: str,

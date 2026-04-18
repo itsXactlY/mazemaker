@@ -1,0 +1,23 @@
+# .dockerignore — keep build context small
+.git
+__pycache__
+*.pyc
+*.o
+*.a
+build/CMakeFiles
+build/Testing
+build/test_*
+build/bench_*
+build/neural_memory_demo
+build/Makefile
+build/CMakeCache.txt
+build/CTestTestfile.txt
+build/cmake_install.cpython
+docs
+tests
+tools
+hermes-plugin/fast_ops*.so
+python/fast_ops*.so
+python/build
+python/setup_fast.py
+*.log

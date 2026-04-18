@@ -1,0 +1,19 @@
+# SmolVM Python Dependencies — Neural Memory PoC
+# Minimal set for embed server + SQLite + JackrabbitDLM client
+# JackrabbitDLM uses stdlib-only (socket, struct, json) — no extra deps
+
+# Embedding model
+sentence-transformers>=2.7.0
+torch>=2.0.0 --index-url https://download.pytorch.org/whl/cpu
+numpy>=1.26.0
+
+# Database (host-side bridge only, not in container)
+# pyodbc>=5.1.0  # Required on host for run-dlm-bridge.sh
+
+# HTTP server for embed API
+flask>=3.0.0
+gunicorn>=22.0.0
+
+# Utilities
+requests>=2.31.0
+python-dotenv>=1.0.0

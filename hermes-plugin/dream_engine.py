@@ -502,6 +502,19 @@ class DreamEngine:
         backend = DreamMSSQLStore.from_config(mssql_config)
         return cls(backend, neural_memory, **kwargs)
 
+    @classmethod
+    def dlm(cls, dlm_host: str = "127.0.0.1", dlm_port: int = 37373,
+            neural_memory: Optional[Any] = None,
+            db_path: Optional[str] = None, **kwargs) -> 'DreamEngine':
+        """Create a DreamEngine with DLM backend."""
+        from dlm_adapter import DLMConnection, DLMStore, DLMDreamBackend
+        dlm_conn = DLMConnection(host=dlm_host, port=dlm_port)
+        if not dlm_conn.is_connected:
+            raise ConnectionError(f"Cannot connect to DLM server: {dlm_host}:{dlm_port}")
+        store = DLMStore(dlm_conn, db_path=db_path)
+        backend = DLMDreamBackend(store, db_path=db_path)
+        return cls(backend, neural_memory, **kwargs)
+
     def start(self) -> None:
         """Start the background dream daemon."""
         if self._running:

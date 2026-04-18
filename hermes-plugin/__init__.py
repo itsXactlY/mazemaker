@@ -224,12 +224,32 @@ class NeuralMemoryProvider(MemoryProvider):
             self._memory = None
 
     def _start_dream_engine(self) -> None:
-        """Start dream engine — MSSQL (C++) if available, SQLite fallback."""
+        """Start dream engine — DLM if server available, MSSQL if configured, SQLite fallback."""
         import os
         from pathlib import Path
 
         try:
             from dream_engine import DreamEngine
+
+            # Check DLM server first (highest priority)
+            dlm_host = os.environ.get("DLM_HOST", "127.0.0.1")
+            dlm_port = int(os.environ.get("DLM_PORT", "37373"))
+            try:
+                from dlm_adapter import check_dlm_available
+                if check_dlm_available(dlm_host, dlm_port):
+                    self._dream = DreamEngine.dlm(
+                        dlm_host=dlm_host,
+                        dlm_port=dlm_port,
+                        neural_memory=self._memory,
+                        idle_threshold=600,
+                        memory_threshold=50,
+                        min_dream_interval=600,
+                    )
+                    self._dream.start()
+                    logger.info("Dream engine started: DLM → %s:%s", dlm_host, dlm_port)
+                    return
+            except Exception as e:
+                logger.warning("DLM dream backend failed, falling back: %s", e)
 
             # Check if MSSQL is configured
             mssql_server = os.environ.get("MSSQL_SERVER", "")

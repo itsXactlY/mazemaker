@@ -38,14 +38,26 @@ try:
 except ImportError:
     HAS_MSSQL = False
 
+# Try DLM adapter (JackrabbitDLM)
+try:
+    from dlm_adapter import DLMConnection, DLMStore, check_dlm_available
+    HAS_DLM = True
+except ImportError:
+    HAS_DLM = False
+
 
 class Memory:
     """
     Unified Neural Memory interface with LSTM+kNN enhancement.
     
     Backend priority:
-    1. MSSQL (via pyodbc) — when MSSQL is installed and running
-    2. SQLite (via Python) — fallback when MSSQL unavailable
+    1. DLM (via DLM_HOST/DLM_PORT env) — routes key-value ops through JackrabbitDLM
+    2. MSSQL (via pyodbc) — when MSSQL is installed and running
+    3. SQLite (via Python) — fallback when MSSQL unavailable
+    
+    When DLM mode is active:
+    - SQLite handles fast local reads and key indexing
+    - DLM handles key-value storage (volatile, TTL-bound)
     
     LSTM+kNN is auto-initialized when libneural_memory.so is available.
     - AccessLogger: records every recall event
@@ -58,6 +70,7 @@ class Memory:
                  embedding_backend: str = "auto",
                  use_cpp: bool = True,
                  use_mssql: Optional[bool] = None,
+                 use_dlm: Optional[bool] = None,
                  default_chunk_size: int = 512):
         
         Path.home().joinpath(".neural_memory").mkdir(parents=True, exist_ok=True)
@@ -66,18 +79,47 @@ class Memory:
         self._default_chunk_size = default_chunk_size
         self._mssql_store = None
         self._sqlite_memory = None
+        self._dlm_store = None
         
         # Embedder (shared regardless of backend)
         from embed_provider import EmbeddingProvider
         self._embedder = EmbeddingProvider(backend=embedding_backend)
         self._dim = self._embedder.dim
         
-        # Auto-detect MSSQL
+        # Auto-detect DLM mode (takes priority over direct MSSQL)
+        dlm_host = os.environ.get("DLM_HOST", "")
+        dlm_port = int(os.environ.get("DLM_PORT", "37373"))
+        if use_dlm is None:
+            use_dlm = bool(dlm_host or HAS_DLM) and HAS_DLM
+        
+        # Auto-detect MSSQL (only if DLM not active)
         if use_mssql is None:
             use_mssql = bool(os.environ.get("MSSQL_SERVER") and os.environ.get("MSSQL_PASSWORD"))
         
-        # Try MSSQL first
-        if use_mssql:
+        # DLM mode: JackrabbitDLM for key-value, SQLite for local reads
+        if use_dlm:
+            try:
+                dlm_host = dlm_host or "127.0.0.1"
+                from dlm_adapter import DLMConnection, DLMStore
+                dlm_conn = DLMConnection(host=dlm_host, port=dlm_port)
+                if dlm_conn.is_connected:
+                    self._dlm_store = DLMStore(dlm_conn, db_path=self._db_path)
+                    print(f"[neural] DLM backend: {self._embedder.backend.__class__.__name__} ({self._dim}d) dlm={dlm_host}:{dlm_port}")
+                    # DLM mode always has SQLite for local reads
+                    from memory_client import NeuralMemory
+                    self._sqlite_memory = NeuralMemory(db_path=self._db_path, embedding_backend=embedding_backend)
+                    use_mssql = False  # DLM replaces direct MSSQL
+                else:
+                    print(f"[neural] DLM server unreachable ({dlm_host}:{dlm_port}), falling back")
+                    self._dlm_store = None
+                    use_dlm = False
+            except Exception as e:
+                print(f"[neural] DLM unavailable ({e}), falling back")
+                self._dlm_store = None
+                use_dlm = False
+        
+        # Try MSSQL first (direct mode, no DLM)
+        if not use_dlm and use_mssql:
             try:
                 from mssql_store import MSSQLStore
                 self._mssql_store = MSSQLStore()
@@ -86,8 +128,8 @@ class Memory:
                 print(f"[neural] MSSQL unavailable ({e}), falling back to SQLite")
                 use_mssql = False
         
-        # SQLite fallback
-        if not use_mssql:
+        # SQLite fallback (or SQLite local reads in DLM mode)
+        if not use_dlm and not use_mssql:
             from memory_client import NeuralMemory
             self._sqlite_memory = NeuralMemory(db_path=self._db_path, embedding_backend=embedding_backend)
             print(f"[neural] SQLite backend: {self._embedder.backend.__class__.__name__} ({self._dim}d)")
@@ -169,7 +211,13 @@ class Memory:
                 
                 # If embedding not in result, try to fetch it
                 if emb is None:
-                    if self._mssql_store:
+                    if self._dlm_store:
+                        try:
+                            full = self._dlm_store.retrieve(mem_id)
+                            emb = full.get('embedding', []) if full else []
+                        except Exception:
+                            emb = []
+                    elif self._mssql_store:
                         try:
                             full = self._mssql_store.get(mem_id)
                             emb = full.get('embedding', []) if full else []
@@ -369,7 +417,18 @@ class Memory:
         
         embedding = self._embedder.embed(text)
         
-        if self._mssql_store:
+        if self._dlm_store:
+            # DLM mode: write to DLM, also store locally for reads
+            mem_id = self._dlm_store.store(label or text[:60], text, embedding)
+            # Also store in local SQLite for fast reads
+            if self._sqlite_memory:
+                try:
+                    self._sqlite_memory.remember(text, label, auto_connect=auto_connect,
+                                                 detect_conflicts=detect_conflicts)
+                except Exception:
+                    pass
+            return mem_id
+        elif self._mssql_store:
             return self._mssql_store.store(label or text[:60], text, embedding)
         else:
             return self._sqlite_memory.remember(text, label, auto_connect=auto_connect,
@@ -378,7 +437,9 @@ class Memory:
     def remember_embedding(self, embedding: list[float], label: str = "", 
                            content: str = "") -> int:
         """Store a memory with pre-computed embedding."""
-        if self._mssql_store:
+        if self._dlm_store:
+            return self._dlm_store.store(label or content[:60], content, embedding)
+        elif self._mssql_store:
             return self._mssql_store.store(label or content[:60], content, embedding)
         else:
             return self._sqlite_memory.store.store(label or content[:60], content, embedding)
@@ -387,7 +448,25 @@ class Memory:
         """Semantic search with LSTM+kNN enhancement. Returns [{id, label, content, similarity}]."""
         embedding = self._embedder.embed(query)
 
-        if self._mssql_store:
+        if self._dlm_store:
+            # DLM mode: try SQLite local reads first, fall back to DLM store
+            if self._sqlite_memory:
+                base_results = self._sqlite_memory.recall(query, k * 3)
+            else:
+                base_results = self._dlm_store.recall(embedding, k * 3)
+            # Add connection info via DLM
+            for r in base_results:
+                try:
+                    conns = self._dlm_store.get_connections(r.get('id', 0))
+                    r['connections'] = [{'id': c.get('target') if c.get('source') == r.get('id') else c.get('source'),
+                                         'weight': c.get('weight')} for c in conns[:3]]
+                except Exception:
+                    r['connections'] = []
+            enhanced = self._enhance_recall(embedding, base_results, k)
+            for r in enhanced:
+                r.pop('embedding', None)
+            return enhanced[:k]
+        elif self._mssql_store:
             results = self._mssql_store.recall(embedding, k * 3)  # Overfetch for kNN re-ranking
             for r in results:
                 conns = self._mssql_store.get_connections(r['id'])
@@ -409,26 +488,72 @@ class Memory:
     def recall_multihop(self, query: str, k: int = 5, hops: int = 2) -> list[dict]:
         """Multi-hop retrieval: cosine similarity + graph expansion."""
         results = self.recall(query, k)
-        if not self._mssql_store:
+        if not self._dlm_store and not self._mssql_store:
             return results
         
         expanded = []
         seen = {r['id'] for r in results}
         for r in results:
-            conns = self._mssql_store.get_connections(r['id'])
+            try:
+                if self._dlm_store:
+                    conns = self._dlm_store.get_connections(r['id'])
+                else:
+                    conns = self._mssql_store.get_connections(r['id'])
+            except Exception:
+                continue
             for c in conns:
-                other = c['target'] if c['source'] == r['id'] else c['source']
+                other = c.get('target') if c.get('source') == r['id'] else c.get('source')
                 if other not in seen:
                     seen.add(other)
-                    mem = self._mssql_store.get(other)
+                    try:
+                        if self._dlm_store:
+                            mem = self._dlm_store.retrieve(other)
+                        else:
+                            mem = self._mssql_store.get(other)
+                    except Exception:
+                        mem = None
                     if mem:
-                        expanded.append({'id': other, 'label': mem['label'],
-                                        'content': mem['content'], 'activation': c['weight']})
+                        expanded.append({'id': other, 'label': mem.get('label', ''),
+                                        'content': mem.get('content', ''), 'activation': c.get('weight', 0.5)})
         return results[:k]
 
     def think(self, start_id: int, depth: int = 3, decay: float = 0.85) -> list[dict]:
         """Spreading activation from a starting memory."""
-        if self._mssql_store:
+        if self._dlm_store:
+            # DLM mode: spreading activation via DLM store
+            visited = {start_id}
+            frontier = [start_id]
+            results = []
+            current_decay = decay
+            
+            for _ in range(depth):
+                next_frontier = []
+                for nid in frontier:
+                    try:
+                        conns = self._dlm_store.get_connections(nid)
+                    except Exception:
+                        continue
+                    for c in conns:
+                        other = c.get('target') if c.get('source') == nid else c.get('source')
+                        if other not in visited:
+                            visited.add(other)
+                            activation = c.get('weight', 0.5) * current_decay
+                            try:
+                                mem = self._dlm_store.retrieve(other)
+                            except Exception:
+                                mem = None
+                            results.append({
+                                'id': other,
+                                'label': mem.get('label', f'node_{other}') if mem else f'node_{other}',
+                                'activation': round(activation, 4),
+                            })
+                            next_frontier.append(other)
+                frontier = next_frontier
+                current_decay *= decay
+            
+            results.sort(key=lambda x: -x['activation'])
+            return results[:20]
+        elif self._mssql_store:
             visited = {start_id}
             frontier = [start_id]
             results = []
@@ -460,13 +585,22 @@ class Memory:
     
     def connections(self, mem_id: int) -> list[dict]:
         """Get connections for a memory."""
-        if self._mssql_store:
+        if self._dlm_store:
+            return self._dlm_store.get_connections(mem_id)
+        elif self._mssql_store:
             return self._mssql_store.get_connections(mem_id)
         return self._sqlite_memory.connections(mem_id) if self._sqlite_memory else []
     
     def graph(self) -> dict:
         """Knowledge graph stats."""
-        if self._mssql_store:
+        if self._dlm_store:
+            s = self._dlm_store.stats()
+            return {
+                'nodes': s.get('memories', 0),
+                'edges': s.get('connections', 0),
+                'backend': 'dlm',
+            }
+        elif self._mssql_store:
             s = self._mssql_store.stats()
             return {
                 'nodes': s['memories'],
@@ -481,7 +615,13 @@ class Memory:
     
     def stats(self) -> dict:
         """System statistics."""
-        if self._mssql_store:
+        if self._dlm_store:
+            s = self._dlm_store.stats()
+            s['embedding_dim'] = self._dim
+            s['embedding_backend'] = self._embedder.backend.__class__.__name__
+            s['backend'] = 'dlm'
+            return s
+        elif self._mssql_store:
             s = self._mssql_store.stats()
             s['embedding_dim'] = self._dim
             s['embedding_backend'] = self._embedder.backend.__class__.__name__
@@ -524,6 +664,9 @@ class Memory:
         if self._mssql_store:
             self._mssql_store.close()
             self._mssql_store = None
+        if self._dlm_store:
+            self._dlm_store.close()
+            self._dlm_store = None
         if self._sqlite_memory:
             self._sqlite_memory.close()
             self._sqlite_memory = None
@@ -534,6 +677,8 @@ class Memory:
     
     @property
     def backend(self) -> str:
+        if self._dlm_store:
+            return "dlm"
         if self._mssql_store:
             return "mssql"
         return self._embedder.backend.__class__.__name__

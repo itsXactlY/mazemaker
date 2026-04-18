@@ -1,0 +1,42 @@
+# Smolfile — SmolVM Configuration for Neural Memory PoC (TOML)
+# JackrabbitDLM transport layer
+
+image = "python:3.12-alpine"
+entrypoint = ["/app/init.sh"]
+workdir = "/app"
+
+# Resources
+cpus = 4
+memory = 8192
+net = false  # Set true for first-run model download
+storage = 20
+
+# Network policy
+[network]
+allow_hosts = ["huggingface.co"]
+
+# Dev profile
+[dev]
+volumes = ["./data:/app/data", "./models:/app/models"]
+ports = ["8501:8501", "37373:37373"]
+env = [
+    "SMOLVM_EMBED_PORT=8501",
+    "SMOLVM_SQLITE_PATH=/app/data/neural_memory.db",
+    "DLM_HOST=host.docker.internal",
+    "DLM_PORT=37373",
+    "DLM_TIMEOUT=10",
+    "LOG_LEVEL=INFO",
+    "EMBED_MODEL_NAME=BAAI/bge-m3"
+]
+
+# Artifact profile
+[artifact]
+cpus = 4
+memory = 8192
+entrypoint = ["/app/init.sh"]
+
+# Init sequence metadata (for orchestration reference)
+# Step 1: embed_server  — Start embedding server (loads bge-m3 on CPU), timeout 120s
+# Step 2: sqlite_init   — Initialize SQLite neural memory store, timeout 5s
+# Step 3: dlm_connect   — Connect to JackrabbitDLM server on host:37373 (optional), timeout 10s
+# Step 4: health_check  — Verify all services healthy, timeout 30s

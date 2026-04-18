@@ -270,7 +270,7 @@ class SharedEmbedServer:
 class SharedEmbedClient:
     """Client that connects to SharedEmbedServer via UNIX socket."""
     
-    def __init__(self, timeout=30.0):
+    def __init__(self, timeout=10.0):
         self._sock = None
         self._dim = None
         self._timeout = timeout
@@ -447,7 +447,7 @@ class SentenceTransformerBackend:
                 except:
                     pass
                 # Reconnect — server should be on GPU now
-                self._client = SharedEmbedClient(timeout=60.0)
+                self._client = SharedEmbedClient(timeout=15.0)
                 return self._client.embed(text)
         SentenceTransformerBackend._touch()
         SentenceTransformerBackend._ensure_on_device()
@@ -464,7 +464,7 @@ class SentenceTransformerBackend:
                     self._client.close()
                 except:
                     pass
-                self._client = SharedEmbedClient(timeout=60.0)
+                self._client = SharedEmbedClient(timeout=15.0)
                 return self._client.embed_batch(texts)
         SentenceTransformerBackend._touch()
         SentenceTransformerBackend._ensure_on_device()

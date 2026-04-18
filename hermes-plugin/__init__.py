@@ -353,9 +353,40 @@ class NeuralMemoryProvider(MemoryProvider):
         return f"## Neural Memory Context\n{result}"
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
-        """Disabled. Prefetch returns garbage from current session context.
-        Re-enable only when session-aware filtering works."""
-        return
+        """Fire a background recall for the next turn."""
+        if not self._memory or not query:
+            return
+        limit = min(self._config.get("prefetch_limit", 3), 3) if self._config else 3
+
+        def _run():
+            try:
+                results = self._memory.recall(query, k=limit * 2)  # Over-fetch, then filter
+                if not results:
+                    return
+                lines = []
+                for r in results:
+                    sim = r.get("similarity", 0)
+                    if sim < 0.5:
+                        continue  # Skip low-quality matches
+                    content = r.get("content", "")
+                    # Skip meta/debug content
+                    content_lower = content.lower()
+                    if any(skip in content_lower for skip in (
+                        "neural memory", "tool_result", "test_suite", "mssql",
+                        "config.yaml", "odbc", "embedding", "connection string",
+                    )):
+                        continue
+                    lines.append(f"- [{sim:.2f}] {content[:150]}")
+                    if len(lines) >= limit:
+                        break
+                if lines:
+                    with self._lock:
+                        self._prefetch_result = "\n".join(lines)
+            except Exception as e:
+                logger.debug("Neural prefetch failed: %s", e)
+
+        self._prefetch_thread = threading.Thread(target=_run, daemon=True)
+        self._prefetch_thread.start()
 
     # Patterns that indicate meta-reflection, not real content
     _GARBAGE_PATTERNS = (

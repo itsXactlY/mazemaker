@@ -321,30 +321,6 @@ class CppDreamBackend(DreamBackend):
             )
         except Exception as e:
             logger.debug("log_connection_change failed: %s", e)
-    def prune_connection_history(self, keep_days: int = 7) -> int:
-        """Skip — C++/MSSQL handles history internally."""
-        return 0
-
-    def prune_old_dream_sessions(self, keep_days: int = 30) -> int:
-        """Prune old dream sessions from SQLite tracking DB."""
-        import sqlite3, time
-        conn = sqlite3.connect(self._session_db)
-        try:
-            cutoff = time.time() - (keep_days * 86400)
-            count = conn.execute(
-                "DELETE FROM dream_sessions WHERE started_at < ?",
-                (cutoff,)
-            ).rowcount
-            conn.commit()
-            return count
-        finally:
-            conn.close()
-
-    def prune_orphans(self) -> int:
-        """Skip — C++/MSSQL handles referential integrity."""
-        return 0
-
-
 
     def add_insight(self, session_id: int, insight_type: str,
                     source_memory_id: int, content: str,

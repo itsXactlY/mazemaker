@@ -38,6 +38,15 @@ try:
 except ImportError:
     HAS_MSSQL = False
 
+# JRWL mode: route MSSQL through message bus instead of direct connection
+HAS_JRWL = False
+try:
+    import jrwl
+    from jrwl.store import JRWLMSSQLStore
+    HAS_JRWL = True
+except ImportError:
+    pass
+
 
 class Memory:
     """
@@ -66,18 +75,33 @@ class Memory:
         self._default_chunk_size = default_chunk_size
         self._mssql_store = None
         self._sqlite_memory = None
+        self._jrwl_mode = False  # Track if JRWL is active
         
         # Embedder (shared regardless of backend)
         from embed_provider import EmbeddingProvider
         self._embedder = EmbeddingProvider(backend=embedding_backend)
         self._dim = self._embedder.dim
         
-        # Auto-detect MSSQL
+        # JRWL mode detection: explicit env var overrides auto-detect
+        jrwl_enabled = os.environ.get("JRWL_ENABLED", "").lower() in ("1", "true", "yes")
+        
+        # Auto-detect MSSQL (skip if JRWL is handling it)
         if use_mssql is None:
             use_mssql = bool(os.environ.get("MSSQL_SERVER") and os.environ.get("MSSQL_PASSWORD"))
         
-        # Try MSSQL first
-        if use_mssql:
+        # JRWL mode: route MSSQL through JRWL message bus
+        if jrwl_enabled and HAS_JRWL:
+            try:
+                self._mssql_store = JRWLMSSQLStore()
+                self._jrwl_mode = True
+                use_mssql = True  # Mark MSSQL as available
+                print(f"[neural] JRWL mode active: MSSQL via message bus")
+            except Exception as e:
+                print(f"[neural] JRWL mode failed ({e}), falling back")
+                self._mssql_store = None
+                self._jrwl_mode = False
+        # Direct MSSQL connection (no JRWL)
+        elif use_mssql:
             try:
                 from mssql_store import MSSQLStore
                 self._mssql_store = MSSQLStore()
@@ -91,7 +115,7 @@ class Memory:
         self._sqlite_memory = NeuralMemory(db_path=self._db_path, embedding_backend=embedding_backend)
         if not use_mssql:
             print(f"[neural] SQLite backend: {self._embedder.backend.__class__.__name__} ({self._dim}d)")
-        else:
+        elif not self._jrwl_mode:
             print(f"[neural] Hybrid mode: MSSQL (graph) + SQLite (recall)")
         
         # --- LSTM + kNN (auto-initialized) ---
@@ -524,6 +548,8 @@ class Memory:
     
     @property
     def backend(self) -> str:
+        if self._jrwl_mode:
+            return "mssql+jrwl"
         if self._mssql_store:
             return "mssql"
         return self._embedder.backend.__class__.__name__

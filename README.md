@@ -2,6 +2,8 @@
 
 Semantic memory system with knowledge graph, spreading activation, embedding-based recall, autonomous dream consolidation, and GPU-accelerated recall for the Hermes Agent.
 
+![Neural Memory](https://github.com/user-attachments/assets/2d938624-cc39-4f8b-b35b-485b23e93355)
+
 ## Features
 
 - **Semantic Memory Storage**: Store memories with auto embedding (FastEmbed ONNX, 1024d)

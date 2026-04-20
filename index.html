@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEURAL MEMORY | The Knowledge Spine</title>
+    <meta name="description" content="Semantic memory system with knowledge graph, spreading activation, and GPU-accelerated recall for AI agents.">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;500;700&family=JetBrains+Mono:wght@400;800&family=Syncopate:wght@700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --void-bg: #030305;
+            --neon-blue: #00f3ff;
+            --neon-red: #ff003c;
+            --neon-purple: #bc13fe;
+            --acid-green: #ccff00;
+            --glass-surface: rgba(10, 15, 20, 0.6);
+            --glass-border: rgba(0, 243, 255, 0.15);
+            --text-main: #e0f7ff;
+            --text-muted: #6c7a89;
+            --font-display: 'Syncopate', sans-serif;
+            --font-tech: 'Orbitron', sans-serif;
+            --font-body: 'Rajdhani', sans-serif;
+            --font-code: 'JetBrains Mono', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; outline: none; }
+        html { scroll-behavior: smooth; }
+        body {
+            background-color: var(--void-bg);
+            color: var(--text-main);
+            font-family: var(--font-body);
+            overflow-x: hidden;
+        }
+
+        /* CRT scanline */
+        body::after {
+            content: "";
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background:
+                linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%),
+                linear-gradient(90deg, rgba(255,0,0,0.06), rgba(0,255,0,0.02), rgba(0,0,255,0.06));
+            background-size: 100% 2px, 3px 100%;
+            z-index: 9999; pointer-events: none; opacity: 0.3;
+        }
+
+        a { text-decoration: none; color: inherit; transition: 0.3s; }
+
+        /* --- GLITCH --- */
+        .glitch-text { position: relative; color: white; mix-blend-mode: lighten; }
+        .glitch-text::before, .glitch-text::after {
+            content: attr(data-text); position: absolute; top: 0; width: 100%;
+            clip: rect(0, 0, 0, 0);
+        }
+        .glitch-text::before { left: -2px; text-shadow: 2px 0 var(--neon-red); animation: glitch-anim-1 2s infinite linear alternate-reverse; }
+        .glitch-text::after  { left:  2px; text-shadow: -2px 0 var(--neon-blue); animation: glitch-anim-2 3s infinite linear alternate-reverse; }
+        @keyframes glitch-anim-1 {
+            0%   { clip: rect(20px,9999px,15px,0); }
+            20%  { clip: rect(50px,9999px,60px,0); }
+            40%  { clip: rect(80px,9999px,5px,0);  }
+            60%  { clip: rect(10px,9999px,85px,0); }
+            100% { clip: rect(40px,9999px,20px,0); }
+        }
+        @keyframes glitch-anim-2 {
+            0%   { clip: rect(10px,9999px,80px,0); }
+            20%  { clip: rect(85px,9999px,10px,0); }
+            40%  { clip: rect(5px,9999px,40px,0);  }
+            60%  { clip: rect(60px,9999px,20px,0); }
+            100% { clip: rect(20px,9999px,50px,0); }
+        }
+
+        /* --- CYBER BUTTON --- */
+        .btn-cyber {
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 18px 45px;
+            background: rgba(0,243,255,0.05);
+            border: 1px solid var(--neon-blue);
+            color: var(--neon-blue);
+            font-family: var(--font-display); font-size: 0.9rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 2px;
+            position: relative; overflow: hidden;
+            clip-path: polygon(15px 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%, 0 15px);
+            transition: 0.4s cubic-bezier(0.23, 1, 0.32, 1); cursor: pointer;
+        }
+        .btn-cyber::after {
+            content: ''; position: absolute; top: 0; bottom: 0; left: -100%; width: 100%;
+            background: var(--neon-blue); z-index: -1; transition: 0.4s;
+        }
+        .btn-cyber:hover { color: #000; box-shadow: 0 0 50px rgba(0,243,255,0.4); }
+        .btn-cyber:hover::after { left: 0; }
+        .btn-cyber.white { border-color: #fff; color: #fff; }
+        .btn-cyber.white::after { background: #fff; }
+        .btn-cyber.green { border-color: var(--acid-green); color: var(--acid-green); }
+        .btn-cyber.green::after { background: var(--acid-green); }
+        .btn-cyber.purple { border-color: var(--neon-purple); color: var(--neon-purple); }
+        .btn-cyber.purple::after { background: var(--neon-purple); }
+
+        /* --- MATRIX GRID BG --- */
+        .matrix-grid {
+            position: fixed; top: -50%; left: -50%; width: 200%; height: 200%;
+            background-image:
+                linear-gradient(rgba(0,243,255,0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,243,255,0.05) 1px, transparent 1px);
+            background-size: 80px 80px;
+            transform: perspective(500px) rotateX(60deg);
+            animation: gridScroll 20s linear infinite;
+            z-index: -10; pointer-events: none;
+        }
+        @keyframes gridScroll {
+            0%   { transform: perspective(500px) rotateX(60deg) translateY(0); }
+            100% { transform: perspective(500px) rotateX(60deg) translateY(80px); }
+        }
+
+        /* --- DATA STREAM SIDEBAR --- */
+        .stream-sidebar {
+            position: fixed; top: 0; right: 30px; height: 100vh; width: 250px;
+            overflow: hidden; z-index: 1; opacity: 0.4;
+            mask-image: linear-gradient(to bottom, transparent, black 10%, black 90%, transparent);
+        }
+        .stream-content {
+            font-family: var(--font-code); font-size: 0.7rem; color: var(--neon-blue);
+            line-height: 1.6; text-align: right;
+            animation: streamScroll 15s linear infinite;
+        }
+        @keyframes streamScroll {
+            0%   { transform: translateY(0); }
+            100% { transform: translateY(-50%); }
+        }
+
+        /* --- HEADER --- */
+        header {
+            position: fixed; top: 0; width: 100%; z-index: 100;
+            padding: 20px 40px;
+            backdrop-filter: blur(5px);
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .logo {
+            font-family: var(--font-display); font-size: 1.5rem;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .logo-diamond {
+            width: 20px; height: 20px;
+            border: 2px solid var(--neon-blue);
+            transform: rotate(45deg);
+            animation: diamondPulse 2s ease-in-out infinite;
+        }
+        @keyframes diamondPulse {
+            0%, 100% { box-shadow: 0 0 10px rgba(0,243,255,0.3); }
+            50% { box-shadow: 0 0 30px rgba(0,243,255,0.8); }
+        }
+
+        /* --- HERO --- */
+        .hero {
+            height: 100vh;
+            display: flex; align-items: center; justify-content: flex-start;
+            position: relative; overflow: hidden;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 0 40px; position: relative; z-index: 5; }
+        .hero-text-block { max-width: 800px; z-index: 10; }
+        .hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(3rem, 5.5vw, 6rem);
+            line-height: 0.9; text-transform: uppercase; margin-bottom: 20px;
+        }
+        .hero-sub {
+            font-family: var(--font-code); font-size: 1.2rem;
+            color: var(--text-muted);
+            margin-bottom: 40px; padding-left: 5px;
+            border-left: 3px solid var(--neon-purple);
+        }
+        .status-line { font-family: var(--font-code); color: var(--neon-red); margin-bottom: 10px; }
+        .btn-row { display: flex; gap: 20px; flex-wrap: wrap; }
+
+        /* --- 3D CUBE --- */
+        .tesseract-wrapper {
+            position: absolute; right: 10%; top: 50%; transform: translateY(-50%);
+            width: 400px; height: 400px; perspective: 1000px; pointer-events: none;
+        }
+        .cube-3d {
+            width: 100%; height: 100%; transform-style: preserve-3d;
+            animation: rotateCube 15s infinite linear;
+        }
+        .face {
+            position: absolute; width: 250px; height: 250px; left: 75px; top: 75px;
+            border: 2px solid var(--neon-blue);
+            background: rgba(0,243,255,0.05);
+            box-shadow: 0 0 30px rgba(0,243,255,0.1);
+        }
+        .face:nth-child(1) { transform: rotateY(0deg)    translateZ(125px); }
+        .face:nth-child(2) { transform: rotateY(90deg)   translateZ(125px); }
+        .face:nth-child(3) { transform: rotateY(180deg)  translateZ(125px); }
+        .face:nth-child(4) { transform: rotateY(-90deg)  translateZ(125px); }
+        .face:nth-child(5) { transform: rotateX(90deg)   translateZ(125px); }
+        .face:nth-child(6) { transform: rotateX(-90deg)  translateZ(125px); }
+        @keyframes rotateCube {
+            0%   { transform: rotateX(0)      rotateY(0); }
+            100% { transform: rotateX(360deg) rotateY(360deg); }
+        }
+
+        /* --- STATS GRID --- */
+        .stats-section {
+            padding: 100px 40px; position: relative; z-index: 5;
+        }
+        .section-title {
+            font-family: var(--font-display); font-size: 2.5rem;
+            text-transform: uppercase; margin-bottom: 60px; text-align: center;
+        }
+        .section-title span { color: var(--neon-blue); }
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 30px; max-width: 1400px; margin: 0 auto;
+        }
+        .stat-card {
+            background: var(--glass-surface);
+            border: 1px solid var(--glass-border);
+            padding: 30px; position: relative; overflow: hidden;
+            clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 20px 100%, 0 calc(100% - 20px));
+            transition: 0.3s;
+        }
+        .stat-card:hover { border-color: var(--neon-blue); box-shadow: 0 0 40px rgba(0,243,255,0.1); }
+        .stat-card .label {
+            font-family: var(--font-code); font-size: 0.8rem;
+            color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px;
+            margin-bottom: 10px;
+        }
+        .stat-card .value {
+            font-family: var(--font-tech); font-size: 2.5rem;
+            color: var(--neon-blue); font-weight: 900;
+        }
+        .stat-card .desc {
+            font-family: var(--font-body); font-size: 1rem;
+            color: var(--text-muted); margin-top: 10px;
+        }
+        .stat-card .corner {
+            position: absolute; top: 0; right: 0; width: 40px; height: 40px;
+            border-left: 1px solid var(--glass-border);
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        /* --- ARCHITECTURE SECTION --- */
+        .arch-section {
+            padding: 100px 40px; position: relative; z-index: 5;
+            background: linear-gradient(180deg, transparent, rgba(0,243,255,0.02), transparent);
+        }
+        .arch-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 40px; max-width: 1400px; margin: 0 auto;
+        }
+        .arch-card {
+            background: var(--glass-surface); border: 1px solid var(--glass-border);
+            padding: 40px; position: relative;
+        }
+        .arch-card h3 {
+            font-family: var(--font-tech); font-size: 1.3rem;
+            color: var(--neon-blue); margin-bottom: 20px;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .arch-card h3 .icon {
+            width: 8px; height: 8px; background: var(--acid-green);
+            box-shadow: 0 0 10px var(--acid-green);
+        }
+        .arch-card p {
+            font-size: 1.05rem; line-height: 1.7; color: var(--text-muted);
+        }
+        .arch-card code {
+            font-family: var(--font-code); font-size: 0.85rem;
+            background: rgba(0,243,255,0.1); padding: 2px 8px;
+            color: var(--acid-green);
+        }
+
+        /* --- VIDEO SECTION --- */
+        .video-section {
+            padding: 100px 40px; text-align: center; position: relative; z-index: 5;
+        }
+        .video-wrapper {
+            max-width: 1000px; margin: 40px auto; position: relative;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 0 60px rgba(0,243,255,0.1);
+        }
+        .video-wrapper video {
+            width: 100%; display: block;
+        }
+        .video-wrapper::before {
+            content: ''; position: absolute; top: -1px; left: -1px;
+            right: -1px; bottom: -1px;
+            background: linear-gradient(45deg, var(--neon-blue), var(--neon-purple), var(--neon-blue));
+            z-index: -1; opacity: 0.3;
+        }
+
+        /* --- DASHBOARD SECTION --- */
+        .dashboard-section {
+            padding: 100px 40px; position: relative; z-index: 5;
+            background: linear-gradient(180deg, transparent, rgba(188,19,254,0.02), transparent);
+        }
+        .dashboard-img {
+            max-width: 1200px; margin: 40px auto; display: block;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 0 60px rgba(188,19,254,0.1);
+            transition: 0.4s;
+        }
+        .dashboard-img:hover {
+            box-shadow: 0 0 80px rgba(188,19,254,0.2);
+            transform: scale(1.01);
+        }
+
+        /* --- FLOW SECTION (Mermaid-like) --- */
+        .flow-section {
+            padding: 100px 40px; position: relative; z-index: 5;
+        }
+        .flow-container {
+            max-width: 1200px; margin: 40px auto;
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;
+        }
+        .flow-step {
+            background: var(--glass-surface); border: 1px solid var(--glass-border);
+            padding: 25px; text-align: center; position: relative;
+            transition: 0.3s;
+        }
+        .flow-step:hover { border-color: var(--neon-blue); }
+        .flow-step .step-num {
+            font-family: var(--font-tech); font-size: 2rem;
+            color: var(--neon-blue); font-weight: 900;
+        }
+        .flow-step .step-title {
+            font-family: var(--font-display); font-size: 0.9rem;
+            text-transform: uppercase; margin: 10px 0;
+        }
+        .flow-step .step-desc {
+            font-family: var(--font-code); font-size: 0.75rem;
+            color: var(--text-muted); line-height: 1.5;
+        }
+        .flow-arrow {
+            position: absolute; right: -20px; top: 50%; transform: translateY(-50%);
+            font-size: 1.5rem; color: var(--neon-blue); z-index: 10;
+        }
+
+        /* --- FOOTER --- */
+        footer {
+            padding: 40px; text-align: center;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            font-family: var(--font-code); font-size: 0.8rem;
+            color: var(--text-muted); position: relative; z-index: 5;
+        }
+        footer a { color: var(--neon-blue); }
+        footer a:hover { text-shadow: 0 0 10px var(--neon-blue); }
+
+        /* fade-in */
+        .fade-in { opacity: 0; transform: translateY(30px); transition: 0.8s ease-out; }
+        .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+        /* --- MOBILE --- */
+        @media (max-width: 900px) {
+            .hero h1 { font-size: 2.8rem; }
+            .tesseract-wrapper { display: none; }
+            .stream-sidebar { display: none; }
+            header { padding: 16px 20px; }
+            .flow-container { grid-template-columns: repeat(2, 1fr); }
+            .flow-arrow { display: none; }
+        }
+        @media (max-width: 600px) {
+            .flow-container { grid-template-columns: 1fr; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .arch-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="matrix-grid"></div>
+
+    <div class="stream-sidebar">
+        <div class="stream-content" id="dataStream"></div>
+    </div>
+
+    <header>
+        <div class="logo">
+            <div class="logo-diamond"></div>
+            NEURAL MEMORY
+        </div>
+        <a href="https://github.com/itsXactlY/neural-memory" target="_blank"
+           class="btn-cyber" style="padding: 10px 30px; font-size: 0.7rem;">
+            Initialize System
+        </a>
+    </header>
+
+    <!-- HERO -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-text-block fade-in">
+                <div class="status-line">
+                    // SYSTEM STATUS: <span style="color:var(--neon-blue)">OPTIMAL</span> //
+                    GPU: <span style="color:var(--acid-green)">CUDA</span> //
+                    EMBEDDING: <span style="color:var(--neon-purple)">FASTEMBED</span>
+                </div>
+                <h1 class="glitch-text" data-text="THE KNOWLEDGE SPINE">THE KNOWLEDGE SPINE</h1>
+                <div class="hero-sub">
+                    Semantic Memory for AI Agents.<br>
+                    <span style="color:white;">Knowledge Graph. Spreading Activation. GPU Recall. Dream Consolidation.</span>
+                </div>
+                <div class="btn-row">
+                    <a href="https://github.com/itsXactlY/neural-memory" target="_blank" class="btn-cyber">
+                        Access Repository
+                    </a>
+                    <a href="README.md" class="btn-cyber white">
+                        Documentation
+                    </a>
+                    <a href="#architecture" class="btn-cyber purple">
+                        Architecture
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="tesseract-wrapper">
+            <div class="cube-3d">
+                <div class="face"></div><div class="face"></div><div class="face"></div>
+                <div class="face"></div><div class="face"></div><div class="face"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- STATS -->
+    <section class="stats-section">
+        <h2 class="section-title fade-in">System <span>Metrics</span></h2>
+        <div class="stats-grid">
+            <div class="stat-card fade-in">
+                <div class="corner"></div>
+                <div class="label">Embedding Backend</div>
+                <div class="value">ONNX</div>
+                <div class="desc">FastEmbed (intfloat/multilingual-e5-large) — 1024d, ~50ms per embedding, zero PyTorch conflict</div>
+            </div>
+            <div class="stat-card fade-in">
+                <div class="corner"></div>
+                <div class="label">GPU Recall</div>
+                <div class="value">~100ms</div>
+                <div class="desc">CUDA torch.matmul cosine similarity — 10K memories in 100ms vs 500ms CPU</div>
+            </div>
+            <div class="stat-card fade-in">
+                <div class="corner"></div>
+                <div class="label">Storage</div>
+                <div class="value">SQLite</div>
+                <div class="desc">Source of truth — always available, no external DB required. MSSQL optional mirror.</div>
+            </div>
+            <div class="stat-card fade-in">
+                <div class="corner"></div>
+                <div class="label">Dream Engine</div>
+                <div class="value">3 PHASES</div>
+                <div class="desc">NREM (replay) → REM (bridges) → Insight (communities) — autonomous consolidation</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- VIDEO -->
+    <section class="video-section">
+        <h2 class="section-title fade-in">Live <span>Demo</span></h2>
+        <div class="video-wrapper fade-in">
+            <video controls autoplay muted loop playsinline>
+                <source src="assets/cover_video.mp4" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+        </div>
+    </section>
+
+    <!-- ARCHITECTURE -->
+    <section class="arch-section" id="architecture">
+        <h2 class="section-title fade-in">Core <span>Architecture</span></h2>
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <h3><span class="icon"></span> FastEmbed (ONNX)</h3>
+                <p>
+                    Primary embedding backend. <code>intfloat/multilingual-e5-large</code> — 1024 dimensions.
+                    ONNX runtime, no PyTorch dependency. ~50ms per embedding on CPU.
+                    Auto-downloads model on first use (~500MB). Falls back through
+                    <code>sentence-transformers</code> → <code>tfidf</code> → <code>hash</code>.
+                </p>
+            </div>
+            <div class="arch-card fade-in">
+                <h3><span class="icon"></span> GPU Recall Engine</h3>
+                <p>
+                    CUDA-accelerated cosine similarity via <code>torch.matmul</code>.
+                    Loads all embeddings into GPU memory. Batch query in ~100ms for 10K memories.
+                    Auto-detects CUDA. Falls back to numpy if no GPU.
+                    Cache at <code>~/.neural_memory/gpu_cache/</code>.
+                </p>
+            </div>
+            <div class="arch-card fade-in">
+                <h3><span class="icon"></span> Knowledge Graph</h3>
+                <p>
+                    Automatic connection creation via cosine similarity threshold.
+                    BFS spreading activation with decay factor.
+                    Edge types: semantic, bridge (from Dream REM), temporal.
+                    SQLite <code>connections</code> table with <code>UNIQUE(source_id, target_id)</code>.
+                </p>
+            </div>
+            <div class="arch-card fade-in">
+                <h3><span class="icon"></span> Dream Engine</h3>
+                <p>
+                    Autonomous background consolidation inspired by biological sleep.
+                    <strong>NREM:</strong> replay & strengthen/weaken connections.
+                    <strong>REM:</strong> bridge discovery between isolated memories.
+                    <strong>Insight:</strong> community detection via BFS connected components.
+                    Triggers: idle timeout, memory threshold, manual, cron.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- DATA FLOW -->
+    <section class="flow-section">
+        <h2 class="section-title fade-in">Data <span>Flow</span></h2>
+        <div class="flow-container fade-in">
+            <div class="flow-step" style="position:relative;">
+                <div class="step-num">01</div>
+                <div class="step-title">Encode</div>
+                <div class="step-desc">FastEmbed ONNX<br>content → 1024d vector<br>~50ms CPU</div>
+                <span class="flow-arrow">→</span>
+            </div>
+            <div class="flow-step" style="position:relative;">
+                <div class="step-num">02</div>
+                <div class="step-title">Store</div>
+                <div class="step-desc">SQLite INSERT<br>memory + embedding<br>create connections</div>
+                <span class="flow-arrow">→</span>
+            </div>
+            <div class="flow-step" style="position:relative;">
+                <div class="step-num">03</div>
+                <div class="step-title">Recall</div>
+                <div class="step-desc">GPU torch.matmul<br>or CPU numpy fallback<br>top-k similarity</div>
+                <span class="flow-arrow">→</span>
+            </div>
+            <div class="flow-step">
+                <div class="step-num">04</div>
+                <div class="step-title">Consolidate</div>
+                <div class="step-desc">Dream Engine<br>NREM → REM → Insight<br>autonomous cleanup</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- DASHBOARD -->
+    <section class="dashboard-section">
+        <h2 class="section-title fade-in">Knowledge <span>Graph</span> Dashboard</h2>
+        <a href="assets/neural_memory.png" target="_blank">
+            <img src="assets/neural_memory.png" alt="Neural Memory Dashboard — 3D Force Graph"
+                 class="dashboard-img fade-in">
+        </a>
+        <p style="text-align:center; color:var(--text-muted); font-family:var(--font-code); font-size:0.85rem; margin-top:20px;">
+            3D Force Graph — WebSocket live updates — Amber theme — Category filtering — Search — Mini charts
+        </p>
+    </section>
+
+    <!-- FOOTER -->
+    <footer>
+        <p>
+            <a href="https://github.com/itsXactlY/neural-memory" target="_blank">GitHub</a> //
+            <a href="README.md">Documentation</a> //
+            Built for <a href="https://github.com/itsXactlY" target="_blank">Hermes Agent</a>
+        </p>
+        <p style="margin-top: 10px; opacity: 0.5;">
+            FastEmbed + GPU Recall + SQLite-First + Dream Engine
+        </p>
+    </footer>
+
+    <script>
+        // Data stream — neural memory operations
+        const snippets = [
+            'neural_remember: "CUDA cosine similarity at ~100ms" → id:4201',
+            'FastEmbed encode: intfloat/multilingual-e5-large [1024d]',
+            'SQL> INSERT INTO memories (content, embedding, category)',
+            'GPU Recall: torch.matmul(query, all_embeddings) → top_k=10',
+            'Dream NREM: replay #17 → strengthen connection +0.05',
+            'Knowledge Graph: 4,231 memories, 12,847 connections',
+            'Dream REM: bridge discovery → memory#88 ↔ memory#1442',
+            'SQL> SELECT cosine_similarity(embedding, ?) FROM memories',
+            'Spreading activation: BFS depth=3, decay=0.85',
+            'Dream Insight: 7 communities, 23 bridge nodes detected',
+            'FastEmbed: ONNX inference 47ms (batch=1)',
+            'GPU cache: ~/.neural_memory/gpu_cache/embeddings.npy loaded',
+            'Conflict detection: similarity=0.82 → UPDATE memory#156',
+            'SQLite VACUUM: 45MB → 12MB (reclaimed 73%)',
+            'Connection prune: removed 342 edges below threshold 0.05',
+        ];
+        const el = document.getElementById('dataStream');
+        let html = '';
+        for (let i = 0; i < 60; i++) {
+            html += snippets[Math.floor(Math.random() * snippets.length)] + '<br>';
+        }
+        el.innerHTML = html + html; // Double for seamless scroll
+
+        // Fade-in observer
+        const observer = new IntersectionObserver(entries => {
+            entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+        }, { threshold: 0.1 });
+        document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+    </script>
+</body>
+</html>

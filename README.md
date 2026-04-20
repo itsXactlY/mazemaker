@@ -205,6 +205,45 @@ flowchart LR
 - Manual: `neural_dream` tool
 - Standalone: `python python/dream_worker.py --daemon`
 
+## Clean VM Test (2026-04-21)
+
+Tested on fresh Debian 12 QEMU/KVM VM — hermes-agent + neural memory only, no jack-in-a-box.
+
+```
+VM:           Debian 12, 4GB RAM, KVM enabled
+hermes-agent: git clone (itsXactlY fork)
+neural-mem:   git clone + FastEmbed ONNX
+Embedding:    intfloat/multilingual-e5-large (1024d)
+C++ bridge:   Not built (Python fallback)
+```
+
+**All 12 tests passed:**
+
+| # | Test | Result |
+|---|------|--------|
+| 1 | NeuralMemory standalone (remember/recall/graph) | PASS |
+| 2 | Memory Provider (FastEmbed 1024d) | PASS |
+| 3 | NeuralMemoryProvider.__init__ | PASS |
+| 4 | is_available() | PASS |
+| 5 | initialize(session_id) | PASS |
+| 6 | get_tool_schemas() → 4 tools | PASS |
+| 7 | system_prompt_block() (250 chars) | PASS |
+| 8 | handle_tool_call — neural_remember | PASS |
+| 9 | handle_tool_call — neural_recall | PASS |
+| 10 | handle_tool_call — neural_graph | PASS |
+| 11 | prefetch() | PASS |
+| 12 | shutdown() | PASS |
+
+**Findings:**
+- **4GB RAM minimum** for FastEmbed model download (~500MB). 2GB = OOM killed.
+- **HashBackend** works as fallback on low-RAM systems (1024d, instant, no deps).
+- **C++ bridge optional** — Python fallback is fully functional.
+- **FastEmbed >= 0.5.1** recommended — earlier versions use CLS embedding by default.
+- **`python3-venv` required** on Debian — `apt install python3.11-venv` if missing.
+- **`pip install --break-system-packages`** needed if no venv (PEP 668).
+- Tool discovery shows 58 tools (missing `firecrawl`/`fal_client` optional deps).
+- prefetch() returns empty on fresh DB (expected — no prior memories to pre-load).
+
 ## Testing
 
 ```bash
@@ -215,6 +254,18 @@ python3 demo.py
 # From plugin dir
 cd ~/.hermes/hermes-agent/plugins/memory/neural
 python3 test_suite.py
+
+# Clean VM test (hermes-agent + neural memory only)
+cd ~/projects/neural-memory-adapter
+python3 -c "
+import sys; sys.path.insert(0, 'python')
+from neural_memory import NeuralMemory
+nm = NeuralMemory(db_path='/tmp/test.db', embedding_backend='cpu', use_cpp=False)
+mid = nm.remember('test memory', label='smoke')
+results = nm.recall('test')
+assert len(results) > 0, 'recall failed'
+print(f'SMOKE TEST PASS: {len(results)} results')
+"
 ```
 
 ## File Structure
@@ -245,9 +296,26 @@ neural-memory-adapter/
 
 ## Lessons Learned (Production)
 
+### Embedding & Runtime
 - **FastEmbed > sentence-transformers** — ONNX, no PyTorch conflict, fast on CPU
+- **FastEmbed >= 0.5.1** — earlier versions default to CLS embedding (deprecated). Set `add_custom_model` or pin version.
 - **GPU recall > C++ Bridge** — C++ Hopfield was biased, GPU matmul is clean
-- **SQLite = Source of Truth** — MSSQL optional, SQLite always works
 - **Raw embeddings + GPU matmul** — best recall performance
-- **Auto-detect everything** — CUDA, backends, venv paths
 - **Don't force PyTorch** — let FastEmbed handle CPU, torch only for GPU recall
+- **numpy must be installed BEFORE FastEmbed** — FastEmbed depends on numpy at import time
+
+### Storage & Architecture
+- **SQLite = Source of Truth** — MSSQL optional, SQLite always works
+- **Auto-detect everything** — CUDA, backends, venv paths
+
+### Clean VM (2026-04-21)
+- **4GB RAM minimum** for FastEmbed model download (~500MB). 2GB = OOM killed during model fetch.
+- **HashBackend** is a valid fallback for constrained environments — 1024d, instant, zero deps.
+- **C++ bridge is optional** — Python fallback covers all functionality. Only needed for perf.
+- **python3-venv required** on Debian 12 — `apt install python3.11-venv` if cloud-init missed it.
+- **Debian PEP 668** — `pip install` fails without venv or `--break-system-packages`.
+- **Cloud-init takes 60-90s** — packages install on first boot. Don't assume SSH is ready.
+- **`neural_remember` / `neural_recall` / `neural_think` / `neural_graph`** are the 4 tool schemas exposed by NeuralMemoryProvider. `neural_dream` and `neural_dream_stats` are in the standalone Memory class only.
+- **prefetch() returns empty** on fresh DB — expected behavior, no prior memories to pre-load.
+- **MemoryProvider interface** requires `initialize(session_id)` — not just `initialize()`.
+- **hermes-agent tools** show 58 registered (missing `firecrawl`/`fal_client` optional deps).

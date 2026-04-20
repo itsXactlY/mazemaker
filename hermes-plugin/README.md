@@ -1,25 +1,27 @@
-![Demo](https://github.com/user-attachments/assets/2d938624-cc39-4f8b-b35b-485b23e93355)
-
 # Neural Memory Plugin
 
 Local semantic memory with knowledge graph, spreading activation, and auto-connections.
+Runs entirely offline — no API keys, no cloud.
 
 ## Features
 
-- **Semantic search** via vector embeddings (hash, tfidf, or sentence-transformers)
+- **Semantic search** via vector embeddings (FastEmbed ONNX, 1024d)
 - **Knowledge graph** with automatic connection discovery between related memories
 - **Spreading activation** for exploring connected ideas beyond direct similarity
-- **Fully offline** — no API keys, no cloud, everything stored in local SQLite
+- **Conflict detection** — detect and supersede conflicting memories
+- **Dream Engine** — autonomous background consolidation (NREM/REM/Insight)
+- **GPU recall** — CUDA-accelerated cosine similarity (~100ms for 10K memories)
+- **Fully offline** — everything stored in local SQLite
 
 ## Configuration
 
 ```yaml
-# config.yaml
+# ~/.hermes/config.yaml
 memory:
   provider: neural
   neural:
     db_path: ~/.neural_memory/memory.db
-    embedding_backend: auto  # auto|hash|tfidf|sentence-transformers
+    embedding_backend: fastembed  # fastembed|hash|tfidf|sentence-transformers|auto
 ```
 
 Or via environment variables:
@@ -35,18 +37,29 @@ Or via environment variables:
 | `neural_think` | Spreading activation — explore connected ideas |
 | `neural_graph` | Knowledge graph statistics |
 
-## Embedding Backends
+## Embedding Backends (auto-priority)
 
-- **hash** — Fast, no dependencies, deterministic
-- **tfidf** — Trained on seen corpus, no external deps
-- **sentence-transformers** — Best quality, requires `sentence-transformers` + PyTorch
-- **auto** — Picks best available (sentence-transformers > tfidf > hash)
+| Priority | Backend | Model | Speed | Requirements |
+|----------|---------|-------|-------|--------------|
+| 1st | FastEmbed | intfloat/multilingual-e5-large | ~50ms | `pip install fastembed` |
+| 2nd | sentence-transformers | BAAI/bge-m3 1024d | ~200ms | GPU recommended |
+| 3rd | tfidf | — | varies | numpy only |
+| 4th | hash | — | instant | nothing |
 
 ## Dependencies
 
-Core: `sqlite3` (stdlib), `numpy` (for vector ops)
-
-Optional for better embeddings:
 ```bash
-pip install sentence-transformers
+pip install numpy fastembed sqlite-utils
 ```
+
+For GPU recall:
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+```
+
+## Clean VM Verified
+
+Tested on fresh Debian 12 QEMU/KVM (4GB RAM) — all 12 NeuralMemoryProvider tests pass.
+See main README for full test results.
+
+4GB RAM minimum for FastEmbed model download. Use `--hash-backend` or `install.sh --hash-backend` for constrained environments.

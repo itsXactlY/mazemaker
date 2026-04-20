@@ -39,12 +39,30 @@ echo "║   FastEmbed + GPU Recall + SQLite-First          ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
+# Parse flags
+HASH_BACKEND=false
+HERMES_AGENT_ARG=""
+for arg in "$@"; do
+    case "$arg" in
+        --hash-backend) HASH_BACKEND=true ;;
+        --help|-h)
+            echo "Usage: bash install.sh [OPTIONS] [/path/to/hermes-agent]"
+            echo ""
+            echo "Options:"
+            echo "  --hash-backend   Use hash embedding (instant, no model download, low RAM)"
+            echo "  --help, -h       Show this help"
+            exit 0
+            ;;
+        *) HERMES_AGENT_ARG="$arg" ;;
+    esac
+done
+
 # -------------------------------------------------------------------
 # 1. Detect hermes-agent
 # -------------------------------------------------------------------
 HERMES_AGENT=""
-if [ -n "$1" ]; then
-    HERMES_AGENT="$1"
+if [ -n "$HERMES_AGENT_ARG" ]; then
+    HERMES_AGENT="$HERMES_AGENT_ARG"
 fi
 
 if [ -z "$HERMES_AGENT" ]; then
@@ -90,6 +108,41 @@ if [ "$PY_MAJOR" -lt 3 ] || ([ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 9 ]); th
     print_warn "Python 3.9+ recommended (you have $PY_VER)"
 fi
 
+# Ensure python3-venv is available (Debian 12 needs explicit install)
+if ! $PYTHON -m venv --help &>/dev/null 2>&1; then
+    print_warn "python3-venv not available"
+    if command -v apt-get &>/dev/null; then
+        print_info "Install with: sudo apt-get install python${PY_MAJOR}.${PY_MINOR}-venv"
+    fi
+fi
+
+# -------------------------------------------------------------------
+# 2b. System checks (RAM, disk, build tools)
+# -------------------------------------------------------------------
+TOTAL_RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)
+TOTAL_RAM_GB=$(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo 2>/dev/null || echo "0")
+print_ok "RAM: ${TOTAL_RAM_GB}GB"
+
+if [ "$TOTAL_RAM_MB" -lt 3072 ]; then
+    print_warn "Less than 3GB RAM detected (${TOTAL_RAM_GB}GB)"
+    print_warn "FastEmbed model download (~500MB) may OOM. Options:"
+    echo "  1. Use --hash-backend (instant, no model download)"
+    echo "  2. Increase RAM to 4GB+"
+    echo "  3. Pre-download model on a larger machine"
+    echo ""
+    if [ "$HASH_BACKEND" = false ]; then
+        print_info "Auto-selecting --hash-backend due to low RAM"
+        HASH_BACKEND=true
+    fi
+fi
+
+# Check for cmake (needed for C++ bridge, optional)
+if command -v cmake &>/dev/null; then
+    print_ok "cmake: $(cmake --version | head -1)"
+else
+    print_info "cmake not found — C++ bridge will use Python fallback (fine)"
+fi
+
 # -------------------------------------------------------------------
 # 3. Detect pip target
 # -------------------------------------------------------------------
@@ -130,15 +183,21 @@ $PYTHON -c "import numpy" 2>/dev/null && print_ok "numpy" || {
 
 # 4b. FastEmbed PRIMARY (ONNX, no PyTorch, ~50ms/emb)
 #     Uses intfloat/multilingual-e5-large by default
-$PYTHON -c "import fastembed" 2>/dev/null && print_ok "fastembed (ONNX backend)" || {
-    print_info "Installing fastembed (primary embedding backend)..."
-    print_info "  Model: intfloat/multilingual-e5-large (~500MB, auto-download)"
-    $PIP install $PIP_ARGS --quiet fastembed
-    print_ok "fastembed installed"
-}
+#     Skip if --hash-backend (low RAM or explicit)
+if [ "$HASH_BACKEND" = true ]; then
+    print_info "Skipping FastEmbed (--hash-backend mode)"
+    print_ok "Hash backend: instant, zero deps, 1024d"
+else
+    $PYTHON -c "import fastembed" 2>/dev/null && print_ok "fastembed (ONNX backend)" || {
+        print_info "Installing fastembed (primary embedding backend)..."
+        print_info "  Model: intfloat/multilingual-e5-large (~500MB, auto-download)"
+        $PIP install $PIP_ARGS --quiet fastembed
+        print_ok "fastembed installed"
+    }
 
-# 4c. Verify FastEmbed import works (model downloads on first use)
-$PYTHON -c "from fastembed import TextEmbedding; print('  FastEmbed import OK')" 2>/dev/null && print_ok "FastEmbed ready (model downloads on first use)" || print_warn "FastEmbed import failed"
+    # 4c. Verify FastEmbed import works (model downloads on first use)
+    $PYTHON -c "from fastembed import TextEmbedding; print('  FastEmbed import OK')" 2>/dev/null && print_ok "FastEmbed ready (model downloads on first use)" || print_warn "FastEmbed import failed"
+fi
 
 # -------------------------------------------------------------------
 # 5. Optional: GPU recall engine (torch + CUDA)
@@ -276,6 +335,13 @@ print(f'  {stats[\"memories\"]} memories, {stats[\"connections\"]} connections')
 " 2>/dev/null && print_ok "Existing database found" || print_warn "Database may need repair"
 fi
 
+# Determine embedding backend for config
+if [ "$HASH_BACKEND" = true ]; then
+    EMBED_BACKEND="hash"
+else
+    EMBED_BACKEND="fastembed"
+fi
+
 # -------------------------------------------------------------------
 # 10. Configure Hermes (config.yaml)
 # -------------------------------------------------------------------
@@ -295,7 +361,7 @@ config.setdefault('memory', {})
 config['memory']['provider'] = 'neural'
 config['memory'].setdefault('neural', {})
 config['memory']['neural']['db_path'] = '$DB_PATH'
-config['memory']['neural']['embedding_backend'] = 'fastembed'
+config['memory']['neural']['embedding_backend'] = '$EMBED_BACKEND'
 
 with open(config_file, 'w') as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -308,7 +374,7 @@ print('  config.yaml updated')
             echo "    provider: neural"
             echo "    neural:"
             echo "      db_path: $DB_PATH"
-            echo "      embedding_backend: fastembed"
+            echo "      embedding_backend: $EMBED_BACKEND"
         }
     fi
 else
@@ -319,7 +385,7 @@ else
     echo "    provider: neural"
     echo "    neural:"
     echo "      db_path: $DB_PATH"
-    echo "      embedding_backend: fastembed"
+    echo "      embedding_backend: $EMBED_BACKEND"
     echo "      dream:"
     echo "        enabled: true"
     echo "        idle_threshold: 600"

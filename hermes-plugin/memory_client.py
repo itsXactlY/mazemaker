@@ -195,10 +195,12 @@ class NeuralMemory:
     """
     
     def __init__(self, db_path: str | Path = DB_PATH, embedding_backend: str = "auto",
-                 use_mssql: bool = False, use_cpp: bool = True):
-        from embed_provider import EmbeddingProvider
-
-        self.embedder = EmbeddingProvider(backend=embedding_backend)
+                 use_mssql: bool = False, use_cpp: bool = True, embedder=None):
+        if embedder is not None:
+            self.embedder = embedder
+        else:
+            from embed_provider import EmbeddingProvider
+            self.embedder = EmbeddingProvider(backend=embedding_backend)
 
         if use_mssql:
             from mssql_store import MSSQLStore

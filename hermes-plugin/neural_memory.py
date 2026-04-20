@@ -88,7 +88,7 @@ class Memory:
 
         # SQLite always needed for semantic recall (MSSQLStore has no recall method)
         from memory_client import NeuralMemory
-        self._sqlite_memory = NeuralMemory(db_path=self._db_path, embedding_backend=embedding_backend)
+        self._sqlite_memory = NeuralMemory(db_path=self._db_path, embedding_backend=embedding_backend, embedder=self._embedder)
         if not use_mssql:
             print(f"[neural] SQLite backend: {self._embedder.backend.__class__.__name__} ({self._dim}d)")
         else:

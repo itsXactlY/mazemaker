@@ -16,6 +16,22 @@
 #
 set -e
 
+# -------------------------------------------------------------------
+# 0. Root check — NO EXCEPTIONS
+# -------------------------------------------------------------------
+if [ "$(id -u)" -eq 0 ]; then
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║  DO NOT RUN AS ROOT.                             ║"
+    echo "║                                                  ║"
+    echo "║  This installer runs in the user's venv and      ║"
+    echo "║  writes to ~/.hermes/. Root would break perms,   ║"
+    echo "║  pip paths, and venv detection.                  ║"
+    echo "║                                                  ║"
+    echo "║  Run as your normal user:  bash install.sh       ║"
+    echo "╚══════════════════════════════════════════════════╝"
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PYTHON_DIR="$SCRIPT_DIR/python"
 

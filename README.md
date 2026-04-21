@@ -255,6 +255,10 @@ python3 demo.py
 cd ~/.hermes/hermes-agent/plugins/memory/neural
 python3 test_suite.py
 
+# Upside-Down Test Suite (edge cases, corruption, concurrency, SQL injection)
+cd ~/projects/neural-memory-adapter
+python3 tests/test_upside_down.py
+
 # Clean VM test (hermes-agent + neural memory only)
 cd ~/projects/neural-memory-adapter
 python3 -c "

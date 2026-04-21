@@ -18,9 +18,16 @@ Config (in ~/.hermes/config.yaml):
 
 import json
 import logging
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Ensure THIS plugin dir is on sys.path FIRST (avoids import path conflicts
+# when python/ directory is also on sys.path with a different neural_memory.py)
+_PLUGIN_DIR = str(Path(__file__).parent)
+if _PLUGIN_DIR not in sys.path:
+    sys.path.insert(0, _PLUGIN_DIR)
 
 from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error

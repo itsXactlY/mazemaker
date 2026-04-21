@@ -38,7 +38,7 @@ fail()  { echo -e "${RED}[FAIL]${RESET}  $*"; }
 step()  { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
 
 # ── Parse args ──────────────────────────────────────────────────────────────
-DB_PATH="${HOME}/.hermes/hermes-agent/plugins/memory/neural/neural_memory.db"
+DB_PATH="${HOME}/.neural_memory/memory.db"
 PLUGIN_DIR="${HOME}/.hermes/hermes-agent/plugins/memory/neural"
 DRY_RUN=""
 ADAPTER_DIR="${HOME}/projects/neural-memory-adapter"

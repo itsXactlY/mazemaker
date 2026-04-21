@@ -225,14 +225,17 @@ class NeuralMemory:
                 self._cpp = None
 
         # GPU recall engine (CUDA-accelerated cosine similarity)
+        # Only use GPU engine with DEFAULT db_path — it loads from a global cache
+        # that would leak production data into isolated test databases
         self._gpu = None
-        try:
-            from gpu_recall import GpuRecallEngine
-            self._gpu = GpuRecallEngine()
-            if not self._gpu.load(embed_fn=self.embedder.embed):
+        if db_path == DB_PATH:
+            try:
+                from gpu_recall import GpuRecallEngine
+                self._gpu = GpuRecallEngine()
+                if not self._gpu.load(embed_fn=self.embedder.embed):
+                    self._gpu = None
+            except Exception:
                 self._gpu = None
-        except Exception:
-            self._gpu = None
 
         # In-memory graph for spreading activation
         self._graph_nodes: dict[int, dict] = {}  # id -> {embedding, connections}
@@ -278,8 +281,14 @@ class NeuralMemory:
         
         embedding = self.embedder.embed(text)
         
-        # Knowledge-update: detect conflicts with existing memories
-        if detect_conflicts and self._graph_nodes:
+        # Knowledge-update: detect conflicts with existing memories.
+        # Only reliable with semantic backends (FastEmbed, SentenceTransformers).
+        # Hash/TFIDF produce fake similarities that trigger false conflicts.
+        _reliable_backends = {'FastEmbedBackend', 'SentenceTransformerBackend'}
+        _backend_name = type(self.embedder.backend).__name__
+        _can_detect = _backend_name in _reliable_backends
+        
+        if detect_conflicts and self._graph_nodes and _can_detect:
             conflicts = self._find_conflicts(text, embedding)
             for conflict_id, conflict_info in conflicts.items():
                 old_content = conflict_info['content']

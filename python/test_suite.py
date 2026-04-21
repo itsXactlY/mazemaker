@@ -54,22 +54,22 @@ def cosine(a, b):
 @_testcase("hash_embed: basic vector creation", tags=["embed"])
 def test_1():
     from embed_provider import HashBackend
-    b = HashBackend(dim=384)
+    b = HashBackend(dim=1024)
     v = b.embed("hello world")
-    assert len(v) == 384
+    assert len(v) == 1024
     assert any(x != 0 for x in v), "Vector should not be all zeros"
 
 @_testcase("hash_embed: deterministic output", tags=["embed"])
 def test_2():
     from embed_provider import HashBackend
-    b = HashBackend(dim=384)
+    b = HashBackend(dim=1024)
     assert b.embed("test") == b.embed("test")
     assert b.embed("a") != b.embed("b")
 
 @_testcase("hash_embed: similarity ordering", tags=["embed"])
 def test_3():
     from embed_provider import HashBackend
-    b = HashBackend(dim=384)
+    b = HashBackend(dim=1024)
     v1 = b.embed("dog named Lou is a pet")
     v2 = b.embed("dog is a domestic animal")
     v3 = b.embed("quantum computing research paper")
@@ -78,7 +78,7 @@ def test_3():
 @_testcase("hash_embed: batch consistency", tags=["embed"])
 def test_4():
     from embed_provider import HashBackend
-    b = HashBackend(dim=384)
+    b = HashBackend(dim=1024)
     batch = b.embed_batch(["a", "b", "c"])
     assert len(batch) == 3
     assert batch[0] == b.embed("a")
@@ -86,17 +86,17 @@ def test_4():
 @_testcase("hash_embed: empty string", tags=["embed"])
 def test_5():
     from embed_provider import HashBackend
-    b = HashBackend(dim=384)
+    b = HashBackend(dim=1024)
     v = b.embed("")
-    assert len(v) == 384
+    assert len(v) == 1024
 
 @_testcase("hash_embed: unicode handling", tags=["embed"])
 def test_21():
     from embed_provider import HashBackend
-    b = HashBackend(dim=384)
+    b = HashBackend(dim=1024)
     # Just verify it doesn't crash on unicode
     v = b.embed("Äöüß 中文")
-    assert len(v) == 384
+    assert len(v) == 1024
 
 @_testcase("hash_embed: dimension variants", tags=["embed"])
 def test_7():
@@ -109,7 +109,7 @@ def test_7():
 @_testcase("hash_embed: normalization", tags=["embed"])
 def test_8():
     from embed_provider import HashBackend
-    b = HashBackend(dim=384)
+    b = HashBackend(dim=1024)
     v = b.embed("test normalization")
     norm = sum(x*x for x in v)**0.5
     assert abs(norm - 1.0) < 0.01, f"Norm should be ~1.0, got {norm}"
@@ -170,11 +170,11 @@ def test_13():
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
         s = SQLiteStore(db)
-        mid = s.store("label", "content", [0.1]*384)
+        mid = s.store("label", "content", [0.1]*1024)
         assert mid > 0
         m = s.get(mid)
         assert m['label'] == "label"
-        assert len(m['embedding']) == 384
+        assert len(m['embedding']) == 1024
         s.close()
     finally: os.unlink(db)
 
@@ -185,7 +185,7 @@ def test_14():
     try:
         s = SQLiteStore(db)
         for i in range(5):
-            s.store(f"item{i}", f"content{i}", [float(i)]*384)
+            s.store(f"item{i}", f"content{i}", [float(i)]*1024)
         all_m = s.get_all()
         assert len(all_m) == 5
         s.close()
@@ -197,8 +197,8 @@ def test_15():
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
         s = SQLiteStore(db)
-        s.store("a", "a", [0.1]*384)
-        s.store("b", "b", [0.2]*384)
+        s.store("a", "a", [0.1]*1024)
+        s.store("b", "b", [0.2]*1024)
         s.add_connection(1, 2, 0.8, "similar")
         c = s.get_connections(1)
         assert len(c) == 1
@@ -212,7 +212,7 @@ def test_16():
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
         s = SQLiteStore(db)
-        s.store("test", "test", [0.1]*384)
+        s.store("test", "test", [0.1]*1024)
         m1 = s.get(1)
         s.touch(1)
         s.touch(1)
@@ -227,8 +227,8 @@ def test_17():
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
         s = SQLiteStore(db)
-        s.store("a", "a", [0.1]*384)
-        s.store("b", "b", [0.2]*384)
+        s.store("a", "a", [0.1]*1024)
+        s.store("b", "b", [0.2]*1024)
         s.add_connection(1, 2, 0.5)
         st = s.get_stats()
         assert st['memories'] == 2
@@ -246,7 +246,7 @@ def test_18():
         def writer(tid):
             try:
                 for i in range(10):
-                    s.store(f"t{tid}", f"d{i}", [float(i)]*384)
+                    s.store(f"t{tid}", f"d{i}", [float(i)]*1024)
             except Exception as e: errors.append(str(e))
         def reader(tid):
             try:
@@ -278,7 +278,7 @@ def test_20():
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
         s1 = SQLiteStore(db)
-        s1.store("persist", "test", [0.5]*384)
+        s1.store("persist", "test", [0.5]*1024)
         s1.close()
         s2 = SQLiteStore(db)
         m = s2.get(1)
@@ -396,7 +396,7 @@ def test_28():
             m.remember("b")
             s = m.stats()
             assert s['memories'] == 2
-            assert s['embedding_dim'] > 0  # dim depends on backend (hash=384, st=1024)
+            assert s['embedding_dim'] > 0  # dim depends on backend (hash=1024, st=1024)
     finally: os.unlink(db)
 
 # ============================================================================
@@ -468,7 +468,7 @@ def test_34():
 @_testcase("perf: embed 100 texts < 1s (hash)", tags=["perf"])
 def test_35():
     from embed_provider import HashBackend
-    b = HashBackend(dim=384)
+    b = HashBackend(dim=1024)
     t0 = time.time()
     for i in range(100):
         b.embed(f"test text number {i}")

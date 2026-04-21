@@ -56,7 +56,7 @@ typedef struct {
 // Lifecycle
 // ============================================================================
 
-// Create a new adapter with default config (384-dim vectors).
+// Create a new adapter with default config (1024-dim vectors).
 // Returns NULL on failure.
 NEURAL_API NeuralMemoryHandle neural_memory_create(void);
 

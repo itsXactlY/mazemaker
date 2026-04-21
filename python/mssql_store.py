@@ -223,7 +223,7 @@ class MSSQLStore:
 if __name__ == "__main__":
     try:
         store = MSSQLStore()
-        mid = store.store("test", "Hello MSSQL", [0.1] * 384)
+        mid = store.store("test", "Hello MSSQL", [0.1] * 1024)
         print(f"Stored: {mid}")
         m = store.get(mid)
         print(f"Retrieved: {m['label']}")

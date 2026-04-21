@@ -25,7 +25,7 @@ import ssl
 import tempfile
 import subprocess
 
-EMBEDDING_DIM = 384
+EMBEDDING_DIM = 1024
 DEFAULT_SQLITE = os.path.expanduser("~/.neural_memory/memory.db")
 TEMPLATE_PATH = Path(__file__).parent / "template.html"
 LIB_CACHE = Path(__file__).parent / ".lib_cache"

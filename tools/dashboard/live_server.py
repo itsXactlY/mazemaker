@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message
 DEFAULT_SQLITE = os.path.expanduser("~/.neural_memory/memory.db")
 TEMPLATE_DIR = Path(__file__).parent
 POLL_INTERVAL = 3.0
-EMBEDDING_DIM = 384
+EMBEDDING_DIM = 1024
 CONFIG_PATH = os.path.expanduser("~/.hermes/config.yaml")
 
 try:

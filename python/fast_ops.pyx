@@ -111,7 +111,7 @@ def temporal_decay(double[:] timestamps, double now, double half_life=24.0):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def hash_embed(str text, int dim=384):
+def hash_embed(str text, int dim=1024):
     """Deterministic hash-based embedding. ~3x faster than Python version.
 
     Returns: list of floats length dim, normalized.
@@ -140,7 +140,7 @@ def hash_embed(str text, int dim=384):
 # Batch Hash Embed
 # ---------------------------------------------------------------------------
 
-def batch_hash_embed(list texts, int dim=384):
+def batch_hash_embed(list texts, int dim=1024):
     """Hash embed a batch of texts. Returns list of vectors."""
     return [hash_embed(t, dim) for t in texts]
 

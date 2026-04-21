@@ -80,7 +80,7 @@ class NeuralMemoryCpp:
     
     Usage:
         mem = NeuralMemoryCpp()
-        mem.initialize(dim=384)
+        mem.initialize(dim=1024)
         id = mem.store([0.1, 0.2, ...], "label", "content")
         results = mem.retrieve([0.1, 0.2, ...], k=10)
         mem.consolidate()
@@ -191,7 +191,7 @@ class NeuralMemoryCpp:
         lib.neural_memory_count_edges.argtypes = [ctypes.c_void_p]
         lib.neural_memory_count_edges.restype = ctypes.c_int64
     
-    def initialize(self, dim: int = 384, hopfield_capacity: int = 1024,
+    def initialize(self, dim: int = 1024, hopfield_capacity: int = 1024,
                    episodic_capacity: int = 10000) -> bool:
         """Initialize the memory system."""
         self._handle = self._lib.neural_memory_create_dim(dim)
@@ -395,20 +395,20 @@ class NeuralMemoryCpp:
 if __name__ == "__main__":
     try:
         mem = NeuralMemoryCpp()
-        mem.initialize(dim=384)
+        mem.initialize(dim=1024)
         print(f"Initialized C++ adapter")
-        
+
         # Store some test data
         import random
         for i in range(5):
-            vec = [random.uniform(-1, 1) for _ in range(384)]
+            vec = [random.uniform(-1, 1) for _ in range(1024)]
             norm = sum(x*x for x in vec) ** 0.5
             vec = [x/norm for x in vec]
             mid = mem.store(vec, f"test_{i}", f"Test memory {i}")
             print(f"  Stored: [{mid}] test_{i}")
-        
+
         # Retrieve
-        query = [random.uniform(-1, 1) for _ in range(384)]
+        query = [random.uniform(-1, 1) for _ in range(1024)]
         norm = sum(x*x for x in query) ** 0.5
         query = [x/norm for x in query]
         results = mem.retrieve(query, k=3)

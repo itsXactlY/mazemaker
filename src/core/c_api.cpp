@@ -22,11 +22,11 @@ static inline NeuralMemoryAdapter* to_adapter(NeuralMemoryHandle h) {
 // ============================================================================
 
 NEURAL_API NeuralMemoryHandle neural_memory_create(void) {
-    return neural_memory_create_dim(384);
+    return neural_memory_create_dim(1024);
 }
 
 NEURAL_API NeuralMemoryHandle neural_memory_create_dim(int vector_dim) {
-    if (vector_dim <= 0) vector_dim = 384;
+    if (vector_dim <= 0) vector_dim = 1024;
 
     auto* adapter = new (std::nothrow) NeuralMemoryAdapter();
     if (!adapter) return nullptr;

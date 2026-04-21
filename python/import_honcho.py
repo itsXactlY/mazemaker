@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 import_honcho.py - Import Honcho Export into Neural Memory
-Uses the exact neural_memory.Memory API. No message_embeddings (9524d != 384d).
+Uses the exact neural_memory.Memory API. No message_embeddings (9524d != 1024d).
 """
 
 import json

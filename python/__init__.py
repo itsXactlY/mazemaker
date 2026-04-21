@@ -243,7 +243,7 @@ class NeuralMemoryProvider(MemoryProvider):
                 # MSSQL active → use C++ dream backend
                 try:
                     from cpp_dream_backend import CppDreamBackend
-                    backend = CppDreamBackend(dim=self._memory.dim if hasattr(self._memory, 'dim') else 384)
+                    backend = CppDreamBackend(dim=self._memory.dim if hasattr(self._memory, 'dim') else 1024)
                     self._dream = DreamEngine(
                         backend,
                         neural_memory=self._memory,

@@ -23,7 +23,7 @@ def cosine(a, b):
 def t1():
     sys.path.insert(0, str(Path(__file__).parent))
     # Inline hash embedding
-    dim = 384
+    dim = 1024
     vec = [0.0]*dim
     for i, tok in enumerate("hello world".split()):
         h = hash(tok)
@@ -39,11 +39,11 @@ def t2():
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
         s = SQLiteStore(db)
-        mid = s.store("test", "content", [0.1]*384)
+        mid = s.store("test", "content", [0.1]*1024)
         assert mid > 0
         m = s.get(mid)
         assert m['label'] == "test"
-        assert len(m['embedding']) == 384
+        assert len(m['embedding']) == 1024
         s.close()
     finally: os.unlink(db)
 
@@ -53,8 +53,8 @@ def t3():
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
         s = SQLiteStore(db)
-        s.store("a", "a", [0.1]*384)
-        s.store("b", "b", [0.2]*384)
+        s.store("a", "a", [0.1]*1024)
+        s.store("b", "b", [0.2]*1024)
         s.add_connection(1, 2, 0.8)
         c = s.get_connections(1)
         assert len(c) == 1 and c[0]['weight'] == 0.8

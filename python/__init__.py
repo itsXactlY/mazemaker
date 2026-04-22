@@ -615,19 +615,45 @@ class NeuralMemoryProvider(MemoryProvider):
 
     def post_llm_call(self, session_id: str, user_message: str, assistant_response: str,
                       conversation_history: list, model: str, platform: str, **kwargs) -> None:
-        """Resume dream engine after a turn completes if still idle.
-        
-        After each turn, if Hermes is going back to idle, restart the dream engine
-        so background consolidation continues without explicit user trigger.
-        Only resumes if the dream engine was active before this turn started.
+        """After every LLM answer: resume dream engine AND store the response.
+
+        Full-fidelity storage: stores the assistant response without the
+        _is_garbage filter (sponge filters too aggressively — skips technical
+        content, error messages, code snippets). Deduplication via embedding
+        similarity still applies so we don't flood with near-duplicates.
+
+        Also archives the full conversation turn via archive_compression for
+        complete losslessness (turn stored even if dedup skips the response).
         """
-        if self._dream is None:
-            return
-        
-        if self._dream_was_running_before_turn:
-            # Restart the dream engine for idle-time consolidation
+        # 1. Dream engine resume (existing behaviour)
+        if self._dream is not None and self._dream_was_running_before_turn:
             self._dream.start()
             self._dream_was_running_before_turn = False
+
+        # 2. Full-fidelity per-turn storage (no garbage filter)
+        if not self._memory or not assistant_response:
+            return
+        if len(assistant_response.strip()) < 5:
+            return
+
+        try:
+            self._memory.remember(
+                assistant_response,
+                label=f"turn:assistant",
+            )
+        except Exception as e:
+            logger.debug(f"Per-turn store failed: {e}")
+
+        # 3. Archive full turn for losslessness (user + assistant together)
+        try:
+            if conversation_history:
+                session_tag = f"session-{session_id[:8]}" if session_id else "session-unknown"
+                self._memory.archive_compression(
+                    turns=conversation_history[-4:],  # last turn: user + asst + tool results
+                    session_tag=session_tag,
+                )
+        except Exception as e:
+            logger.debug(f"Turn archive failed: {e}")
 
     def _on_pre_llm_call(self, session_id: str, user_message: str, **kwargs) -> None:
         """Internal: activity signal from pre_llm_call hook.

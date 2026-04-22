@@ -143,11 +143,16 @@ create_symlinks() {
 
     mkdir -p "$TARGET_DIR"
 
-    # Symlink all .py files from python/
+    # Symlink all .py files from python/ (EXCLUDE build scripts and test helpers)
     for f in "$PYTHON_DIR"/*.py; do
         [ -f "$f" ] || continue
         local BASENAME
         BASENAME=$(basename "$f")
+        # Skip build/test/demo scripts — not runtime modules
+        case "$BASENAME" in
+            setup_fast.py|setup.py|demo.py|test_suite.py|test_integration.py)
+                continue ;;
+        esac
         local LINK="$TARGET_DIR/$BASENAME"
 
         # Backup existing regular file (not symlink)

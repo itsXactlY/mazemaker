@@ -317,16 +317,33 @@ class Memory:
             chunks.append(current_chunk)
         
         # Add overlap: prepend end of previous chunk to each chunk
+        # Guard: overlap >= chunk_size causes duplicate chunks
+        # (taking the last chunk_size chars of a chunk_size-sized chunk = the whole thing)
         if overlap > 0 and len(chunks) > 1:
+            effective_overlap = min(overlap, max(1, chunk_size // 2))
             overlapped = [chunks[0]]
             for i in range(1, len(chunks)):
                 prev = chunks[i - 1]
-                # Take last `overlap` chars, but start at a word boundary
-                overlap_text = prev[-overlap:]
-                space_idx = overlap_text.find(' ')
-                if space_idx > 0:
-                    overlap_text = overlap_text[space_idx + 1:]
-                overlapped.append(overlap_text + " " + chunks[i])
+                # Find the text boundary: where did prev end in the full reconstructed text?
+                # Take enough overlap chars to bridge to the start of current chunk,
+                # but ensure we don't duplicate the entire previous chunk.
+                # Strategy: if prev already ends with similar start as current,
+                # use 1-char word-boundary split; otherwise use effective_overlap
+                prev_tail = prev[-effective_overlap:]
+                curr_start = chunks[i][:effective_overlap]
+                # If prev's tail and curr's start are too similar, reduce overlap
+                if prev_tail.strip() == curr_start.strip():
+                    # Nearly identical overlap — use word boundary only
+                    overlap_text = prev[-max(1, len(prev) // 4):]
+                    space_idx = overlap_text.strip().find(" ")
+                    if space_idx >= 0:
+                        overlap_text = overlap_text[space_idx + 1:]
+                else:
+                    overlap_text = prev_tail
+                    space_idx = overlap_text.find(" ")
+                    if space_idx > 0:
+                        overlap_text = overlap_text[space_idx + 1:]
+                overlapped.append((overlap_text + " " + chunks[i]).strip())
             chunks = overlapped
         
         return chunks

@@ -306,26 +306,31 @@ class NeuralMemory:
         _backend_name = type(self.embedder.backend).__name__
         _can_detect = _backend_name in _reliable_backends
         
-        if detect_conflicts and self._graph_nodes and _can_detect:
-            conflicts = self._find_conflicts(text, embedding)
-            for conflict_id, conflict_info in conflicts.items():
-                old_content = conflict_info['content']
-                similarity = conflict_info['similarity']
-                
-                # High similarity + different content = likely update
-                if similarity > 0.7 and self._content_differs(old_content, text):
-                    # Mark old memory as superseded
-                    with self.store._lock:
-                        self.store.conn.execute(
-                            "UPDATE memories SET content = ? WHERE id = ?",
-                            (f"[SUPERSEDED] {old_content}\n[UPDATED TO] {text}", conflict_id)
-                        )
-                        self.store.conn.commit()
-                    # Update in-memory graph
-                    if conflict_id in self._graph_nodes:
-                        self._graph_nodes[conflict_id]['embedding'] = embedding
-                    # Don't create duplicate - update existing
-                    return conflict_id
+        if detect_conflicts and self._graph_nodes and _can_detect and label:
+            # Conflict detection is LABEL-BASED only.
+            # Two memories with different labels are NOT conflicts — they are
+            # separate memories about different topics, even if semantically similar.
+            # Only update when: same label + similar embedding + different content.
+            for other_id, other_node in self._graph_nodes.items():
+                if other_node.get("label") != label:
+                    continue
+                sim = self._cosine_similarity(embedding, other_node["embedding"])
+                if sim > 0.7:
+                    other_mem = self.store.get(other_id)
+                    if not other_mem:
+                        continue
+                    old_content = other_mem.get("content", "")
+                    if self._content_differs(old_content, text):
+                        # Same label, similar, different content = update this memory
+                        with self.store._lock:
+                            self.store.conn.execute(
+                                "UPDATE memories SET content = ? WHERE id = ?",
+                                (f"[SUPERSEDED] {old_content}\n[UPDATED TO] {text}", other_id)
+                            )
+                            self.store.conn.commit()
+                        other_node["embedding"] = embedding
+                        self.store.touch(other_id)
+                        return other_id
         
         mem_id = self.store.store(label or text[:60], text, embedding)
         
@@ -360,15 +365,25 @@ class NeuralMemory:
     def _find_conflicts(self, new_text: str, new_embedding: list[float], threshold: float = 0.6) -> dict:
         """Find memories that might conflict with the new text.
         Returns {memory_id: {similarity, content}} for potential conflicts.
+
+        Note: [SUPERSEDED] memories are excluded — they are update chains,
+        not real conflicts. Including them causes every new memory to match
+        the oldest superseded entry and get incorrectly assigned its ID.
         """
         conflicts = {}
         for mem in self.store.get_all():
-            sim = self._cosine_similarity(new_embedding, mem['embedding'])
+            # Skip [SUPERSEDED] memories — they are update chains, not real conflicts
+            # Including them causes every new memory to match the oldest superseded
+            # entry (which has accumulated different numbers) and get its ID
+            content = mem.get("content", "") or ""
+            if content.startswith("[SUPERSEDED]"):
+                continue
+            sim = self._cosine_similarity(new_embedding, mem["embedding"])
             if sim > threshold:
-                conflicts[mem['id']] = {
-                    'similarity': sim,
-                    'content': mem['content'],
-                    'label': mem['label']
+                conflicts[mem["id"]] = {
+                    "similarity": sim,
+                    "content": content,
+                    "label": mem.get("label", ""),
                 }
         return conflicts
     

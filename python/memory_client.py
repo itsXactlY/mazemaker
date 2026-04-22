@@ -350,7 +350,7 @@ class NeuralMemory:
                 if other_id == mem_id:
                     continue
                 sim = self._cosine_similarity(embedding, other_node['embedding'])
-                if sim > 0.15:  # Threshold for connection
+                if sim > 0.45:  # Threshold for connection
                     self._graph_nodes[mem_id]['connections'][other_id] = sim
                     self._graph_nodes[other_id]['connections'][mem_id] = sim
                     self.store.add_connection(mem_id, other_id, sim)

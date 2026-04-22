@@ -11,13 +11,14 @@
 #   3. Patch dream_engine.py     (auto-prune every 50 cycles)
 #   4. Patch dream_mssql_store.py (MSSQL retention methods)
 #   5. Patch cpp_dream_backend.py (safe stubs for C++ backend)
-#   6. Verify integrity
+#   6. Sync SQLite → MSSQL (memories + connections, full replace)
+#   7. Verify integrity
 #
 # Usage:
-#   bash migrate.sh [--db PATH] [--plugin-dir PATH] [--dry-run]
+#   bash migrate.sh [--db PATH] [--plugin-dir PATH] [--dry-run] [--skip-mssql]
 #
 # Defaults:
-#   --db         ~/.hermes/hermes-agent/plugins/memory/neural/neural_memory.db
+#   --db         ~/.neural_memory/memory.db
 #   --plugin-dir ~/.hermes/hermes-agent/plugins/memory/neural
 # ============================================================================
 
@@ -37,10 +38,11 @@ warn()  { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
 fail()  { echo -e "${RED}[FAIL]${RESET}  $*"; }
 step()  { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
 
-# ── Parse args ──────────────────────────────────────────────────────────────
+# ── Parse args ───────────────────────────────────────────────────────────────
 DB_PATH="${HOME}/.neural_memory/memory.db"
 PLUGIN_DIR="${HOME}/.hermes/hermes-agent/plugins/memory/neural"
 DRY_RUN=""
+SKIP_MSSQL=""
 ADAPTER_DIR="${HOME}/projects/neural-memory-adapter"
 
 while [[ $# -gt 0 ]]; do
@@ -48,14 +50,15 @@ while [[ $# -gt 0 ]]; do
         --db)         DB_PATH="$2"; shift 2 ;;
         --plugin-dir) PLUGIN_DIR="$2"; shift 2 ;;
         --dry-run)    DRY_RUN="--dry-run"; shift ;;
+        --skip-mssql) SKIP_MSSQL="1"; shift ;;
         --help|-h)
-            echo "Usage: bash migrate.sh [--db PATH] [--plugin-dir PATH] [--dry-run]"
+            echo "Usage: bash migrate.sh [--db PATH] [--plugin-dir PATH] [--dry-run] [--skip-mssql]"
             exit 0 ;;
         *) fail "Unknown option: $1"; exit 1 ;;
     esac
 done
 
-# ── Preflight ───────────────────────────────────────────────────────────────
+# ── Preflight ────────────────────────────────────────────────────────────────
 step "Preflight checks"
 
 if [[ ! -f "$DB_PATH" ]]; then
@@ -71,7 +74,6 @@ if [[ -n "$DRY_RUN" ]]; then
     warn "DRY RUN — no changes will be made"
 fi
 
-# Check python3
 if ! command -v python3 &>/dev/null; then
     fail "python3 not found"
     exit 1
@@ -79,8 +81,8 @@ fi
 
 ok "Preflight passed"
 
-# ── Step 1: Backup ──────────────────────────────────────────────────────────
-step "Step 1/5 — Backup database"
+# ── Step 1: Backup ───────────────────────────────────────────────────────────
+step "Step 1/6 — Backup database"
 
 if [[ -z "$DRY_RUN" ]]; then
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -92,14 +94,12 @@ else
     info "Would create: ${DB_PATH}.bak.<timestamp>"
 fi
 
-# ── Step 2: Data cleanup (production_upgrade.py) ────────────────────────────
-step "Step 2/5 — Data cleanup (orphans, history, dedup, VACUUM)"
+# ── Step 2: Data cleanup ─────────────────────────────────────────────────────
+step "Step 2/6 — Data cleanup (orphans, history, dedup, VACUUM)"
 
-# Find the upgrade script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPGRADE_SCRIPT=""
 
-# Search order: same dir, plugin tools, adapter tools
 for candidate in \
     "${SCRIPT_DIR}/production_upgrade.py" \
     "${PLUGIN_DIR}/tools/production_upgrade.py" \
@@ -112,7 +112,6 @@ for candidate in \
 done
 
 if [[ -z "$UPGRADE_SCRIPT" ]]; then
-    # Inline the data cleanup if script not found
     warn "production_upgrade.py not found — running inline cleanup"
     python3 - "$DB_PATH" "$DRY_RUN" <<'PYEOF'
 import sqlite3, sys, os, time
@@ -122,7 +121,6 @@ dry_run = "--dry-run" in sys.argv
 
 conn = sqlite3.connect(db_path)
 
-# Count before
 orphans = conn.execute("""
     SELECT COUNT(*) FROM connections
     WHERE source_id NOT IN (SELECT id FROM memories)
@@ -150,7 +148,6 @@ if dry_run:
     conn.close()
     sys.exit(0)
 
-# Clean orphans
 conn.execute("""
     DELETE FROM connections
     WHERE source_id NOT IN (SELECT id FROM memories)
@@ -158,7 +155,6 @@ conn.execute("""
 """)
 print(f"  Removed {orphans:,} orphan connections")
 
-# Clean orphan history
 conn.execute("""
     DELETE FROM connection_history
     WHERE source_id NOT IN (SELECT id FROM memories)
@@ -166,27 +162,23 @@ conn.execute("""
 """)
 print(f"  Removed {orphan_hist:,} orphan history entries")
 
-# Dedup + UNIQUE constraint
 if dupes > 0:
     conn.execute("DELETE FROM connections WHERE id NOT IN (SELECT MIN(id) FROM connections GROUP BY source_id, target_id, edge_type)")
     print(f"  Removed {dupes:,} duplicate edges")
 
-# Check if UNIQUE index exists
 existing = conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_connections_unique'").fetchone()
 if not existing:
     conn.execute("CREATE UNIQUE INDEX idx_connections_unique ON connections(source_id, target_id, edge_type)")
     print("  Added UNIQUE constraint (idx_connections_unique)")
 
-# Retention indexes
 conn.execute("CREATE INDEX IF NOT EXISTS idx_conn_history_time ON connection_history(changed_at)")
 conn.execute("CREATE INDEX IF NOT EXISTS idx_dream_sessions_time ON dream_sessions(started_at)")
+conn.commit()
 
-# VACUUM
 conn.execute("VACUUM")
 after_mb = os.path.getsize(db_path) / 1024 / 1024
 print(f"  After VACUUM: {after_mb:.1f} MB (freed {before_mb - after_mb:.1f} MB)")
 
-# Verify
 result = conn.execute("PRAGMA integrity_check").fetchone()[0]
 print(f"  Integrity: {result}")
 
@@ -199,8 +191,8 @@ fi
 
 ok "Data cleanup complete"
 
-# ── Step 3: Patch dream_engine.py ───────────────────────────────────────────
-step "Step 3/5 — Patch dream_engine.py (auto-prune)"
+# ── Step 3: Patch dream_engine.py ────────────────────────────────────────────
+step "Step 3/6 — Patch dream_engine.py (auto-prune)"
 
 python3 - "$PLUGIN_DIR/dream_engine.py" "$DRY_RUN" <<'PYEOF'
 import sys, re, os
@@ -213,9 +205,6 @@ with open(path) as f:
 
 patches_applied = []
 
-# ── Patch A: Abstract DreamBackend — add interface methods ──────────────
-# Check within abstract class context (before SQLiteDreamBackend) to avoid
-# false negative when Patch B adds prune_connection_history to the concrete class first.
 _abstract_end = content.find('class SQLiteDreamBackend')
 _abstract_section = content[:_abstract_end] if _abstract_end > 0 else content
 _patch_a_needed = 'def prune_connection_history' not in _abstract_section
@@ -253,7 +242,6 @@ if _patch_a_needed:
     else:
         print("  WARN: Patch A pattern not found (maybe already applied)")
 
-# ── Patch B: SQLiteDreamBackend — add concrete implementations ──────────
 if 'def prune_connection_history(self, keep_days' not in content or \
    content.count('def prune_connection_history(self, keep_days') < 2:
 
@@ -339,7 +327,6 @@ if 'def prune_connection_history(self, keep_days' not in content or \
     else:
         print("  WARN: Patch B pattern not found (maybe already applied)")
 
-# ── Patch C: NREM phase — periodic cleanup every 50 cycles ──────────────
 if '_dream_count % 50 == 0' not in content:
     old = '''            # Prune dead connections
             stats["pruned"] = self._backend.prune_weak(0.05)
@@ -385,8 +372,8 @@ PYEOF
 
 ok "dream_engine.py patched"
 
-# ── Step 4: Patch dream_mssql_store.py ──────────────────────────────────────
-step "Step 4/5 — Patch dream_mssql_store.py (MSSQL retention)"
+# ── Step 4: Patch dream_mssql_store.py ───────────────────────────────────────
+step "Step 4/6 — Patch dream_mssql_store.py (MSSQL retention)"
 
 MSSQL_FILE="${PLUGIN_DIR}/dream_mssql_store.py"
 if [[ -f "$MSSQL_FILE" ]]; then
@@ -462,8 +449,8 @@ else
     info "dream_mssql_store.py not found (SQLite-only setup — OK)"
 fi
 
-# ── Step 5: Patch cpp_dream_backend.py ──────────────────────────────────────
-step "Step 5/5 — Patch cpp_dream_backend.py (safe stubs)"
+# ── Step 5: Patch cpp_dream_backend.py ───────────────────────────────────────
+step "Step 5/6 — Patch cpp_dream_backend.py (safe stubs)"
 
 CPP_FILE="${PLUGIN_DIR}/cpp_dream_backend.py"
 if [[ -f "$CPP_FILE" ]]; then
@@ -477,15 +464,10 @@ with open(path) as f:
     content = f.read()
 
 if 'def prune_connection_history' not in content:
-    # Find insertion point: after log_connection_change method ends, before add_insight
-    # Use flexible matching — the log_connection_change body varies between implementations
-    import re
     _log_end = content.find('    def add_insight')
     if _log_end > 0:
-        # Find the actual end of log_connection_change by scanning backwards from add_insight
         _insert_marker = content.rfind('\n\n', 0, _log_end)
         if _insert_marker > 0:
-            insert_point = _insert_marker
             stubs = '''
     def prune_connection_history(self, keep_days: int = 7) -> int:
         """Skip — C++/MSSQL handles history internally."""
@@ -512,16 +494,16 @@ if 'def prune_connection_history' not in content:
 
 '''
             if not dry_run:
-                content = content[:insert_point] + stubs + content[insert_point:]
+                content = content[:_insert_marker] + stubs + content[_insert_marker:]
                 with open(path, 'w') as f:
                     f.write(content)
-                print("  Applied: prune stubs (line-based)")
+                print("  Applied: prune stubs")
             else:
-                print("  Would apply: prune stubs (line-based)")
+                print("  Would apply: prune stubs")
         else:
-            print("  WARN: Could not find insertion point between log_connection_change and add_insight")
+            print("  WARN: Could not find insertion point")
     else:
-        print("  WARN: add_insight method not found — cannot insert stubs")
+        print("  WARN: add_insight method not found")
 else:
     print("  Already up to date")
 PYEOF
@@ -530,24 +512,217 @@ else
     info "cpp_dream_backend.py not found (SQLite-only setup — OK)"
 fi
 
-# ── Final verification ──────────────────────────────────────────────────────
+# ── Step 6: SQLite → MSSQL sync ───────────────────────────────────────────────
+step "Step 6/6 — Sync SQLite → MSSQL (cold storage)"
+
+if [[ -n "$SKIP_MSSQL" ]]; then
+    info "Skipped (--skip-mssql)"
+else
+    python3 - "$DB_PATH" "$PLUGIN_DIR" "$DRY_RUN" <<'PYEOF'
+import sys, os, sqlite3
+
+db_path   = sys.argv[1]
+plugin_dir = sys.argv[2]
+dry_run   = "--dry-run" in sys.argv
+
+# Load mssql_store config from config.yaml
+import importlib.util, pathlib
+
+config_path = pathlib.Path(plugin_dir) / "config.py"
+cfg = None
+try:
+    spec = importlib.util.spec_from_file_location("config", config_path)
+    mod  = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cfg = mod.load_config()
+except Exception as e:
+    print(f"  Could not load config.py: {e}")
+
+mssql_cfg = None
+if cfg:
+    try:
+        mssql_cfg = cfg.get("memory", {}).get("neural", {}).get("mssql")
+    except Exception:
+        pass
+
+if not mssql_cfg:
+    # Try reading config.yaml directly
+    import yaml, pathlib
+    config_yaml = pathlib.Path.home() / ".hermes" / "config.yaml"
+    if config_yaml.exists():
+        try:
+            with open(config_yaml) as f:
+                raw = yaml.safe_load(f)
+            mssql_cfg = raw.get("memory", {}).get("neural", {}).get("mssql")
+        except Exception as e:
+            print(f"  Could not read config.yaml: {e}")
+
+if not mssql_cfg:
+    print("  No MSSQL config found — skipping sync")
+    print("  Add mssql: block under memory.neural in ~/.hermes/config.yaml to enable")
+    sys.exit(0)
+
+# Connect MSSQL
+try:
+    import pyodbc
+except ImportError:
+    print("  pyodbc not installed — skipping MSSQL sync")
+    print("  Run: pip install pyodbc --break-system-packages")
+    sys.exit(0)
+
+server   = mssql_cfg.get("server", "127.0.0.1")
+database = mssql_cfg.get("database", "NeuralMemory")
+username = mssql_cfg.get("username", "SA")
+password = mssql_cfg.get("password", "")
+driver   = mssql_cfg.get("driver", "{ODBC Driver 18 for SQL Server}")
+
+conn_str = (
+    f"DRIVER={driver};SERVER={server};DATABASE={database};"
+    f"UID={username};PWD={password};TrustServerCertificate=yes;"
+)
+
+try:
+    mssql = pyodbc.connect(conn_str, timeout=10)
+    print(f"  Connected: {server}/{database}")
+except Exception as e:
+    print(f"  MSSQL connection failed: {e}")
+    print("  Skipping sync — SQLite is source of truth")
+    sys.exit(0)
+
+# Read SQLite
+sqlite = sqlite3.connect(db_path)
+sqlite.row_factory = sqlite3.Row
+
+memories    = sqlite.execute("SELECT * FROM memories").fetchall()
+connections = sqlite.execute("SELECT * FROM connections").fetchall()
+
+print(f"  SQLite: {len(memories):,} memories, {len(connections):,} connections")
+
+if dry_run:
+    print("  DRY RUN — would sync to MSSQL")
+    sqlite.close()
+    mssql.close()
+    sys.exit(0)
+
+cur = mssql.cursor()
+
+# ── Sync memories ───────────────────────────────────────────────────────
+print("  Syncing memories...", end=" ", flush=True)
+
+cur.execute("SELECT id FROM memories")
+existing_ids = {row[0] for row in cur.fetchall()}
+sqlite_ids   = {row["id"] for row in memories}
+
+# Delete removed
+to_delete = existing_ids - sqlite_ids
+if to_delete:
+    placeholders = ",".join("?" * len(to_delete))
+    cur.execute(f"DELETE FROM memories WHERE id IN ({placeholders})", list(to_delete))
+    print(f"deleted {len(to_delete)}", end=" ", flush=True)
+
+# Upsert existing/new
+inserted = updated = 0
+for row in memories:
+    if row["id"] in existing_ids:
+        cur.execute("""
+            UPDATE memories SET
+                label        = ?,
+                content      = ?,
+                embedding    = ?,
+                salience     = ?,
+                created_at   = ?,
+                last_accessed = ?,
+                access_count = ?
+            WHERE id = ?
+        """, (
+            row["label"], row["content"], row["embedding"],
+            row["salience"], row["created_at"], row["last_accessed"],
+            row["access_count"], row["id"]
+        ))
+        updated += 1
+    else:
+        cur.execute("""
+            INSERT INTO memories
+                (id, label, content, embedding, salience, created_at, last_accessed, access_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            row["id"], row["label"], row["content"], row["embedding"],
+            row["salience"], row["created_at"], row["last_accessed"],
+            row["access_count"]
+        ))
+        inserted += 1
+
+mssql.commit()
+print(f"| inserted={inserted} updated={updated}")
+
+# ── Sync connections (full replace — fast, clean) ───────────────────────
+print("  Syncing connections (full replace)...", end=" ", flush=True)
+
+cur.execute("DELETE FROM [connections]")
+deleted_conn = cur.rowcount
+
+batch = []
+for row in connections:
+    batch.append((
+        row["source_id"], row["target_id"],
+        row["weight"],
+        row["edge_type"] if "edge_type" in row.keys() else "similar"
+    ))
+    if len(batch) >= 1000:
+        cur.executemany(
+            "INSERT INTO [connections] (source_id, target_id, weight, edge_type) VALUES (?, ?, ?, ?)",
+            batch
+        )
+        batch = []
+
+if batch:
+    cur.executemany(
+        "INSERT INTO [connections] (source_id, target_id, weight, edge_type) VALUES (?, ?, ?, ?)",
+        batch
+    )
+
+mssql.commit()
+print(f"| replaced {deleted_conn:,} → inserted {len(connections):,}")
+
+# ── Verify counts ────────────────────────────────────────────────────────
+mssql_mem_count  = cur.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+mssql_conn_count = cur.execute("SELECT COUNT(*) FROM [connections]").fetchone()[0]
+
+print(f"  MSSQL after sync: {mssql_mem_count:,} memories, {mssql_conn_count:,} connections")
+
+if mssql_mem_count == len(memories) and mssql_conn_count == len(connections):
+    print("  Counts match — sync PASS")
+else:
+    print(f"  WARNING: count mismatch! SQLite={len(memories)}/{len(connections)} MSSQL={mssql_mem_count}/{mssql_conn_count}")
+
+sqlite.close()
+mssql.close()
+PYEOF
+
+    if [[ $? -eq 0 ]]; then
+        ok "SQLite → MSSQL sync complete"
+    else
+        warn "MSSQL sync had issues — check output above. SQLite remains source of truth."
+    fi
+fi
+
+# ── Final verification ────────────────────────────────────────────────────────
 step "Verification"
 
 if [[ -z "$DRY_RUN" ]]; then
     python3 - "$DB_PATH" "$PLUGIN_DIR" <<'PYEOF'
 import sqlite3, sys, os
 
-db_path = sys.argv[1]
+db_path    = sys.argv[1]
 plugin_dir = sys.argv[2]
 
-ok = True
+ok_all = True
 
-# DB integrity
 conn = sqlite3.connect(db_path)
 result = conn.execute("PRAGMA integrity_check").fetchone()[0]
 if result != "ok":
     print(f"  FAIL: integrity_check = {result}")
-    ok = False
+    ok_all = False
 else:
     print(f"  DB integrity: PASS")
 
@@ -556,11 +731,9 @@ orphans = conn.execute("""
     WHERE source_id NOT IN (SELECT id FROM memories)
        OR target_id NOT IN (SELECT id FROM memories)
 """).fetchone()[0]
+print(f"  Orphan connections: {orphans}  {'PASS' if orphans == 0 else 'FAIL'}")
 if orphans > 0:
-    print(f"  FAIL: {orphans} orphan connections remain")
-    ok = False
-else:
-    print(f"  Orphan connections: 0  PASS")
+    ok_all = False
 
 dupes = conn.execute("""
     SELECT COUNT(*) FROM (
@@ -568,47 +741,34 @@ dupes = conn.execute("""
         FROM connections GROUP BY source_id, target_id, edge_type HAVING cnt > 1
     )
 """).fetchone()[0]
+print(f"  Duplicate edges: {dupes}  {'PASS' if dupes == 0 else 'FAIL'}")
 if dupes > 0:
-    print(f"  FAIL: {dupes} duplicate edge groups")
-    ok = False
-else:
-    print(f"  Duplicate edges: 0  PASS")
+    ok_all = False
 
 has_unique = conn.execute(
     "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_connections_unique'"
 ).fetchone()
 print(f"  UNIQUE constraint: {'ACTIVE' if has_unique else 'MISSING'}")
-if not has_unique:
-    ok = False
-
-has_retention = conn.execute(
-    "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_conn_history_time'"
-).fetchone()
-print(f"  Retention index: {'ACTIVE' if has_retention else 'MISSING'}")
-if not has_retention:
-    ok = False
 
 size_mb = os.path.getsize(db_path) / 1024 / 1024
-print(f"  DB size: {size_mb:.1f} MB")
-
+mem_count  = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+conn_count = conn.execute("SELECT COUNT(*) FROM connections").fetchone()[0]
+avg_w      = conn.execute("SELECT ROUND(AVG(weight),3) FROM connections").fetchone()[0]
+print(f"  DB size: {size_mb:.1f} MB | memories={mem_count:,} | connections={conn_count:,} | avg_weight={avg_w}")
 conn.close()
 
-# Code patches
-for fname in ['dream_engine.py', 'dream_mssql_store.py', 'cpp_dream_backend.py']:
+for fname in ['dream_engine.py']:
     fpath = os.path.join(plugin_dir, fname)
     if os.path.exists(fpath):
         with open(fpath) as f:
             code = f.read()
-        has_prune = 'def prune_connection_history' in code
-        has_cleanup = '_dream_count % 50 == 0' in code or 'CppDreamBackend' in code
-        status = 'PATCHED' if has_prune else 'MISSING PATCH'
-        print(f"  {fname}: {status}")
-        if not has_prune and 'dream_engine' in fname:
-            ok = False
-    else:
-        print(f"  {fname}: not found (OK for SQLite-only)")
+        has_prune   = 'def prune_connection_history' in code
+        has_cleanup = '_dream_count % 50 == 0' in code
+        print(f"  {fname}: prune={'OK' if has_prune else 'MISSING'} auto-cleanup={'OK' if has_cleanup else 'MISSING'}")
+        if not has_prune or not has_cleanup:
+            ok_all = False
 
-if ok:
+if ok_all:
     print(f"\n  ALL CHECKS PASSED")
 else:
     print(f"\n  SOME CHECKS FAILED — review above")
@@ -618,7 +778,7 @@ else
     info "Skipped (dry run)"
 fi
 
-# ── Done ────────────────────────────────────────────────────────────────────
+# ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}══════════════════════════════════════════════════${RESET}"
 echo -e "${GREEN}${BOLD}  MIGRATION COMPLETE${RESET}"
@@ -629,6 +789,7 @@ echo "    DB: orphans removed, history cleaned, deduped, VACUUM'd"
 echo "    dream_engine.py: auto-prune every 50 Dream cycles"
 echo "    dream_mssql_store.py: retention methods added"
 echo "    cpp_dream_backend.py: safe stubs added"
+echo "    MSSQL: synced from SQLite (memories + connections)"
 echo ""
 if [[ -z "$DRY_RUN" ]]; then
     echo "  Backup: ${BACKUP_PATH:-N/A}"

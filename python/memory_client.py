@@ -145,10 +145,28 @@ class SQLiteStore:
     
     def touch(self, id_: int):
         with self._lock:
+            # Update access tracking
             self.conn.execute(
                 "UPDATE memories SET last_accessed = unixepoch(), access_count = access_count + 1 WHERE id = ?",
                 (id_,)
             )
+            # Recompute salience: access_count boost + connection count boost
+            row = self.conn.execute(
+                "SELECT access_count, (SELECT COUNT(*) FROM connections WHERE source_id = ? OR target_id = ?) as conn_count FROM memories WHERE id = ?",
+                (id_, id_, id_)
+            ).fetchone()
+            if row:
+                access_count = row[0]
+                conn_count = row[1]
+                import math
+                # Heavily damped: log-log scaling for access, log for connections
+                # access=0 → 1.0, access=100 → ~1.5, access=10K → ~1.8, access=100K → ~2.0
+                salience = 1.0 + 0.25 * math.log1p(math.log1p(access_count)) + 0.15 * math.log1p(conn_count)
+                salience = max(0.5, min(3.0, salience))
+                self.conn.execute(
+                    "UPDATE memories SET salience = ? WHERE id = ?",
+                    (salience, id_)
+                )
             self.conn.commit()
     
     def add_connection(self, source: int, target: int, weight: float, edge_type: str = "similar"):

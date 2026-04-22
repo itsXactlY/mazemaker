@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Dream Worker — Standalone full-stack dream engine for MSSQL.
+Dream Worker — Standalone full-stack dream engine.
 
-Reads memories from MSSQL, uses sentence-transformers for embeddings,
-runs all 3 dream phases, and writes results back to MSSQL.
+Supports SQLite (default) and MSSQL backends. Auto-detects available backend.
 
 Usage:
-    python dream_worker.py              # one-shot dream cycle
-    python dream_worker.py --daemon     # background loop (idle-based)
-    python dream_worker.py --phase nrem # single phase only
+    python dream_worker.py                     # one-shot dream cycle (auto-detect)
+    python dream_worker.py --backend sqlite    # force SQLite
+    python dream_worker.py --backend mssql     # force MSSQL
+    python dream_worker.py --daemon            # background loop (idle-based)
+    python dream_worker.py --phase nrem        # single phase only
+    python dream_worker.py --db /path/to.db    # custom SQLite path
 
 Config: reads from config.yaml or env vars.
 """
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 from collections import defaultdict
@@ -124,18 +127,43 @@ class EmbedProvider:
 # ---------------------------------------------------------------------------
 
 class DreamWorker:
-    """Full-stack dream engine operating on MSSQL with sentence-transformers."""
+    """Full-stack dream engine — SQLite first, MSSQL cold storage."""
 
-    def __init__(self, mssql_config: Optional[dict] = None):
-        from dream_mssql_store import DreamMSSQLStore
+    def __init__(self, backend: str = "auto", db_path: str = "", mssql_config: Optional[dict] = None):
+        if backend == "auto":
+            backend = self._detect_backend()
 
-        if mssql_config:
-            self.store = DreamMSSQLStore.from_config(mssql_config)
+        if backend == "sqlite":
+            from dream_engine import SQLiteDreamBackend
+            db_path = db_path or os.path.expanduser("~/.neural_memory/memory.db")
+            self.store = SQLiteDreamBackend(db_path)
+            self._backend_type = "sqlite"
+            logger.info("DreamWorker: SQLite backend (%s)", db_path)
         else:
-            self.store = DreamMSSQLStore()
+            from dream_mssql_store import DreamMSSQLStore
+            if mssql_config:
+                self.store = DreamMSSQLStore.from_config(mssql_config)
+            else:
+                self.store = DreamMSSQLStore()
+            self._backend_type = "mssql"
+            logger.info("DreamWorker: MSSQL backend")
 
-        self.embedder = EmbedProvider()
+        from embed_provider import EmbeddingProvider as _EP
+        self.embedder = _EP()
         self._embedding_cache: Dict[int, List[float]] = {}
+
+    @staticmethod
+    def _detect_backend() -> str:
+        """Auto-detect: try MSSQL, fallback to SQLite."""
+        try:
+            import pyodbc
+            from dream_mssql_store import DreamMSSQLStore
+            store = DreamMSSQLStore()
+            store.close()
+            return "mssql"
+        except Exception:
+            pass
+        return "sqlite"
 
     def close(self):
         self.store.close()
@@ -157,7 +185,11 @@ class DreamWorker:
             return None
 
     def _similarity(self, a: List[float], b: List[float]) -> float:
-        return EmbedProvider.cosine_similarity(a, b)
+        import math
+        dot = sum(x*y for x, y in zip(a, b))
+        na = math.sqrt(sum(x*x for x in a))
+        nb = math.sqrt(sum(x*x for x in b))
+        return dot / (na * nb) if na * nb > 0 else 0.0
 
     # -- Phase 1: NREM -------------------------------------------------------
 
@@ -200,7 +232,7 @@ class DreamWorker:
             cursor.execute(
                 "SELECT source_id, target_id, weight FROM connections "
                 "WHERE source_id = ? OR target_id = ?",
-                mid, mid
+                (mid, mid)
             )
             for row in cursor.fetchall():
                 src, tgt, w = row
@@ -220,7 +252,7 @@ class DreamWorker:
                 "UPDATE connections SET weight = CASE "
                 "WHEN weight + 0.05 > 1.0 THEN 1.0 ELSE weight + 0.05 END "
                 "WHERE source_id = ? AND target_id = ?",
-                src, tgt
+                (src, tgt)
             )
         self.store.conn.commit()
         stats["strengthened"] = len(activated_edges)
@@ -300,7 +332,7 @@ class DreamWorker:
 
     def phase_insights(self) -> Dict[str, Any]:
         """Insight: Community detection, bridge identification, abstraction."""
-        logger.info("Insight: building graph from MSSQL connections...")
+        logger.info("Insight: building graph from %s connections...", self._backend_type)
         stats = {"communities": 0, "bridges": 0, "insights": 0}
         session_id = self.store.start_session("insight")
 
@@ -391,14 +423,17 @@ class DreamWorker:
 
     def _extract_theme(self, node_ids: List[int]) -> str:
         """Extract common themes from node IDs via keyword frequency."""
-        # Fetch content for these nodes
         placeholders = ",".join(str(n) for n in node_ids[:100])
         try:
-            import pyodbc
             cursor = self.store.conn.cursor()
-            cursor.execute(
-                f"SELECT TOP 50 content FROM memories WHERE id IN ({placeholders})"
-            )
+            if self._backend_type == "mssql":
+                cursor.execute(
+                    f"SELECT TOP 50 content FROM memories WHERE id IN ({placeholders})"
+                )
+            else:
+                cursor.execute(
+                    f"SELECT content FROM memories WHERE id IN ({placeholders}) LIMIT 50"
+                )
             contents = [row[0] for row in cursor.fetchall() if row[0]]
         except Exception:
             return f"{len(node_ids)} memories"
@@ -448,11 +483,14 @@ class DreamWorker:
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Dream Worker — MSSQL + sentence-transformers")
+    parser = argparse.ArgumentParser(description="Dream Worker — SQLite + MSSQL dual-backend")
     parser.add_argument("--phase", default="all", choices=["all", "nrem", "rem", "insight"])
     parser.add_argument("--daemon", action="store_true", help="Run as background daemon")
     parser.add_argument("--idle", type=int, default=300, help="Idle threshold in seconds")
     parser.add_argument("--limit", type=int, default=200, help="Max memories per phase")
+    parser.add_argument("--backend", default="auto", choices=["auto", "sqlite", "mssql"],
+                        help="Backend: sqlite (default), mssql, or auto-detect")
+    parser.add_argument("--db", default="", help="SQLite database path (default: ~/.neural_memory/memory.db)")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -461,7 +499,7 @@ def main():
         datefmt="%H:%M:%S",
     )
 
-    worker = DreamWorker()
+    worker = DreamWorker(backend=args.backend, db_path=args.db)
 
     try:
         if args.daemon:

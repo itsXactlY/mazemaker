@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message
 DEFAULT_SQLITE = os.path.expanduser("~/.neural_memory/memory.db")
 TEMPLATE_DIR = Path(__file__).parent
 POLL_INTERVAL = 3.0
-EMBEDDING_DIM = 1024
+# Embedding dim is read dynamically from DB at runtime (not hardcoded)
 CONFIG_PATH = os.path.expanduser("~/.hermes/config.yaml")
 
 try:
@@ -94,7 +94,7 @@ def read_sqlite(db_path: str) -> dict:
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.execute("""
-        SELECT m.id, m.label, m.content, m.salience, m.access_count,
+        SELECT m.id, m.label, m.content, m.salience, m.access_count, m.created_at,
                COALESCE(out_d.out_degree, 0) AS out_degree,
                COALESCE(in_d.in_degree, 0) AS in_degree,
                COALESCE(out_d.avg_weight, 0) AS avg_weight
@@ -112,8 +112,9 @@ def read_sqlite(db_path: str) -> dict:
             "id": r[0], "label": label[:50], "category": _categorize(label),
             "content_length": len(r[2]) if r[2] else 0,
             "salience": r[3] or 1.0, "access_count": r[4] or 0,
-            "out_degree": r[5], "in_degree": r[6], "total_degree": r[5] + r[6],
-            "avg_weight": round(r[7], 4),
+            "created_at": r[5] or 0,
+            "out_degree": r[6], "in_degree": r[7], "total_degree": r[6] + r[7],
+            "avg_weight": round(r[8], 4),
         })
     hub_ids = [n["id"] for n in nodes[:120]]
     id_set = set(hub_ids)
@@ -151,13 +152,32 @@ def read_sqlite(db_path: str) -> dict:
     n_mem = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM connections")
     n_conn = cur.fetchone()[0]
+    # Read actual embedding dim from DB
+    cur.execute("SELECT length(embedding) FROM memories WHERE embedding IS NOT NULL LIMIT 1")
+    emb_row = cur.fetchone()
+    actual_dim = (emb_row[0] // 4) if emb_row else 1024
+
+    # Dream sessions for timeline markers
+    dream_sessions = []
+    try:
+        cur.execute("SELECT id, phase, started_at, completed_at, stats FROM dream_sessions ORDER BY started_at")
+        for r in cur.fetchall():
+            dream_sessions.append({
+                "id": r[0], "phase": r[1],
+                "started_at": r[2], "completed_at": r[3],
+                "stats": r[4]
+            })
+    except Exception:
+        pass
+
     conn.close()
     return {
         "nodes": nodes, "edges": edges,
         "categories": categories, "weights": weights,
+        "dream_sessions": dream_sessions,
         "stats": {
             "memories": n_mem, "connections": n_conn,
-            "embedding_dim": EMBEDDING_DIM, "source": "SQLite",
+            "embedding_dim": actual_dim, "source": "SQLite",
             "path": db_path,
         },
     }
@@ -247,13 +267,18 @@ def read_mssql(mssql_cfg: dict) -> dict:
     except:
         n_dreams = 0
 
+    # Read actual embedding dim from DB
+    cur.execute("SELECT TOP 1 vector_dim FROM memories WHERE embedding IS NOT NULL")
+    dim_row = cur.fetchone()
+    mssql_dim = dim_row[0] if dim_row else 1024
+
     conn.close()
     return {
         "nodes": nodes, "edges": edges,
         "categories": categories, "weights": weights,
         "stats": {
             "memories": n_mem, "connections": n_conn,
-            "embedding_dim": EMBEDDING_DIM, "source": "MSSQL",
+            "embedding_dim": mssql_dim, "source": "MSSQL",
             "path": f"{mssql_cfg['server']}/{mssql_cfg['database']}",
             "dream_sessions": n_dreams,
         },
@@ -413,6 +438,20 @@ async def api_graph():
 @app.get("/api/stats")
 async def api_stats():
     return current_data.get("stats", {})
+
+
+@app.post("/api/restart")
+async def api_restart():
+    """Restart the dashboard service via systemd."""
+    import subprocess
+    try:
+        subprocess.Popen(
+            ["systemctl", "--user", "restart", "neural-dashboard.service"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        return {"status": "restarting", "message": "Dashboard service restarting..."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @app.websocket("/ws/stream")

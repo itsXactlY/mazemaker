@@ -697,6 +697,48 @@ class TfidfSvdBackend:
         return [row.tolist() for row in batch_result]
 
 
+class FastEmbedBackend:
+    """FastEmbed ONNX backend — primary embedding backend.
+    
+    Uses intfloat/multilingual-e5-large (1024d) via ONNX runtime.
+    No PyTorch dependency. ~50ms per embedding on CPU.
+    Falls back to hash if fastembed is not installed.
+    """
+    MODEL_NAME = "intfloat/multilingual-e5-large"
+    
+    def __init__(self, dim: int = DIMENSION):
+        self.dim = dim
+        self._model = None
+        self._load()
+    
+    def _load(self):
+        try:
+            from fastembed import TextEmbedding
+            self._model = TextEmbedding(model_name=self.MODEL_NAME)
+            # Verify dimension
+            test = list(self._model.embed(["test"]))
+            self.dim = len(test[0])
+            print(f"[embed] FastEmbed loaded: {self.MODEL_NAME} ({self.dim}d)")
+        except ImportError:
+            print("[embed] fastembed not installed — pip install fastembed", file=sys.stderr)
+            raise
+        except Exception as e:
+            print(f"[embed] FastEmbed load failed: {e}", file=sys.stderr)
+            raise
+    
+    def embed(self, text: str) -> list[float]:
+        if self._model is None:
+            raise RuntimeError("FastEmbed model not loaded")
+        result = list(self._model.embed([text]))
+        return result[0].tolist() if hasattr(result[0], 'tolist') else list(result[0])
+    
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if self._model is None:
+            raise RuntimeError("FastEmbed model not loaded")
+        results = list(self._model.embed(texts))
+        return [r.tolist() if hasattr(r, 'tolist') else list(r) for r in results]
+
+
 class HashBackend:
     """Simple hash-based embedding (zero dependencies)"""
     def __init__(self, dim: int = DIMENSION):
@@ -742,20 +784,37 @@ class EmbeddingProvider:
         
         if backend == "auto":
             self.backend = self._auto_detect()
+        elif backend == "fastembed":
+            self.backend = FastEmbedBackend()
         elif backend == "sentence-transformers":
             self.backend = SentenceTransformerBackend()
         elif backend == "tfidf":
             self.backend = TfidfSvdBackend()
-        else:
+        elif backend == "hash":
             self.backend = HashBackend()
+        else:
+            # Try as fastembed first, fall back to hash
+            try:
+                self.backend = FastEmbedBackend()
+            except Exception:
+                self.backend = HashBackend()
         
         print(f"Embedding backend: {self.backend.__class__.__name__} ({self.backend.dim}d)")
     
     def _auto_detect(self):
         """Auto-detect best available backend.
-        Priority: CUDA sentence-transformers > MPS sentence-transformers > CPU sentence-transformers > TF-IDF > hash
+        Priority: FastEmbed > CUDA sentence-transformers > MPS sentence-transformers > CPU sentence-transformers > TF-IDF > hash
         """
-        # Try sentence-transformers first (CUDA, MPS, or CPU)
+        # FastEmbed first (ONNX, no PyTorch conflict, fast on CPU)
+        try:
+            backend = FastEmbedBackend()
+            print(f"[embed] Auto-selected: FastEmbed ({backend.dim}d)")
+            return backend
+        except (ImportError, Exception) as e:
+            if not isinstance(e, ImportError):
+                print(f"[embed] FastEmbed failed: {e}", file=sys.stderr)
+        
+        # Try sentence-transformers (CUDA, MPS, or CPU)
         try:
             import sentence_transformers
             import torch

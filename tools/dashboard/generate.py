@@ -25,7 +25,7 @@ import ssl
 import tempfile
 import subprocess
 
-EMBEDDING_DIM = 1024
+# Embedding dim is read dynamically from DB at runtime (not hardcoded)
 DEFAULT_SQLITE = os.path.expanduser("~/.neural_memory/memory.db")
 TEMPLATE_PATH = Path(__file__).parent / "template.html"
 LIB_CACHE = Path(__file__).parent / ".lib_cache"
@@ -176,6 +176,10 @@ def read_sqlite(db_path: str) -> dict:
     n_mem = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM connections")
     n_conn = cur.fetchone()[0]
+    # Read actual embedding dim from DB
+    cur.execute("SELECT length(embedding) FROM memories WHERE embedding IS NOT NULL LIMIT 1")
+    emb_row = cur.fetchone()
+    actual_dim = (emb_row[0] // 4) if emb_row else 1024
 
     conn.close()
 
@@ -187,7 +191,7 @@ def read_sqlite(db_path: str) -> dict:
         "stats": {
             "memories": n_mem,
             "connections": n_conn,
-            "embedding_dim": EMBEDDING_DIM,
+            "embedding_dim": actual_dim,
             "source": "SQLite",
             "path": db_path,
         },
@@ -277,13 +281,18 @@ def read_mssql(server="localhost", database="NeuralMemory",
     cur.execute("SELECT COUNT(*) FROM connections")
     n_conn = cur.fetchone()[0]
 
+    # Read actual embedding dim from DB
+    cur.execute("SELECT TOP 1 vector_dim FROM memories WHERE embedding IS NOT NULL")
+    dim_row = cur.fetchone()
+    mssql_dim = dim_row[0] if dim_row else 1024
+
     conn.close()
 
     return {
         "nodes": nodes, "edges": edges,
         "categories": categories, "weights": weights,
         "stats": {"memories": n_mem, "connections": n_conn,
-                  "embedding_dim": EMBEDDING_DIM, "source": "MSSQL", "path": f"{server}/{database}"},
+                  "embedding_dim": mssql_dim, "source": "MSSQL", "path": f"{server}/{database}"},
     }
 
 

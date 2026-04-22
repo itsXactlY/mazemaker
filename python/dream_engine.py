@@ -158,7 +158,21 @@ class SQLiteDreamBackend(DreamBackend):
 
     def __init__(self, db_path: str):
         self._db_path = db_path
+        self._persistent_conn = None
         self._ensure_tables()
+
+    @property
+    def conn(self):
+        """Persistent connection for DreamWorker compatibility (like MSSQLStore.conn)."""
+        if self._persistent_conn is None:
+            self._persistent_conn = sqlite3.connect(self._db_path, check_same_thread=False)
+            self._persistent_conn.row_factory = sqlite3.Row
+        return self._persistent_conn
+
+    def close(self):
+        if self._persistent_conn:
+            self._persistent_conn.close()
+            self._persistent_conn = None
 
     def _ensure_tables(self):
         conn = sqlite3.connect(self._db_path)
@@ -324,11 +338,9 @@ class SQLiteDreamBackend(DreamBackend):
                 (source_id, target_id, target_id, source_id)
             ).fetchone()
             if not existing:
-                # SQLite UPSERT: ON CONFLICT keeps highest weight
                 conn.execute(
-                    "INSERT INTO connections (source_id, target_id, weight, created_at) "
-                    "VALUES (?, ?, ?, ?) "
-                    "ON CONFLICT(source_id, target_id) DO UPDATE SET weight = MAX(weight, excluded.weight)",
+                    "INSERT INTO connections (source_id, target_id, weight, edge_type, created_at) "
+                    "VALUES (?, ?, ?, 'bridge', ?)",
                     (source_id, target_id, weight, time.time())
                 )
                 conn.commit()
@@ -353,15 +365,8 @@ class SQLiteDreamBackend(DreamBackend):
         conn = self._connect()
         try:
             conn.execute(
-                "MERGE connection_history AS target "
-                "USING (VALUES (?, ?, ?, ?, ?, ?)) AS source (source_id, target_id, old_weight, new_weight, reason, changed_at) "
-                "ON target.source_id = source.source_id AND target.target_id = source.target_id "
-                "WHEN MATCHED THEN "
-                "    UPDATE SET old_weight = source.old_weight, new_weight = source.new_weight, "
-                "               reason = source.reason, changed_at = source.changed_at "
-                "WHEN NOT MATCHED THEN "
-                "    INSERT (source_id, target_id, old_weight, new_weight, reason, changed_at) "
-                "    VALUES (source.source_id, source.target_id, source.old_weight, source.new_weight, source.reason, source.changed_at);",
+                "INSERT INTO connection_history (source_id, target_id, old_weight, new_weight, reason, changed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (source_id, target_id, old_weight, new_weight, reason, time.time())
             )
             conn.commit()

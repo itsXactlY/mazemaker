@@ -11,22 +11,22 @@ __FORCEGRAPH_SCRIPT__
   /* Fonts: system fallbacks (JetBrains Mono / Inter) — no CDN */
 
   :root {
-    --bg: #0a0a12;
-    --surface: rgba(15, 14, 20, 0.92);
-    --surface2: rgba(22, 20, 30, 0.8);
-    --border: rgba(245, 183, 49, 0.12);
-    --border-glow: rgba(245, 183, 49, 0.3);
-    --text: #c8b890;
-    --text-bright: #f5e6c8;
-    --text-dim: #6a5e48;
-    --amber: #f5b731;
-    --amber-dark: #c49220;
-    --amber-glow: rgba(245, 183, 49, 0.35);
-    --amber-dim: rgba(245, 183, 49, 0.08);
-    --red: #e05555;
-    --green: #55c878;
-    --cyan: #55b8d0;
-    --purple: #a855f7;
+    --bg: #030305;
+    --surface: rgba(10, 15, 20, 0.92);
+    --surface2: rgba(15, 20, 30, 0.8);
+    --border: rgba(0, 243, 255, 0.12);
+    --border-glow: rgba(0, 243, 255, 0.3);
+    --text: #8ab4d0;
+    --text-bright: #e0f7ff;
+    --text-dim: #4a6070;
+    --amber: #00f3ff;
+    --amber-dark: #00b8cc;
+    --amber-glow: rgba(0, 243, 255, 0.35);
+    --amber-dim: rgba(0, 243, 255, 0.08);
+    --red: #ff003c;
+    --green: #ccff00;
+    --cyan: #bc13fe;
+    --purple: #bc13fe;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -46,7 +46,7 @@ __FORCEGRAPH_SCRIPT__
     top: 0; left: 0;
     width: 100vw; height: 100vh;
     z-index: 0;
-    background: radial-gradient(ellipse at 50% 50%, rgba(30, 25, 10, 0.6) 0%, var(--bg) 70%);
+    background: radial-gradient(ellipse at 50% 50%, rgba(0, 30, 60, 0.4) 0%, var(--bg) 70%);
   }
 
   /* ═══ HUD — top-left floating panel ═══ */
@@ -497,12 +497,12 @@ const D = __DATA_JSON__;
 // Color config — amber theme categories
 // ═══════════════════════════════════════════
 const cc = {
-  'Conversation': '#f5b731',
-  'Peer': '#55c878',
-  'Session': '#e05555',
-  'Document': '#55b8d0',
-  'Skill': '#a855f7',
-  'Other': '#5a5a6a',
+  'Conversation': '#00f3ff',
+  'Peer': '#ccff00',
+  'Session': '#ff003c',
+  'Document': '#bc13fe',
+  'Skill': '#bc13fe',
+  'Other': '#3a4a5a',
 };
 
 // ═══════════════════════════════════════════
@@ -592,7 +592,7 @@ let isPaused = false;
 const Graph = ForceGraph3D()
   (document.getElementById('graph-container'))
   .graphData({ nodes: graphNodes, links: graphLinks })
-  .backgroundColor('rgba(10,10,18,1)')
+  .backgroundColor('rgba(3,3,5,1)')
   .nodeRelSize(4)
   .nodeVal('val')
   .nodeColor(n => n.color)
@@ -604,17 +604,17 @@ const Graph = ForceGraph3D()
   .linkDirectionalParticleWidth(l => l.weight * 1.5)
   .linkDirectionalParticleSpeed(0.003)
   .linkColor(l => l.color)
-  .nodeLabel(n => `<div style="font-family:JetBrains Mono,monospace;font-size:12px;background:rgba(15,14,20,0.95);border:1px solid rgba(245,183,49,0.3);border-radius:6px;padding:8px 12px;color:#f5e6c8;">
-    <div style="color:#f5b731;font-weight:700;font-size:14px;">#${n.id}</div>
+  .nodeLabel(n => `<div style="font-family:JetBrains Mono,monospace;font-size:12px;background:rgba(10,15,20,0.95);border:1px solid rgba(245,183,49,0.3);border-radius:6px;padding:8px 12px;color:#e0f7ff;">
+    <div style="color:#00f3ff;font-weight:700;font-size:14px;">#${n.id}</div>
     <div style="margin:4px 0;">${n.label}</div>
-    <div style="color:#6a5e48;font-size:10px;">Deg: ${n.total_degree} | W: ${n.avg_weight} | Sal: ${n.salience.toFixed(2)}</div>
+    <div style="color:#4a6070;font-size:10px;">Deg: ${n.total_degree} | W: ${n.avg_weight} | Sal: ${n.salience.toFixed(2)}</div>
   </div>`)
   .nodeThreeObject(node => {
     if (!showLabels) return null;
     const sprite = new SpriteText(node.label, 3, node.color);
     sprite.fontFace = 'JetBrains Mono, monospace';
     sprite.fontWeight = '600';
-    sprite.backgroundColor = 'rgba(10,10,18,0.6)';
+    sprite.backgroundColor = 'rgba(3,3,5,0.6)';
     sprite.padding = 2;
     sprite.borderRadius = 3;
     return sprite;
@@ -636,6 +636,25 @@ const Graph = ForceGraph3D()
   .d3VelocityDecay(0.3)
   .warmupTicks(100)
   .cooldownTicks(200);
+
+// Force layout — distance by weight, min distance anti-clump
+Graph
+  .d3Force('link', Graph.d3Force('link')
+    .distance(link => {
+      const w = link.weight || 0.5;
+      return 10 + (1 - w) * 120;
+    })
+    .strength(link => {
+      return 0.3 + (link.weight || 0.5) * 0.7;
+    })
+  )
+  .d3Force('charge', Graph.d3Force('charge')
+    .strength(-80)
+    .distanceMax(500)
+  )
+  .d3Force('center', Graph.d3Force('center')
+    .strength(0.05)
+  );
 
 // Camera
 Graph.cameraPosition({ x: 0, y: 0, z: 400 });
@@ -672,7 +691,7 @@ document.getElementById('btn_labels').addEventListener('click', () => {
     const sprite = new SpriteText(node.label, 3, node.color);
     sprite.fontFace = 'JetBrains Mono, monospace';
     sprite.fontWeight = '600';
-    sprite.backgroundColor = 'rgba(10,10,18,0.6)';
+    sprite.backgroundColor = 'rgba(3,3,5,0.6)';
     sprite.padding = 2;
     sprite.borderRadius = 3;
     return sprite;
@@ -808,10 +827,10 @@ searchInput.addEventListener('blur', () => {
 const miniLayout = {
   paper_bgcolor: 'rgba(0,0,0,0)',
   plot_bgcolor: 'rgba(0,0,0,0)',
-  font: { color: '#c8b890', family: 'JetBrains Mono', size: 9 },
+  font: { color: '#8ab4d0', family: 'JetBrains Mono', size: 9 },
   margin: { t: 6, r: 6, b: 24, l: 28 },
-  xaxis: { gridcolor: 'rgba(245,183,49,0.06)', zerolinecolor: 'rgba(245,183,49,0.08)', tickfont: { size: 8 } },
-  yaxis: { gridcolor: 'rgba(245,183,49,0.06)', zerolinecolor: 'rgba(245,183,49,0.08)', tickfont: { size: 8 } },
+  xaxis: { gridcolor: 'rgba(0,243,255,0.06)', zerolinecolor: 'rgba(245,183,49,0.08)', tickfont: { size: 8 } },
+  yaxis: { gridcolor: 'rgba(0,243,255,0.06)', zerolinecolor: 'rgba(245,183,49,0.08)', tickfont: { size: 8 } },
 };
 const miniConfig = { responsive: true, displayModeBar: false };
 
@@ -821,17 +840,17 @@ Plotly.newPlot('mini_pie', [{
   labels: D.categories.map(c => c.name),
   values: D.categories.map(c => c.count),
   marker: {
-    colors: D.categories.map(c => cc[c.name] || '#5a5a6a'),
-    line: { color: '#0a0a12', width: 1 },
+    colors: D.categories.map(c => cc[c.name] || '#3a4a5a'),
+    line: { color: '#030305', width: 1 },
   },
   textinfo: 'label+percent',
-  textfont: { color: '#f5e6c8', size: 8, family: 'JetBrains Mono' },
+  textfont: { color: '#e0f7ff', size: 8, family: 'JetBrains Mono' },
   hovertemplate: '<b>%{label}</b><br>%{value}<extra></extra>',
 }], { ...miniLayout, showlegend: false, margin: { t: 4, r: 4, b: 4, l: 4 } }, miniConfig);
 
 // Weight bar
 const wOrder = ['Very Weak (0-0.2)', 'Weak (0.2-0.4)', 'Medium (0.4-0.6)', 'Med-Strong (0.6-0.8)', 'Strong (0.8-1.0)'];
-const wColors = ['rgba(90,90,100,0.4)', 'rgba(90,90,100,0.6)', '#55b8d0', '#f5b731', '#55c878'];
+const wColors = ['rgba(58,74,90,0.4)', 'rgba(58,74,90,0.6)', '#bc13fe', '#00f3ff', '#ccff00'];
 const sW = wOrder.map(w => D.weights.find(x => x.bucket === w) || { bucket: w, count: 0 });
 Plotly.newPlot('mini_bar', [{
   type: 'bar',

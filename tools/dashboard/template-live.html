@@ -11,22 +11,22 @@ __FORCEGRAPH_SCRIPT__
   /* Fonts: system fallbacks (JetBrains Mono / Inter) — no CDN */
 
   :root {
-    --bg: #0a0a12;
-    --surface: rgba(15, 14, 20, 0.92);
-    --surface2: rgba(22, 20, 30, 0.8);
-    --border: rgba(245, 183, 49, 0.12);
-    --border-glow: rgba(245, 183, 49, 0.3);
-    --text: #c8b890;
-    --text-bright: #f5e6c8;
-    --text-dim: #6a5e48;
-    --amber: #f5b731;
-    --amber-dark: #c49220;
-    --amber-glow: rgba(245, 183, 49, 0.35);
-    --amber-dim: rgba(245, 183, 49, 0.08);
-    --red: #e05555;
-    --green: #55c878;
-    --cyan: #55b8d0;
-    --purple: #a855f7;
+    --bg: #030305;
+    --surface: rgba(10, 15, 20, 0.92);
+    --surface2: rgba(15, 20, 30, 0.8);
+    --border: rgba(0, 243, 255, 0.12);
+    --border-glow: rgba(0, 243, 255, 0.3);
+    --text: #8ab4d0;
+    --text-bright: #e0f7ff;
+    --text-dim: #4a6070;
+    --amber: #00f3ff;
+    --amber-dark: #00b8cc;
+    --amber-glow: rgba(0, 243, 255, 0.35);
+    --amber-dim: rgba(0, 243, 255, 0.08);
+    --red: #ff003c;
+    --green: #ccff00;
+    --cyan: #00f3ff;
+    --purple: #bc13fe;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -46,7 +46,7 @@ __FORCEGRAPH_SCRIPT__
     top: 0; left: 0;
     width: 100vw; height: 100vh;
     z-index: 0;
-    background: radial-gradient(ellipse at 50% 50%, rgba(30, 25, 10, 0.6) 0%, var(--bg) 70%);
+    background: radial-gradient(ellipse at 50% 50%, rgba(0, 30, 60, 0.4) 0%, var(--bg) 70%);
   }
 
   /* ═══ HUD — top-left floating panel ═══ */
@@ -193,7 +193,7 @@ __FORCEGRAPH_SCRIPT__
   }
   .detail-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--amber-dark), var(--amber));
+    background: linear-gradient(90deg, var(--amber-dark), var(--amber), var(--purple));
     border-radius: 2px;
     transition: width 0.5s ease;
   }
@@ -337,16 +337,18 @@ __FORCEGRAPH_SCRIPT__
   .search-result-id { color: var(--amber); margin-right: 8px; }
   .search-result-label { color: var(--text-bright); }
 
-  /* ═══ Scanline overlay ═══ */
+  /* ═══ CRT Scanline overlay ═══ */
   body::after {
     content: '';
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: repeating-linear-gradient(
-      0deg, transparent, transparent 2px, rgba(0,0,0,0.02) 2px, rgba(0,0,0,0.02) 4px
-    );
+    background:
+      linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.15) 50%),
+      linear-gradient(90deg, rgba(255,0,0,0.03), rgba(0,255,0,0.01), rgba(0,0,255,0.03));
+    background-size: 100% 2px, 3px 100%;
     pointer-events: none;
     z-index: 999;
+    opacity: 0.3;
   }
 
   /* ═══ Tooltip for 3D graph ═══ */
@@ -415,8 +417,8 @@ __FORCEGRAPH_SCRIPT__
   .ambient-glow {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     z-index: -1; pointer-events: none;
-    background: radial-gradient(ellipse at 30% 70%, rgba(245,183,49,0.06) 0%, transparent 50%),
-                radial-gradient(ellipse at 70% 30%, rgba(85,184,208,0.04) 0%, transparent 50%);
+    background: radial-gradient(ellipse at 30% 70%, rgba(0,243,255,0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 30%, rgba(188,19,254,0.04) 0%, transparent 50%);
   }
 
 </style>
@@ -482,6 +484,7 @@ __FORCEGRAPH_SCRIPT__
   <button class="ctrl-btn" id="btn_reset" title="Reset camera">⟲</button>
   <button class="ctrl-btn" id="btn_pause" title="Pause/resume simulation">⏸</button>
   <button class="ctrl-btn" id="btn_labels" title="Toggle labels">Aa</button>
+  <button class="ctrl-btn" id="btn_restart" title="Restart dashboard" style="font-size:12px;color:var(--red);">⟳</button>
 </div>
 
 <!-- Mini charts — bottom bar -->
@@ -533,6 +536,8 @@ __FORCEGRAPH_SCRIPT__
   </div>
 </div>
 
+<!-- Restart + Time controls are in the controls panel -->
+
 <script>
 const D = __DATA_JSON__;
 
@@ -540,12 +545,12 @@ const D = __DATA_JSON__;
 // Color config — amber theme categories
 // ═══════════════════════════════════════════
 const cc = {
-  'Conversation': '#f5b731',
-  'Peer': '#55c878',
-  'Session': '#e05555',
-  'Document': '#55b8d0',
-  'Skill': '#a855f7',
-  'Other': '#5a5a6a',
+  'Conversation': '#00f3ff',
+  'Peer': '#ccff00',
+  'Session': '#ff003c',
+  'Document': '#bc13fe',
+  'Skill': '#00f3ff',
+  'Other': '#3a4a5a',
 };
 
 // ═══════════════════════════════════════════
@@ -603,6 +608,7 @@ const graphNodes = D.nodes.map(n => ({
   out_degree: n.out_degree,
   in_degree: n.in_degree,
   avg_weight: n.avg_weight,
+  created_at: n.created_at,
   val: Math.max(2, Math.sqrt(n.total_degree) * 1.8),
   color: cc[n.category] || cc['Other'],
 }));
@@ -611,7 +617,7 @@ const graphLinks = D.edges.map(e => ({
   source: e.source,
   target: e.target,
   weight: e.weight,
-  color: `rgba(245,183,49,${Math.max(0.05, e.weight * 0.3)})`,
+  color: `rgba(0,243,255,${Math.max(0.05, e.weight * 0.3)})`,
 }));
 
 // Build adjacency map for detail panel
@@ -635,7 +641,7 @@ let isPaused = false;
 const Graph = ForceGraph3D()
   (document.getElementById('graph-container'))
   .graphData({ nodes: graphNodes, links: graphLinks })
-  .backgroundColor('rgba(10,10,18,1)')
+  .backgroundColor('rgba(3,3,5,1)')
   .nodeRelSize(4)
   .nodeVal('val')
   .nodeColor(n => n.color)
@@ -647,17 +653,17 @@ const Graph = ForceGraph3D()
   .linkDirectionalParticleWidth(l => l.weight * 1.5)
   .linkDirectionalParticleSpeed(0.003)
   .linkColor(l => l.color)
-  .nodeLabel(n => `<div style="font-family:JetBrains Mono,monospace;font-size:12px;background:rgba(15,14,20,0.95);border:1px solid rgba(245,183,49,0.3);border-radius:6px;padding:8px 12px;color:#f5e6c8;">
-    <div style="color:#f5b731;font-weight:700;font-size:14px;">#${n.id}</div>
+  .nodeLabel(n => `<div style="font-family:JetBrains Mono,monospace;font-size:12px;background:rgba(10,15,20,0.95);border:1px solid rgba(0,243,255,0.3);border-radius:6px;padding:8px 12px;color:#e0f7ff;">
+    <div style="color:#00f3ff;font-weight:700;font-size:14px;">#${n.id}</div>
     <div style="margin:4px 0;">${n.label}</div>
-    <div style="color:#6a5e48;font-size:10px;">Deg: ${n.total_degree} | W: ${n.avg_weight} | Sal: ${n.salience.toFixed(2)}</div>
+    <div style="color:#4a6070;font-size:10px;">Deg: ${n.total_degree} | W: ${n.avg_weight} | Sal: ${n.salience.toFixed(2)}</div>
   </div>`)
   .nodeThreeObject(node => {
     if (!showLabels) return null;
     const sprite = new SpriteText(node.label, 3, node.color);
     sprite.fontFace = 'JetBrains Mono, monospace';
     sprite.fontWeight = '600';
-    sprite.backgroundColor = 'rgba(10,10,18,0.6)';
+    sprite.backgroundColor = 'rgba(3,3,5,0.6)';
     sprite.padding = 2;
     sprite.borderRadius = 3;
     return sprite;
@@ -679,6 +685,29 @@ const Graph = ForceGraph3D()
   .d3VelocityDecay(0.3)
   .warmupTicks(100)
   .cooldownTicks(200);
+
+// ═══════════════════════════════════════════
+// Force layout — distance by weight, min distance anti-clump
+// ═══════════════════════════════════════════
+Graph
+  .d3Force('link', Graph.d3Force('link')
+    .distance(link => {
+      // High weight → close, low weight → far
+      const w = link.weight || 0.5;
+      return 10 + (1 - w) * 120;  // weight=1.0 → 10px, weight=0.0 → 130px
+    })
+    .strength(link => {
+      // Stronger links pull harder
+      return 0.3 + (link.weight || 0.5) * 0.7;
+    })
+  )
+  .d3Force('charge', Graph.d3Force('charge')
+    .strength(-80)          // repulsion between all nodes
+    .distanceMax(500)       // only repel nearby nodes
+  )
+  .d3Force('center', Graph.d3Force('center')
+    .strength(0.05)         // weak center pull — let clusters breathe
+  );
 
 // Camera
 Graph.cameraPosition({ x: 0, y: 0, z: 400 });
@@ -715,11 +744,31 @@ document.getElementById('btn_labels').addEventListener('click', () => {
     const sprite = new SpriteText(node.label, 3, node.color);
     sprite.fontFace = 'JetBrains Mono, monospace';
     sprite.fontWeight = '600';
-    sprite.backgroundColor = 'rgba(10,10,18,0.6)';
+    sprite.backgroundColor = 'rgba(3,3,5,0.6)';
     sprite.padding = 2;
     sprite.borderRadius = 3;
     return sprite;
   }) : null);
+});
+
+// Restart dashboard
+document.getElementById('btn_restart').addEventListener('click', function() {
+  if (!confirm('Restart dashboard service?')) return;
+  const btn = this;
+  btn.textContent = '⏳';
+  btn.style.pointerEvents = 'none';
+  fetch('/api/restart', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      btn.textContent = '✓';
+      btn.style.color = 'var(--green)';
+      setTimeout(() => location.reload(), 3000);
+    })
+    .catch(() => {
+      btn.textContent = '✕';
+      btn.style.color = 'var(--red)';
+      setTimeout(() => { btn.textContent = '⟳'; btn.style.pointerEvents = ''; }, 2000);
+    });
 });
 
 // ═══════════════════════════════════════════
@@ -851,10 +900,10 @@ searchInput.addEventListener('blur', () => {
 const miniLayout = {
   paper_bgcolor: 'rgba(0,0,0,0)',
   plot_bgcolor: 'rgba(0,0,0,0)',
-  font: { color: '#c8b890', family: 'JetBrains Mono', size: 9 },
+  font: { color: '#8ab4d0', family: 'JetBrains Mono', size: 9 },
   margin: { t: 6, r: 6, b: 24, l: 28 },
-  xaxis: { gridcolor: 'rgba(245,183,49,0.06)', zerolinecolor: 'rgba(245,183,49,0.08)', tickfont: { size: 8 } },
-  yaxis: { gridcolor: 'rgba(245,183,49,0.06)', zerolinecolor: 'rgba(245,183,49,0.08)', tickfont: { size: 8 } },
+  xaxis: { gridcolor: 'rgba(0,243,255,0.06)', zerolinecolor: 'rgba(0,243,255,0.08)', tickfont: { size: 8 } },
+  yaxis: { gridcolor: 'rgba(0,243,255,0.06)', zerolinecolor: 'rgba(0,243,255,0.08)', tickfont: { size: 8 } },
 };
 const miniConfig = { responsive: true, displayModeBar: false };
 
@@ -864,17 +913,17 @@ Plotly.newPlot('mini_pie', [{
   labels: D.categories.map(c => c.name),
   values: D.categories.map(c => c.count),
   marker: {
-    colors: D.categories.map(c => cc[c.name] || '#5a5a6a'),
-    line: { color: '#0a0a12', width: 1 },
+    colors: D.categories.map(c => cc[c.name] || '#3a4a5a'),
+    line: { color: '#030305', width: 1 },
   },
   textinfo: 'label+percent',
-  textfont: { color: '#f5e6c8', size: 8, family: 'JetBrains Mono' },
+  textfont: { color: '#e0f7ff', size: 8, family: 'JetBrains Mono' },
   hovertemplate: '<b>%{label}</b><br>%{value}<extra></extra>',
 }], { ...miniLayout, showlegend: false, margin: { t: 4, r: 4, b: 4, l: 4 } }, miniConfig);
 
 // Weight bar
 const wOrder = ['Very Weak (0-0.2)', 'Weak (0.2-0.4)', 'Medium (0.4-0.6)', 'Med-Strong (0.6-0.8)', 'Strong (0.8-1.0)'];
-const wColors = ['rgba(90,90,100,0.4)', 'rgba(90,90,100,0.6)', '#55b8d0', '#f5b731', '#55c878'];
+const wColors = ['rgba(58,74,90,0.4)', 'rgba(58,74,90,0.6)', '#bc13fe', '#00f3ff', '#ccff00'];
 const sW = wOrder.map(w => D.weights.find(x => x.bucket === w) || { bucket: w, count: 0 });
 Plotly.newPlot('mini_bar', [{
   type: 'bar',
@@ -938,7 +987,7 @@ function rebuildFromData(newData) {
   }));
   const newLinks = D.edges.map(e => ({
     source: e.source, target: e.target, weight: e.weight,
-    color: `rgba(245,183,49,${Math.max(0.05, e.weight * 0.3)})`,
+    color: `rgba(0,243,255,${Math.max(0.05, e.weight * 0.3)})`,
   }));
 
   // Rebuild adjMap
@@ -966,13 +1015,13 @@ function rebuildFromData(newData) {
     Plotly.react('mini_pie', [{
       type: 'pie', hole: 0.55,
       labels: D.categories.map(c => c.name), values: D.categories.map(c => c.count),
-      marker: { colors: D.categories.map(c => cc[c.name] || '#5a5a6a'), line: { color: '#0a0a12', width: 1 } },
-      textinfo: 'label+percent', textfont: { color: '#f5e6c8', size: 8, family: 'JetBrains Mono' },
+      marker: { colors: D.categories.map(c => cc[c.name] || '#3a4a5a'), line: { color: '#030305', width: 1 } },
+      textinfo: 'label+percent', textfont: { color: '#e0f7ff', size: 8, family: 'JetBrains Mono' },
       hovertemplate: '<b>%{label}</b><br>%{value}<extra></extra>',
     }], { ...miniLayout, showlegend: false, margin: { t: 4, r: 4, b: 4, l: 4 } }, miniConfig);
 
     const wO = ['Very Weak (0-0.2)', 'Weak (0.2-0.4)', 'Medium (0.4-0.6)', 'Med-Strong (0.6-0.8)', 'Strong (0.8-1.0)'];
-    const wC = ['rgba(90,90,100,0.4)', 'rgba(90,90,100,0.6)', '#55b8d0', '#f5b731', '#55c878'];
+    const wC = ['rgba(58,74,90,0.4)', 'rgba(58,74,90,0.6)', '#bc13fe', '#00f3ff', '#ccff00'];
     const sW = wO.map(w => D.weights.find(x => x.bucket === w) || { bucket: w, count: 0 });
     Plotly.react('mini_bar', [{
       type: 'bar', x: sW.map(w => w.bucket.replace(/ \(.*\)/, '')), y: sW.map(w => w.count),

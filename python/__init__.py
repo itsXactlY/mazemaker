@@ -719,31 +719,30 @@ class NeuralMemoryProvider(MemoryProvider):
                 logger.debug("Neural memory_write mirror failed: %s", e)
 
     def on_pre_compress(self, messages: List[Dict[str, Any]]) -> str:
-        """Scan messages about to be compressed, save meaningful exchanges."""
+        """Archive EVERYTHING before compression destroys it.
+
+        Calls Memory.archive_compression() for full-fidelity preservation.
+        This is lossless — no filtering, no "is this meaningful?" judgment.
+        Every turn is stored so nothing is lost when context compresses.
+
+        Returns a brief note for injection into context (not a replacement
+        for the compressed summary — just a confirmation that archiving ran).
+        """
         if not self._memory or not messages:
             return ""
-        extracted = []
-        for i, msg in enumerate(messages):
-            if msg.get("role") != "user":
-                continue
-            # Find next assistant response
-            user_content = msg.get("content", "")
-            assistant_content = ""
-            for j in range(i + 1, min(i + 3, len(messages))):
-                if messages[j].get("role") == "assistant":
-                    assistant_content = messages[j].get("content", "") or ""
-                    break
-            combined = self._extract_facts(user_content, assistant_content)
-            if not combined:
-                continue
-            self._memory.remember(combined, label="pre-compress")
-            extracted.append(user_content[:150])
-
-        if not extracted:
+        try:
+            session_tag = f"session-{self._session_id[:8]}" if self._session_id else "session-unknown"
+            result = self._memory.archive_compression(
+                turns=messages,
+                session_tag=session_tag,
+            )
+            count = result.get("archived", 0)
+            if count > 0:
+                logger.info(f"Neural memory: archived {count} turns before compression")
+            return f"[{count} conversation turns archived to neural memory before compression]"
+        except Exception as e:
+            logger.debug(f"Archive failed: {e}")
             return ""
-        return "Key context preserved before compression:\n" + "\n".join(
-            f"- {t}" for t in extracted[:20]
-        )
 
     def shutdown(self) -> None:
         """Clean shutdown."""

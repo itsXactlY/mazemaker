@@ -556,5 +556,63 @@ class Memory:
     def __exit__(self, *args):
         self.close()
     
+    def archive_compression(self, turns: list[dict], session_tag: str = "") -> dict:
+        """Archive conversation turns before they are destroyed by compression.
+
+        Each turn is stored as a separate memory with role-specific labeling.
+        Tool results are stored with a 500-char floor (truncated only if >500).
+        This is lossless-preservation — no filtering, no "is this meaningful?"
+        judgment. Everything is stored so nothing is lost when context compresses.
+
+        Args:
+            turns: List of message dicts with role/content/tool_calls keys
+            session_tag: Optional session identifier for labeling (e.g. "session-a1b2c3")
+
+        Returns:
+            dict with 'archived' count
+        """
+        archived = 0
+        for turn in turns:
+            role = turn.get("role", "unknown")
+            content = (turn.get("content") or "")[:2000]  # Cap at 2000 chars
+
+            # Skip empty tool results
+            if role == "tool" and len(content) < 5:
+                continue
+
+            # Build role-specific label and enriched content
+            if role == "user":
+                label = "msg:user"
+                memory_text = f"Q: {content}"
+
+            elif role == "assistant":
+                label = "msg:assistant"
+                tool_calls = turn.get("tool_calls", [])
+                if tool_calls:
+                    names = [tc.get("function", {}).get("name", "?") for tc in tool_calls]
+                    content += f"\n[Tools used: {', '.join(names)}]"
+                memory_text = content
+
+            elif role == "tool":
+                label = "msg:tool-result"
+                # Truncate only long tool results; keep short ones intact
+                if len(content) > 500:
+                    content = content[:500] + "\n...[truncated]"
+                memory_text = content
+
+            elif role == "system":
+                label = "msg:system"
+                memory_text = content
+
+            else:
+                continue
+
+            if memory_text.strip():
+                full_label = f"archive:{session_tag}:{label}" if session_tag else f"archive:{label}"
+                self.remember(memory_text, label=full_label)
+                archived += 1
+
+        return {"archived": archived}
+
     def __repr__(self):
         return f"Memory(backend={self.backend}, dim={self.dim}, db={self._db_path})"

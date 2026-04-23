@@ -699,25 +699,57 @@ class TfidfSvdBackend:
 
 class FastEmbedBackend:
     """FastEmbed ONNX backend — primary embedding backend.
-    
+
     Uses intfloat/multilingual-e5-large (1024d) via ONNX runtime.
     No PyTorch dependency. ~50ms per embedding on CPU.
-    Falls back to hash if fastembed is not installed.
+
+    SINGLETON: Model is loaded ONCE and shared across all instances.
+    This prevents multiple ONNX model copies from being loaded (each ~1GB).
     """
     MODEL_NAME = "intfloat/multilingual-e5-large"
-    
+
+    # Class-level singleton — shared across all instances
+    _shared_model = None
+    _shared_dim = None
+    _lock = None  # threading.Lock, lazy init
+
     def __init__(self, dim: int = DIMENSION):
-        self.dim = dim
-        self._model = None
-        self._load()
-    
-    def _load(self):
+        import threading
+
+        # Try to reuse shared model
+        if FastEmbedBackend._shared_model is not None:
+            self._model = FastEmbedBackend._shared_model
+            self.dim = FastEmbedBackend._shared_dim or dim
+            return
+
+        # Acquire lock for initial load
+        if FastEmbedBackend._lock is None:
+            FastEmbedBackend._lock = threading.Lock()
+
+        with FastEmbedBackend._lock:
+            # Double-check after acquiring lock
+            if FastEmbedBackend._shared_model is not None:
+                self._model = FastEmbedBackend._shared_model
+                self.dim = FastEmbedBackend._shared_dim or dim
+                return
+
+            self.dim = dim
+            self._model = None
+            self._load_direct()
+
+    def _load_direct(self):
+        """Load model directly — called once under lock."""
         try:
             from fastembed import TextEmbedding
             self._model = TextEmbedding(model_name=self.MODEL_NAME)
             # Verify dimension
             test = list(self._model.embed(["test"]))
             self.dim = len(test[0])
+
+            # Share the model with all future instances
+            FastEmbedBackend._shared_model = self._model
+            FastEmbedBackend._shared_dim = self.dim
+
             print(f"[embed] FastEmbed loaded: {self.MODEL_NAME} ({self.dim}d)")
         except ImportError:
             print("[embed] fastembed not installed — pip install fastembed", file=sys.stderr)

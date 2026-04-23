@@ -315,7 +315,7 @@ class NeuralMemory:
                 if other_node.get("label") != label:
                     continue
                 sim = self._cosine_similarity(embedding, other_node["embedding"])
-                if sim > 0.7:
+                if sim > 0.88:  # 0.88 for FastEmbed (multilingual-e5-large returns ~0.78 for unrelated texts)
                     other_mem = self.store.get(other_id)
                     if not other_mem:
                         continue
@@ -330,6 +330,9 @@ class NeuralMemory:
                             self.store.conn.commit()
                         other_node["embedding"] = embedding
                         self.store.touch(other_id)
+                        return other_id
+                    else:
+                        # Same label, very similar, identical content = return existing ID
                         return other_id
         
         mem_id = self.store.store(label or text[:60], text, embedding)
@@ -416,28 +419,30 @@ class NeuralMemory:
         if old_dates != new_dates and old_dates and new_dates:
             return True
         
-        # Check for significant content word differences (excluding common words)
+        # Keyword-based diff: only flag as update if topics are VERY different (>60% diff).
+        # Combined with 0.88 similarity threshold, this only fires for genuinely
+        # contradictory information (e.g. "capital of X is Y" vs "capital of X is Z").
+        # The 0.3 threshold was too aggressive — it flagged ANY two different topics
+        # as updates to each other, which broke remember() for all new unique memories.
         stopwords = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
                      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
                      'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
                      'on', 'with', 'at', 'by', 'from', 'it', 'its', "it's", 'this', 'that',
                      'user', 'user\'s', 'my', 'i', 'me', 'we', 'our', 'you', 'your'}
-        
+
         def extract_keywords(text):
             words = set(re.findall(r'\b[a-z]+\b', text.lower()))
             return words - stopwords
-        
+
         old_kw = extract_keywords(old_clean)
         new_kw = extract_keywords(new_text)
-        
-        # If more than 30% of keywords differ, it's a real update
         if old_kw and new_kw:
             shared = old_kw & new_kw
             total = old_kw | new_kw
             diff_ratio = 1.0 - len(shared) / len(total)
-            if diff_ratio > 0.3:
+            if diff_ratio > 0.6:  # 0.6 = topics must be substantially different
                 return True
-        
+
         return False
     
     def _compute_temporal_score(self, mem_id: int, now: float) -> float:

@@ -25,6 +25,25 @@ DEFAULT_SIMILARITY_THRESHOLD = 0.15         # auto-connect threshold
 DEFAULT_SEARCH_LIMIT = 10
 DEFAULT_PREFETCH_LIMIT = 5
 
+# Advanced retrieval knobs. Defaults preserve old behavior unless config opts in.
+DEFAULT_RETRIEVAL_MODE = "semantic"         # semantic | hybrid | advanced | skynet
+DEFAULT_RETRIEVAL_CANDIDATES = 64
+DEFAULT_USE_HNSW = "auto"                  # auto | true | false
+DEFAULT_LAZY_GRAPH = False
+DEFAULT_THINK_ENGINE = "bfs"               # bfs | ppr
+DEFAULT_RERANK = False
+DEFAULT_RRF_K = 60
+DEFAULT_SALIENCE_DECAY_K = 0.03
+DEFAULT_PPR_ALPHA = 0.15
+DEFAULT_PPR_ITERS = 20
+DEFAULT_PPR_HOPS = 2
+
+# Session write policy: durable extraction by default; raw archives are opt-in.
+DEFAULT_SESSION_EXTRACT_FACTS = True
+DEFAULT_SESSION_FACT_LIMIT = 5
+DEFAULT_STORE_RAW_TURNS = False
+DEFAULT_ARCHIVE_RAW_TURNS = False
+
 
 def get_config() -> Dict[str, Any]:
     """Read neural memory config from ~/.hermes/config.yaml.
@@ -39,6 +58,21 @@ def get_config() -> Dict[str, Any]:
         "similarity_threshold": DEFAULT_SIMILARITY_THRESHOLD,
         "search_limit": DEFAULT_SEARCH_LIMIT,
         "prefetch_limit": DEFAULT_PREFETCH_LIMIT,
+        "retrieval_mode": DEFAULT_RETRIEVAL_MODE,
+        "retrieval_candidates": DEFAULT_RETRIEVAL_CANDIDATES,
+        "use_hnsw": DEFAULT_USE_HNSW,
+        "lazy_graph": DEFAULT_LAZY_GRAPH,
+        "think_engine": DEFAULT_THINK_ENGINE,
+        "rerank": DEFAULT_RERANK,
+        "rrf_k": DEFAULT_RRF_K,
+        "salience_decay_k": DEFAULT_SALIENCE_DECAY_K,
+        "ppr_alpha": DEFAULT_PPR_ALPHA,
+        "ppr_iters": DEFAULT_PPR_ITERS,
+        "ppr_hops": DEFAULT_PPR_HOPS,
+        "session_extract_facts": DEFAULT_SESSION_EXTRACT_FACTS,
+        "session_fact_limit": DEFAULT_SESSION_FACT_LIMIT,
+        "store_raw_turns": DEFAULT_STORE_RAW_TURNS,
+        "archive_raw_turns": DEFAULT_ARCHIVE_RAW_TURNS,
     }
 
     try:

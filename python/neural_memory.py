@@ -58,7 +58,19 @@ class Memory:
                  embedding_backend: str = "auto",
                  use_cpp: bool = True,
                  use_mssql: Optional[bool] = None,
-                 default_chunk_size: int = 512):
+                 default_chunk_size: int = 512,
+                 retrieval_mode: str = "semantic",
+                 retrieval_candidates: int = 64,
+                 use_hnsw: bool | str | None = None,
+                 lazy_graph: bool = False,
+                 think_engine: str = "bfs",
+                 rerank: bool = False,
+                 channel_weights: Optional[dict] = None,
+                 rrf_k: int = 60,
+                 salience_decay_k: float = 0.03,
+                 ppr_alpha: float = 0.15,
+                 ppr_iters: int = 20,
+                 ppr_hops: int = 2):
         
         Path.home().joinpath(".neural_memory").mkdir(parents=True, exist_ok=True)
         
@@ -88,7 +100,24 @@ class Memory:
 
         # SQLite always needed for semantic recall (MSSQLStore has no recall method)
         from memory_client import NeuralMemory
-        self._sqlite_memory = NeuralMemory(db_path=self._db_path, embedding_backend=embedding_backend, embedder=self._embedder)
+        self._sqlite_memory = NeuralMemory(
+            db_path=self._db_path,
+            embedding_backend=embedding_backend,
+            use_cpp=use_cpp,
+            embedder=self._embedder,
+            retrieval_mode=retrieval_mode,
+            retrieval_candidates=retrieval_candidates,
+            use_hnsw=use_hnsw,
+            lazy_graph=lazy_graph,
+            think_engine=think_engine,
+            rerank=rerank,
+            channel_weights=channel_weights,
+            rrf_k=rrf_k,
+            salience_decay_k=salience_decay_k,
+            ppr_alpha=ppr_alpha,
+            ppr_iters=ppr_iters,
+            ppr_hops=ppr_hops,
+        )
         if not use_mssql:
             print(f"[neural] SQLite backend: {self._embedder.backend.__class__.__name__} ({self._dim}d)")
         else:
@@ -417,7 +446,7 @@ class Memory:
         embedding = self._embedder.embed(query)
 
         # Always use SQLite for semantic recall — MSSQL is graph-only
-        base_results = self._sqlite_memory.recall(query, k * 3)
+        base_results = self._sqlite_memory.recall(query, k * 3, query_vec=embedding)
         enhanced = self._enhance_recall(embedding, base_results, k)
         for r in enhanced:
             r.pop('embedding', None)

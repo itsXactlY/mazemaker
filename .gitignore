@@ -16,3 +16,6 @@ build_debug/
 benchmarks/results
 tools/dashboard/.certs/
 *.bak
+sqlite-wal
+sqlite-shm
+sqlite

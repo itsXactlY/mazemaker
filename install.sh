@@ -336,9 +336,11 @@ cmd_install() {
         }
     fi
 
-    # Optional: sentence-transformers, pyodbc
+    # Optional: sentence-transformers, pyodbc, graph/ANN accelerators
     $PYTHON -c "import sentence_transformers" 2>/dev/null && print_ok "sentence-transformers" || print_info "sentence-transformers: optional, install later"
     $PYTHON -c "import pyodbc" 2>/dev/null && print_ok "pyodbc" || print_info "pyodbc: optional (MSSQL mirror)"
+    $PYTHON -c "import networkx" 2>/dev/null && print_ok "networkx (Louvain/PPR)" || print_warn "networkx missing — Louvain falls back to BFS components"
+    $PYTHON -c "import hnswlib" 2>/dev/null && print_ok "hnswlib (ANN)" || print_warn "hnswlib missing — recall falls back to brute-force/GPU/C++"
 
     # -------------------------------------------------------------------
     # Create symlinks
@@ -400,11 +402,13 @@ print('  Created')
     # -------------------------------------------------------------------
     CONFIG_FILE="$HOME/.hermes/config.yaml"
     if [ -f "$CONFIG_FILE" ]; then
-        if grep -q "provider: neural" "$CONFIG_FILE" 2>/dev/null; then
-            print_ok "config.yaml: neural provider configured"
-        else
-            print_info "Updating config.yaml..."
-            $PYTHON -c "
+        # Always update neural sub-config, even if provider is already neural.
+        # Jack-in-a-Box creates a default config before this installer runs; on
+        # low-RAM VMs that default may say fastembed while this installer has
+        # correctly selected hash. Checking only `provider: neural` leaves the
+        # wrong backend in place and breaks runtime imports.
+        print_info "Updating config.yaml..."
+        $PYTHON -c "
 import yaml, os
 with open('$CONFIG_FILE', 'r') as f:
     config = yaml.safe_load(f) or {}
@@ -413,10 +417,10 @@ config['memory']['provider'] = 'neural'
 config['memory'].setdefault('neural', {})
 config['memory']['neural']['db_path'] = '$DB_PATH'
 config['memory']['neural']['embedding_backend'] = '$EMBED_BACKEND'
+config['memory']['neural'].setdefault('use_cpp', False)
 with open('$CONFIG_FILE', 'w') as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-" 2>/dev/null && print_ok "config.yaml updated" || print_warn "Could not auto-update config.yaml"
-        fi
+" 2>/dev/null && print_ok "config.yaml updated (embedding_backend=$EMBED_BACKEND)" || print_warn "Could not auto-update config.yaml"
     fi
 
     # -------------------------------------------------------------------

@@ -17,7 +17,9 @@ Otherwise falls back to SQLite.
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
+import struct
 import threading
 import time
 from collections import defaultdict
@@ -128,6 +130,22 @@ class DreamBackend:
                                reason: str) -> None:
         raise NotImplementedError
 
+    def get_memory_vectors(self, memory_ids: List[int]) -> Dict[int, List[float]]:
+        """Return embeddings for memory IDs. Optional backend capability."""
+        return {}
+
+    def set_connection_weight(self, source_id: int, target_id: int,
+                              weight: float, reason: str = "semantic_reweight") -> bool:
+        raise NotImplementedError
+
+    def add_typed_connection(self, source_id: int, target_id: int,
+                             weight: float = 0.5,
+                             edge_type: str = "similar") -> bool:
+        if edge_type == "bridge":
+            self.add_bridge(source_id, target_id, weight)
+            return True
+        raise NotImplementedError
+
     def add_insight(self, session_id: int, insight_type: str,
                     source_memory_id: int, content: str,
                     confidence: float = 0.0) -> None:
@@ -178,6 +196,30 @@ class SQLiteDreamBackend(DreamBackend):
         conn = sqlite3.connect(self._db_path)
         try:
             conn.executescript(_DREAM_SCHEMA)
+            # Existing neural-memory DBs may predate typed/bi-temporal edges.
+            has_connections = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='connections'"
+            ).fetchone()
+            if has_connections:
+                cols = {r[1] for r in conn.execute("PRAGMA table_info(connections)").fetchall()}
+                if "edge_type" not in cols:
+                    conn.execute("ALTER TABLE connections ADD COLUMN edge_type TEXT DEFAULT 'similar'")
+                for col, sql in {
+                    "event_time": "ALTER TABLE connections ADD COLUMN event_time REAL",
+                    "ingestion_time": "ALTER TABLE connections ADD COLUMN ingestion_time REAL DEFAULT (unixepoch())",
+                    "valid_from": "ALTER TABLE connections ADD COLUMN valid_from REAL",
+                    "valid_to": "ALTER TABLE connections ADD COLUMN valid_to REAL",
+                }.items():
+                    if col not in cols:
+                        try:
+                            conn.execute(sql)
+                        except sqlite3.OperationalError:
+                            pass
+                conn.execute("UPDATE connections SET edge_type = 'similar' WHERE edge_type IS NULL OR edge_type = ''")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_connections_edge_type_weight "
+                    "ON connections(edge_type, weight)"
+                )
             conn.commit()
         finally:
             conn.close()
@@ -259,13 +301,91 @@ class SQLiteDreamBackend(DreamBackend):
         conn = self._connect()
         try:
             rows = conn.execute(
-                "SELECT source_id, target_id, weight FROM connections "
-                "WHERE weight >= 0.05"
+                "SELECT source_id, target_id, weight, COALESCE(edge_type, 'similar') AS edge_type "
+                "FROM connections WHERE weight >= 0.05"
             ).fetchall()
             return [
-                {"source_id": r["source_id"], "target_id": r["target_id"], "weight": r["weight"]}
+                {
+                    "source_id": r["source_id"],
+                    "target_id": r["target_id"],
+                    "weight": r["weight"],
+                    "edge_type": r["edge_type"],
+                    "type": r["edge_type"],
+                }
                 for r in rows
             ]
+        finally:
+            conn.close()
+
+    def get_memory_vectors(self, memory_ids: List[int]) -> Dict[int, List[float]]:
+        if not memory_ids:
+            return {}
+        placeholders = ",".join("?" * len(memory_ids))
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"SELECT id, embedding FROM memories WHERE id IN ({placeholders}) AND embedding IS NOT NULL",
+                tuple(memory_ids),
+            ).fetchall()
+            out: Dict[int, List[float]] = {}
+            for r in rows:
+                blob = r["embedding"]
+                dim = len(blob) // 4 if blob else 0
+                if dim:
+                    out[r["id"]] = list(struct.unpack(f"{dim}f", blob))
+            return out
+        finally:
+            conn.close()
+
+    def set_connection_weight(self, source_id: int, target_id: int,
+                              weight: float, reason: str = "semantic_reweight") -> bool:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT id, source_id, target_id, weight FROM connections "
+                "WHERE (source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)",
+                (source_id, target_id, target_id, source_id),
+            ).fetchone()
+            if not row:
+                return False
+            new_weight = max(0.0, min(1.0, float(weight)))
+            conn.execute("UPDATE connections SET weight = ? WHERE id = ?", (new_weight, row["id"]))
+            conn.execute(
+                "INSERT INTO connection_history (source_id, target_id, old_weight, new_weight, reason, changed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (row["source_id"], row["target_id"], row["weight"], new_weight, reason, time.time()),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def add_typed_connection(self, source_id: int, target_id: int,
+                             weight: float = 0.5,
+                             edge_type: str = "similar") -> bool:
+        if source_id == target_id:
+            return False
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
+        conn = self._connect()
+        try:
+            existing = conn.execute(
+                "SELECT id, weight FROM connections WHERE source_id = ? AND target_id = ? AND COALESCE(edge_type, 'similar') = ?",
+                (source_id, target_id, edge_type),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE connections SET weight = MAX(weight, ?) WHERE id = ?",
+                    (weight, existing["id"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO connections (source_id, target_id, weight, edge_type, created_at, event_time, ingestion_time, valid_from) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (source_id, target_id, weight, edge_type, time.time(), time.time(), time.time(), time.time()),
+                )
+            conn.commit()
+            return True
         finally:
             conn.close()
 
@@ -745,7 +865,7 @@ class DreamEngine:
         2. Identify bridge nodes connecting communities
         3. Create insight memories for dense clusters
         """
-        stats = {"communities": 0, "bridges": 0, "insights": 0}
+        stats = {"communities": 0, "bridges": 0, "insights": 0, "derived_facts": 0}
         session_id = self._backend.start_session("insight")
 
         try:
@@ -763,24 +883,7 @@ class DreamEngine:
                 nodes.add(s)
                 nodes.add(t)
 
-            # Connected components (BFS)
-            visited = set()
-            communities: List[List[int]] = []
-            for node in nodes:
-                if node in visited:
-                    continue
-                component = []
-                queue = [node]
-                while queue:
-                    curr = queue.pop(0)
-                    if curr in visited:
-                        continue
-                    visited.add(curr)
-                    component.append(curr)
-                    for neighbor, _ in adj.get(curr, []):
-                        if neighbor not in visited:
-                            queue.append(neighbor)
-                communities.append(component)
+            communities = self._detect_communities(edges, nodes, adj)
             stats["communities"] = len(communities)
 
             # Map nodes to communities
@@ -808,6 +911,8 @@ class DreamEngine:
                 content = f"Cluster of {len(comm)} related memories: {theme}"
                 self._backend.add_insight(session_id, "cluster", comm[0], content, confidence)
                 stats["insights"] += 1
+                if self._write_derived_cluster_memory(comm, content, confidence) is not None:
+                    stats["derived_facts"] += 1
 
             # Create bridge insights
             for bnode in bridge_nodes:
@@ -832,6 +937,70 @@ class DreamEngine:
             logger.debug("Insight phase error: %s", e)
 
         return stats
+
+    def _detect_communities(self, edges: List[Dict[str, Any]], nodes: set,
+                            adj: Dict[int, List[Tuple[int, float]]]) -> List[List[int]]:
+        """Louvain community detection with deterministic BFS fallback."""
+        try:
+            import networkx as nx
+            graph = nx.Graph()
+            graph.add_nodes_from(nodes)
+            for e in edges:
+                graph.add_edge(e["source_id"], e["target_id"], weight=float(e.get("weight", 0.0) or 0.0))
+            if hasattr(nx.algorithms.community, "louvain_communities"):
+                comms = nx.algorithms.community.louvain_communities(graph, weight="weight", seed=42)
+                out = [sorted(int(n) for n in comm) for comm in comms if comm]
+                if out:
+                    out.sort(key=lambda c: (-len(c), c[0]))
+                    return out
+        except Exception:
+            pass
+
+        visited = set()
+        communities: List[List[int]] = []
+        for node in nodes:
+            if node in visited:
+                continue
+            component = []
+            queue = [node]
+            while queue:
+                curr = queue.pop(0)
+                if curr in visited:
+                    continue
+                visited.add(curr)
+                component.append(curr)
+                for neighbor, _ in adj.get(curr, []):
+                    if neighbor not in visited:
+                        queue.append(neighbor)
+            communities.append(component)
+        return communities
+
+    def _write_derived_cluster_memory(self, comm: List[int], content: str, confidence: float) -> int | None:
+        """Materialize a dream insight as a first-class derived memory."""
+        if not self._memory:
+            return None
+        try:
+            derived_id = self._memory.remember(
+                content,
+                label="derived:cluster",
+                auto_connect=False,
+                detect_conflicts=False,
+            )
+            if isinstance(derived_id, list):
+                derived_id = derived_id[0]
+        except Exception:
+            return None
+        try:
+            store = getattr(self._memory, "store", None)
+            if store is None and hasattr(self._memory, "_sqlite_memory"):
+                store = self._memory._sqlite_memory.store
+            if store is not None:
+                for source_id in comm:
+                    if int(source_id) != int(derived_id):
+                        store.add_connection(int(derived_id), int(source_id), max(0.35, min(0.95, confidence)), edge_type="derived_from")
+        except Exception:
+            pass
+        return int(derived_id)
 
     # -- Helpers -------------------------------------------------------------
 

@@ -16,9 +16,11 @@ Config (in ~/.hermes/config.yaml):
       max_episodic: 50000
 """
 
+import hashlib
 import json
 import logging
 import queue
+import re
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -201,9 +203,27 @@ class NeuralMemoryProvider(MemoryProvider):
 
             # Use Memory class (auto-detects MSSQL vs SQLite)
             from neural_memory import Memory
+            def _cfg_bool(value, default=False):
+                if value is None:
+                    return default
+                if isinstance(value, bool):
+                    return value
+                return str(value).strip().lower() in {"1", "true", "yes", "on", "y"}
             self._memory = Memory(
                 db_path=self._config["db_path"],
                 embedding_backend=self._config["embedding_backend"],
+                retrieval_mode=self._config.get("retrieval_mode", "semantic"),
+                retrieval_candidates=int(self._config.get("retrieval_candidates", 64) or 64),
+                use_hnsw=self._config.get("use_hnsw", "auto"),
+                lazy_graph=_cfg_bool(self._config.get("lazy_graph"), False),
+                think_engine=self._config.get("think_engine", "bfs"),
+                rerank=_cfg_bool(self._config.get("rerank"), False),
+                channel_weights=self._config.get("channel_weights"),
+                rrf_k=int(self._config.get("rrf_k", 60) or 60),
+                salience_decay_k=float(self._config.get("salience_decay_k", 0.03) or 0.03),
+                ppr_alpha=float(self._config.get("ppr_alpha", 0.15) or 0.15),
+                ppr_iters=int(self._config.get("ppr_iters", 20) or 20),
+                ppr_hops=int(self._config.get("ppr_hops", 2) or 2),
             )
 
             # Load initial context from memory
@@ -629,15 +649,12 @@ class NeuralMemoryProvider(MemoryProvider):
 
     def post_llm_call(self, session_id: str, user_message: str, assistant_response: str,
                       conversation_history: list, model: str, platform: str, **kwargs) -> None:
-        """After every LLM answer: resume dream engine AND store BOTH messages.
+        """After every LLM answer: resume dream engine and optionally archive raw turns.
 
-        Zero loss: every user query AND every assistant response is stored
-        immediately. No garbage filter, no "is this meaningful?" judgment.
-        Deduplication via embedding similarity prevents floods, but content
-        is NEVER silently dropped.
-
-        Also archives the full conversation turn via archive_compression for
-        complete losslessness.
+        Durable memory extraction happens in on_session_end(). Raw per-turn writes are
+        intentionally opt-in because raw chat/tool dumps poison recall and can expose
+        private conversation text. Set memory.neural.store_raw_turns/archive_raw_turns
+        to true only for forensic debugging.
         """
         # 1. Dream engine resume (existing behaviour)
         if self._dream is not None and self._dream_was_running_before_turn:
@@ -647,36 +664,36 @@ class NeuralMemoryProvider(MemoryProvider):
         if not self._memory:
             return
 
-        # 2. ALWAYS store user message (zero filtering — nothing is "garbage")
-        if user_message and len(user_message.strip()) >= 3:
-            try:
-                self._memory.remember(
-                    user_message,
-                    label=f"turn:user",
-                )
-            except Exception as e:
-                logger.debug(f"User message store failed: {e}")
+        def _cfg_bool(value, default=False):
+            if value is None:
+                return default
+            if isinstance(value, bool):
+                return value
+            return str(value).strip().lower() in {"1", "true", "yes", "on", "y"}
 
-        # 3. ALWAYS store assistant response (zero filtering)
-        if assistant_response and len(assistant_response.strip()) >= 3:
-            try:
-                self._memory.remember(
-                    assistant_response,
-                    label=f"turn:assistant",
-                )
-            except Exception as e:
-                logger.debug(f"Assistant response store failed: {e}")
+        store_raw = _cfg_bool((self._config or {}).get("store_raw_turns"), False)
+        archive_raw = _cfg_bool((self._config or {}).get("archive_raw_turns"), False)
 
-        # 4. Archive full turn for losslessness (user + assistant together)
-        try:
-            if conversation_history:
+        if store_raw:
+            for role, content, label in (
+                ("user", user_message, "turn:user"),
+                ("assistant", assistant_response, "turn:assistant"),
+            ):
+                if content and len(str(content).strip()) >= 3:
+                    try:
+                        self._memory.remember(str(content), label=label)
+                    except Exception as e:
+                        logger.debug("Raw %s message store failed: %s", role, e)
+
+        if archive_raw and conversation_history:
+            try:
                 session_tag = f"session-{session_id[:8]}" if session_id else "session-unknown"
                 self._memory.archive_compression(
-                    turns=conversation_history[-6:],  # last turn: user + asst + tool results
+                    turns=conversation_history[-6:],
                     session_tag=session_tag,
                 )
-        except Exception as e:
-            logger.debug(f"Turn archive failed: {e}")
+            except Exception as e:
+                logger.debug("Turn archive failed: %s", e)
 
     def _on_pre_llm_call(self, session_id: str, user_message: str, **kwargs) -> None:
         """Internal: activity signal from pre_llm_call hook.
@@ -720,39 +737,101 @@ class NeuralMemoryProvider(MemoryProvider):
             return self._handle_graph(args)
         return tool_error(f"Unknown tool: {tool_name}")
 
+    def _strip_injected_context(self, content: str) -> str:
+        """Remove ephemeral memory/tool context wrappers before extraction."""
+        if not isinstance(content, str):
+            return ""
+        content = re.sub(r"<memory-context>.*?</memory-context>", "", content, flags=re.S)
+        content = re.sub(r"```memory-context.*?```", "", content, flags=re.S)
+        content = re.sub(r"\[SYSTEM:[^\n]*\]", "", content)
+        return content.strip()
+
+    def _extract_session_facts(self, messages: List[Dict[str, Any]], limit: int = 5) -> list[str]:
+        """Heuristic session-end fact extraction.
+
+        This is deliberately conservative: store durable decisions, preferences,
+        paths, fixes, config/cron changes, and test outcomes. Do not store raw
+        chat transcripts or tool dumps.
+        """
+        durable_patterns = (
+            r"\bremember\b", r"\bvergiss\b", r"\bnotiere\b",
+            r"\bprefer\b", r"\bpreference\b", r"\balways\b", r"\bnever\b",
+            r"\bwe decided\b", r"\bdecision\b", r"\buse .* instead\b",
+            r"\bfixed\b", r"\bbug\b", r"\broot cause\b", r"\bworkaround\b",
+            r"\bconfigured\b", r"\binstalled\b", r"\bdeployed\b", r"\bcron\b",
+            r"\btests?\b", r"\bpassing\b", r"\bfailing\b",
+            r"/home/", r"~/", r"\.yaml\b", r"\.py\b", r"git@", r"https?://",
+        )
+        facts: list[str] = []
+        seen: set[str] = set()
+        for m in messages:
+            role = m.get("role", "")
+            if role not in {"user", "assistant"}:
+                continue
+            text = self._strip_injected_context(m.get("content", ""))
+            if not text or self._is_garbage(text):
+                continue
+            # Prefer bullet/short lines. Long prose gets first sentence only.
+            raw_lines = []
+            for line in text.splitlines():
+                line = line.strip(" \t-*•>")
+                if line:
+                    raw_lines.append(line)
+            if not raw_lines and text:
+                raw_lines = [text]
+            for line in raw_lines:
+                if len(line) < 12 or len(line) > 900:
+                    continue
+                lower = line.lower()
+                if any(skip in lower for skip in ("tool call", "traceback", "token usage", "<memory-context", "```json")):
+                    continue
+                if not any(re.search(p, line, flags=re.I) for p in durable_patterns):
+                    continue
+                fact = re.sub(r"\s+", " ", line).strip()
+                if len(fact) > 360:
+                    fact = fact[:357].rstrip() + "..."
+                key = fact.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                facts.append(fact)
+                if len(facts) >= limit:
+                    return facts
+        return facts
+
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
-        """Store a session summary at session end — the ONLY memory write per session."""
+        """Store compact durable session facts at session end."""
         if not self._memory or not messages:
             return
         try:
-            user_msgs = [m for m in messages if m.get("role") == "user"]
-            if not user_msgs:
+            def _cfg_bool(value, default=True):
+                if value is None:
+                    return default
+                if isinstance(value, bool):
+                    return value
+                return str(value).strip().lower() in {"1", "true", "yes", "on", "y"}
+
+            if not _cfg_bool((self._config or {}).get("session_extract_facts"), True):
                 return
-            
-            summary_parts = []
-            for m in user_msgs:
-                content = m.get("content", "")
-                if not isinstance(content, str):
-                    continue
-                # Skip noise: tool results, log dumps, very short messages
-                if len(content) < 10:
-                    continue
-                if content.startswith(("[SYSTEM:", "SYSTEM:", "Tool ", "Batches:")):
-                    continue
-                if any(skip in content.lower() for skip in (
-                    "tool_result_storage", "run_agent", "DEBUG", "openai client",
-                    "token usage", "completion_tokens", "snapshot_engine",
-                )):
-                    continue
-                # Extract first meaningful line
-                first_line = content.split("\n")[0][:150]
-                if first_line:
-                    summary_parts.append(first_line)
-            
-            if summary_parts:
-                summary = "Session: " + " | ".join(summary_parts[-8:])  # Last 8 meaningful lines
-                self._memory.remember(summary, label="session-summary")
-                logger.info("Neural memory: stored session summary (%d topics)", len(summary_parts))
+            limit = int((self._config or {}).get("session_fact_limit", 5) or 5)
+            facts = self._extract_session_facts(messages, limit=max(1, min(limit, 8)))
+            if not facts:
+                return
+            stored = 0
+            for fact in facts:
+                digest = hashlib.sha1(fact.encode("utf-8")).hexdigest()[:12]
+                label = f"session-fact:{digest}"
+                content = f"Session durable fact: {fact}"
+                try:
+                    self._memory.remember(content, label=label, auto_connect=True, detect_conflicts=True)
+                    stored += 1
+                except Exception as e:
+                    logger.debug("Neural session fact store failed: %s", e)
+            if stored:
+                summary = "Session durable facts: " + " | ".join(facts[:limit])
+                summary_digest = hashlib.sha1(summary.encode("utf-8")).hexdigest()[:12]
+                self._memory.remember(summary, label=f"session-summary:{summary_digest}")
+                logger.info("Neural memory: stored %d durable session facts", stored)
         except Exception as e:
             logger.debug("Neural on_session_end failed: %s", e)
 
@@ -780,6 +859,9 @@ class NeuralMemoryProvider(MemoryProvider):
         if not self._memory or not messages:
             return ""
         try:
+            archive_raw = (self._config or {}).get("archive_raw_turns", False)
+            if not (archive_raw is True or str(archive_raw).strip().lower() in {"1", "true", "yes", "on", "y"}):
+                return ""
             session_tag = f"session-{self._session_id[:8]}" if self._session_id else "session-unknown"
             result = self._memory.archive_compression(
                 turns=messages,
@@ -886,6 +968,13 @@ class NeuralMemoryProvider(MemoryProvider):
                 "required": False,
                 "default": 0,
             },
+            {"key": "retrieval_mode", "description": "Retrieval mode (semantic, hybrid, advanced, skynet)", "required": False, "default": "semantic"},
+            {"key": "use_hnsw", "description": "Use HNSW ANN index (auto, true, false)", "required": False, "default": "auto"},
+            {"key": "lazy_graph", "description": "Hydrate graph nodes on demand instead of at startup", "required": False, "default": False},
+            {"key": "think_engine", "description": "Graph thinking engine (bfs or ppr)", "required": False, "default": "bfs"},
+            {"key": "rerank", "description": "Use lazy cross-encoder reranker for recall", "required": False, "default": False},
+            {"key": "store_raw_turns", "description": "Store raw per-turn messages (debug only)", "required": False, "default": False},
+            {"key": "archive_raw_turns", "description": "Archive raw turns before compression (debug only)", "required": False, "default": False},
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:

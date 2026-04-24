@@ -70,6 +70,20 @@ def _load_config() -> dict:
                     config[k] = v
     except Exception:
         pass
+
+    # Expand $HERMES_HOME and ~ in db_path so sqlite doesn't resolve it
+    # relative to cwd (which created literal ~/ dirs under whatever directory
+    # Hermes was started from).
+    db_path = config.get("db_path", _DEFAULT_DB_PATH)
+    if isinstance(db_path, str):
+        try:
+            from hermes_constants import get_hermes_home
+            db_path = db_path.replace("$HERMES_HOME", str(get_hermes_home()))
+            db_path = db_path.replace("${HERMES_HOME}", str(get_hermes_home()))
+        except Exception:
+            pass
+        db_path = os.path.expanduser(os.path.expandvars(db_path))
+        config["db_path"] = db_path
     return config
 
 
@@ -181,6 +195,30 @@ NEURAL_DREAM_STATS_SCHEMA = {
     "parameters": {"type": "object", "properties": {}, "required": []},
 }
 
+NEURAL_DASHBOARD_SCHEMA = {
+    "name": "neural_dashboard",
+    "description": (
+        "Generate the Plotly HTML dashboard for the current memory DB "
+        "(memory categories, connection strength, knowledge graph, degree "
+        "distribution, flow). Returns the output HTML path. Pass "
+        "open_in_browser=true to also open it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "out_path": {
+                "type": "string",
+                "description": "Optional path for output HTML. Defaults to /tmp/nm-dash-<timestamp>.html",
+            },
+            "open_in_browser": {
+                "type": "boolean",
+                "description": "Open the generated HTML in the default browser (macOS: open; linux: xdg-open).",
+            },
+        },
+        "required": [],
+    },
+}
+
 ALL_TOOL_SCHEMAS = [
     NEURAL_REMEMBER_SCHEMA,
     NEURAL_RECALL_SCHEMA,
@@ -188,6 +226,7 @@ ALL_TOOL_SCHEMAS = [
     NEURAL_GRAPH_SCHEMA,
     NEURAL_DREAM_SCHEMA,
     NEURAL_DREAM_STATS_SCHEMA,
+    NEURAL_DASHBOARD_SCHEMA,  # H10
 ]
 
 
@@ -710,15 +749,89 @@ class NeuralMemoryProvider(MemoryProvider):
             logger.debug("Neural on_session_end failed: %s", e)
 
     def on_memory_write(self, action: str, target: str, content: str) -> None:
-        """Mirror built-in memory writes to neural memory."""
-        if action == "add" and self._memory and content:
-            if self._is_garbage(content):
-                return
-            try:
-                label = f"memory-{target}" if target else "memory"
-                self._memory.remember(content, label=label)
-            except Exception as e:
-                logger.debug("Neural memory_write mirror failed: %s", e)
+        """Mirror built-in memory writes to neural-memory + H13 Phase 2 rotation hint.
+
+        H13 Phase 2: mechanical enforcement of dual-memory rotation hygiene.
+        Works alongside the `dual-memory-rotation-hygiene` skill (which is LLM-instructed).
+
+        For every `add` to MEMORY.md / USER.md:
+          - mirror content into neural-memory with label `mirror-from-default:<ts>`
+            so nothing is ever lost if the content later gets rotated out
+          - classify identity-grade vs rotation-candidate via heuristic
+          - log rotation hint (actual removal from default is the skill's job;
+            we don't remove from default here because the LLM may still want it
+            in-prompt; this hook just ensures the neural copy exists first)
+        """
+        if action not in ("add", "replace") or not self._memory or not content:
+            return
+        if self._is_garbage(content):
+            return
+
+        import time as _time
+        ts = int(_time.time())
+        try:
+            # Identity-grade content stays in default; mirror it anyway (cheap insurance).
+            # Non-identity-grade content is a rotation candidate — flag via label.
+            is_id = self._is_identity_grade(content)
+            prefix = "mirror-from-default" if is_id else "rotation-candidate"
+            label = f"{prefix}:{target or 'memory'}:{ts}"
+            self._memory.remember(content, label=label)
+            if not is_id:
+                logger.info(
+                    "Neural memory_write: flagged rotation candidate "
+                    "(target=%s, content-len=%d, label=%s)",
+                    target, len(content), label,
+                )
+        except Exception as e:
+            logger.debug("Neural memory_write mirror failed: %s", e)
+
+    def _is_identity_grade(self, content: str) -> bool:
+        """H13 Phase 2 heuristic: should this live in the hot layer?
+
+        Identity-grade signals (any triggers keep):
+          - short (< 250 chars) — hot-layer entries should be dense
+          - first-person agent identity ('I am', 'my role', 'my name')
+          - user-profile pattern ('user prefers', 'user's name', 'user is')
+          - imperative constraint ('always', 'never', 'do not')
+          - structural architecture fact ('provider:', 'default:', 'backend:')
+
+        Anything failing all signals → rotation candidate.
+        Conservative: when uncertain, flag as identity-grade (prefer over-keeping).
+        """
+        if len(content) > 800:
+            return False  # verbose episodic content doesn't belong in hot layer
+        lower = content.lower()
+
+        # Strong identity patterns
+        if any(p in lower for p in (
+            "i am ", "i'm ", "my role", "my name", "as your", "as the",
+            "user prefers", "user wants", "user's name", "user is ",
+            "always ", "never ", "do not ", "don't ",
+            "identity:", "persona:", "boundary:",
+        )):
+            return True
+
+        # Short + architectural facts
+        if len(content) < 250 and any(p in lower for p in (
+            "provider:", "default:", "backend:", "config:", "=",
+            "runs on", "lives at", "stored at", "path:",
+        )):
+            return True
+
+        # Timestamps / specific-event phrasing → rotation candidate
+        import re
+        if re.search(r"\b(20\d{2}-\d{2}-\d{2}|yesterday|last week|earlier today)\b", lower):
+            return False
+
+        # Specific factual / outcome wording → rotation candidate
+        if any(p in lower for p in (
+            "shipped", "completed", "commit ", "landed", "pull request",
+            "found", "discovered", "measured", "result:",
+        )):
+            return False
+
+        # Default: if content is short, lean identity; if longer, rotation
+        return len(content) < 200
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return ALL_TOOL_SCHEMAS
@@ -738,6 +851,8 @@ class NeuralMemoryProvider(MemoryProvider):
             return self._handle_dream(args)
         elif tool_name == "neural_dream_stats":
             return self._handle_dream_stats(args)
+        elif tool_name == "neural_dashboard":
+            return self._handle_dashboard(args)
         return tool_error(f"Unknown tool: {tool_name}")
 
     def shutdown(self) -> None:
@@ -900,6 +1015,52 @@ class NeuralMemoryProvider(MemoryProvider):
         try:
             stats = self._dream_engine.get_stats()
             return json.dumps(stats)
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _handle_dashboard(self, args: dict) -> str:
+        """H10: generate the Plotly dashboard HTML from current DB state."""
+        import subprocess
+        import tempfile
+        import time as _time
+
+        try:
+            out_path = args.get("out_path") or tempfile.mktemp(
+                suffix=".html", prefix=f"nm-dash-{int(_time.time())}-"
+            )
+            open_in_browser = bool(args.get("open_in_browser", False))
+
+            # Find generator: plugin is a symlink, so __file__ lives in the research repo.
+            here = Path(__file__).resolve().parent          # repo/hermes-plugin
+            script = here.parent / "tools" / "dashboard" / "generate.py"
+            if not script.exists():
+                # Fallback to canonical research location
+                script = Path("/Users/tito/lWORKSPACEl/research/neural-memory/tools/dashboard/generate.py")
+            if not script.exists():
+                return tool_error(f"Dashboard generator not found at {script}")
+
+            db_path = str(getattr(self._memory.store, "db_path",
+                                   Path.home() / ".neural_memory" / "memory.db"))
+
+            result = subprocess.run(
+                [sys.executable, str(script), "--db", db_path, "--out", out_path],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                return tool_error(f"Dashboard generation failed: {result.stderr[:300]}")
+
+            if open_in_browser:
+                opener = "open" if sys.platform == "darwin" else "xdg-open"
+                try:
+                    subprocess.run([opener, out_path], check=False)
+                except Exception:
+                    pass  # opening failed but HTML exists
+
+            return json.dumps({
+                "status": "generated",
+                "out_path": out_path,
+                "stdout": result.stdout[-500:],
+            })
         except Exception as exc:
             return tool_error(str(exc))
 

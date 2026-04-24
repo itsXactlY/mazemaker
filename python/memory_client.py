@@ -292,7 +292,9 @@ class NeuralMemory:
                  use_hnsw: bool = True,
                  lazy_graph: bool = False,
                  hnsw_ef_construction: int = 200,
-                 hnsw_m: int = 16):
+                 hnsw_m: int = 16,
+                 hnsw_ef: int = 100,
+                 salience_multiply: bool = True):
         from embed_provider import EmbeddingProvider
 
         self.embedder = EmbeddingProvider(backend=embedding_backend)
@@ -310,6 +312,13 @@ class NeuralMemory:
         self._rerank = bool(rerank)
         self._rerank_model_name = rerank_model
         self._rerank_model = None  # lazy
+
+        # H5: Salience opt-out. Default True preserves shipped Phase B behavior
+        # (Bucket-C default shift). Set False to get pre-Phase-B recall ordering.
+        self._salience_multiply = bool(salience_multiply)
+
+        # H1: Remember ef for observability
+        self._hnsw_ef = hnsw_ef
 
         # C++ SIMD index for fast retrieval (primary search path)
         self._cpp = None
@@ -339,7 +348,8 @@ class NeuralMemory:
                 self._hnsw_capacity = 1024
                 self._hnsw.init_index(max_elements=self._hnsw_capacity,
                                       ef_construction=hnsw_ef_construction, M=hnsw_m)
-                self._hnsw.set_ef(max(64, hnsw_ef_construction // 2))
+                # H1: expose ef as tunable param (was hardcoded)
+                self._hnsw.set_ef(hnsw_ef)
             except Exception as exc:
                 import logging
                 logging.getLogger(__name__).debug("hnswlib unavailable: %s", exc)
@@ -674,6 +684,8 @@ class NeuralMemory:
                         )
 
                         base_combined = (1 - temporal_weight) * sim + temporal_weight * 0.5
+                        # H5: salience multiply gated by self._salience_multiply
+                        effective_sal = salience_factor if self._salience_multiply else 1.0
                         scored.append({
                             'id': mem_id,
                             'label': c.get('label', node.get('label', '')),
@@ -682,7 +694,7 @@ class NeuralMemory:
                             'similarity': sim,
                             'temporal_score': 0.5,
                             'salience_factor': round(salience_factor, 4),
-                            'combined': base_combined * salience_factor,
+                            'combined': base_combined * effective_sal,
                             'connections': list(node.get('connections', {}).keys()),
                         })
 
@@ -728,12 +740,14 @@ class NeuralMemory:
                         m.get('salience'), m.get('access_count'), m.get('created_at'), now=now
                     )
                     base = (1 - temporal_weight) * sim + temporal_weight * temporal_score
+                    # H5: salience multiply gated
+                    effective_sal = sal if self._salience_multiply else 1.0
                     scored.append({
                         **mem,
                         'similarity': sim,
                         'temporal_score': temporal_score,
                         'salience_factor': sal,
-                        'combined': base * sal,
+                        'combined': base * effective_sal,
                     })
                 scored.sort(key=lambda x: -x['combined'])
                 rerank_pool = scored[:max(k * 3, 15)] if self._rerank else scored
@@ -794,7 +808,9 @@ class NeuralMemory:
                 mem.get('salience'), mem.get('access_count'), mem.get('created_at'), now=now
             )
             base_combined = (1 - temporal_weight) * sim + temporal_weight * temporal_score
-            combined = base_combined * salience_factor
+            # H5: salience multiply gated
+            effective_sal = salience_factor if self._salience_multiply else 1.0
+            combined = base_combined * effective_sal
             scored.append({
                 **mem,
                 'similarity': sim,
@@ -1054,13 +1070,32 @@ class NeuralMemory:
         }
     
     def stats(self) -> dict:
-        """Get memory statistics."""
+        """Get memory statistics including Phase B feature state.
+
+        H7: expanded to report feature availability so `mem.stats()` answers
+        'is HNSW on? is rerank loaded? is networkx/Louvain available?' at one call.
+        """
         graph = self.store.stats() if hasattr(self.store, 'stats') else self.store.get_stats()
+        try:
+            import networkx  # noqa: F401
+            nx_ok = True
+        except ImportError:
+            nx_ok = False
         return {
             'memories': graph['memories'],
             'connections': graph['connections'],
             'embedding_dim': self.dim,
             'embedding_backend': self.embedder.backend.__class__.__name__,
+            # Phase B feature flags
+            'cpp_available': self._cpp is not None,
+            'hnsw_active': self._hnsw is not None,
+            'hnsw_count': self._hnsw_count if self._hnsw is not None else 0,
+            'hnsw_ef': getattr(self, '_hnsw_ef', None),
+            'lazy_graph': self._lazy_graph,
+            'louvain_available': nx_ok,
+            'reranker_loaded': self._rerank_model is not None,
+            'rerank_enabled': self._rerank,
+            'salience_multiply': self._salience_multiply,
         }
     
     def close(self):

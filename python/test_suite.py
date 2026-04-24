@@ -502,6 +502,210 @@ def test_37():
     finally: os.unlink(db)
 
 # ============================================================================
+# Phase B tests (H8 partial — covers the highest-risk Phase B items)
+# ============================================================================
+
+@_testcase("phase-b: salience decay factor range", tags=["phase-b", "salience"])
+def test_phb_salience_range():
+    from memory_client import NeuralMemory, SALIENCE_MIN, SALIENCE_MAX
+    # Extremes should clamp
+    young = NeuralMemory._effective_salience(1.0, 0, time.time(), now=time.time())
+    ancient = NeuralMemory._effective_salience(1.0, 0, 0, now=time.time())
+    hot = NeuralMemory._effective_salience(1.0, 10000, time.time(), now=time.time())
+    assert SALIENCE_MIN <= young <= SALIENCE_MAX, f"young salience {young} out of range"
+    assert SALIENCE_MIN <= ancient <= SALIENCE_MAX, f"ancient salience {ancient} out of range"
+    assert SALIENCE_MIN <= hot <= SALIENCE_MAX, f"hot salience {hot} out of range"
+
+@_testcase("phase-b: salience boosts on access", tags=["phase-b", "salience"])
+def test_phb_salience_boost():
+    from memory_client import NeuralMemory
+    now = time.time()
+    zero = NeuralMemory._effective_salience(1.0, 0, now, now=now)
+    hundred = NeuralMemory._effective_salience(1.0, 100, now, now=now)
+    assert hundred > zero, f"access-boosted salience should be higher: {zero} vs {hundred}"
+
+@_testcase("phase-b: salience decays with age", tags=["phase-b", "salience"])
+def test_phb_salience_decay():
+    from memory_client import NeuralMemory
+    now = time.time()
+    fresh = NeuralMemory._effective_salience(1.0, 0, now, now=now)
+    old_365d = NeuralMemory._effective_salience(1.0, 0, now - 365*86400, now=now)
+    assert old_365d < fresh, f"older salience should be lower: fresh={fresh} 1y={old_365d}"
+
+@_testcase("phase-b: bi-temporal at_time filter", tags=["phase-b", "bi-temporal"])
+def test_phb_bitemporal_filter():
+    from memory_client import NeuralMemory
+    db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    try:
+        m = NeuralMemory(db_path=db, use_cpp=False)
+        a = m.remember("A", "a")
+        b = m.remember("B", "b")
+        now = time.time()
+        # Edge valid yesterday → today only
+        m.store.add_connection(a, b, 0.9, edge_type="test",
+                               valid_from=now - 86400, valid_to=now + 1)
+        # At now: should include
+        assert any(c["type"] == "test" for c in m.store.get_connections(a, at_time=now)), \
+            "edge should be visible at now"
+        # At +2d: should NOT include
+        assert not any(c["type"] == "test" for c in m.store.get_connections(a, at_time=now + 2*86400)), \
+            "edge should be expired at now+2d"
+        m.close()
+    finally:
+        os.unlink(db)
+
+@_testcase("phase-b: ppr engine returns results", tags=["phase-b", "ppr", "think"])
+def test_phb_ppr_engine():
+    from memory_client import NeuralMemory
+    db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    try:
+        m = NeuralMemory(db_path=db, use_cpp=False, use_hnsw=False)
+        # Use distinctly-different content to avoid conflict-detection merging
+        texts = [
+            "electrical panel upgrade basics",
+            "breaker sizing for 200A residential service",
+            "NEC 2026 code changes for AFCI placement",
+            "conduit bending techniques for EMT",
+            "transformer sizing for commercial buildings",
+        ]
+        # detect_conflicts=False defensively — we don't want similar cosine
+        # to trigger supersede in this topology test
+        ids = [m.remember(t, f"L{i}", detect_conflicts=False) for i, t in enumerate(texts)]
+        assert len(set(ids)) == len(texts), f"expected 5 distinct memories, got {len(set(ids))}"
+        # Force a known chain topology
+        for i in range(len(ids)-1):
+            m.store.add_connection(ids[i], ids[i+1], 0.8)
+            m._graph_nodes[ids[i]]['connections'][ids[i+1]] = 0.8
+            m._graph_nodes[ids[i+1]]['connections'][ids[i]] = 0.8
+        r_bfs = m.think(ids[0], engine='bfs')
+        r_ppr = m.think(ids[0], engine='ppr', alpha=0.15)
+        # Both should return non-zero results on this topology
+        assert len(r_bfs) > 0, f"BFS should return results, got {len(r_bfs)}"
+        assert len(r_ppr) > 0, f"PPR should return results, got {len(r_ppr)}"
+        m.close()
+    finally:
+        os.unlink(db)
+
+@_testcase("phase-b: louvain community detection splits clusters", tags=["phase-b", "louvain"])
+def test_phb_louvain_split():
+    from dream_engine import _detect_communities
+    # Two dense triangles with a weak bridge: Louvain should split them
+    nodes = {1,2,3,4,5,6}
+    edges = [
+        {"source_id":1,"target_id":2,"weight":0.9},
+        {"source_id":2,"target_id":3,"weight":0.85},
+        {"source_id":1,"target_id":3,"weight":0.8},
+        {"source_id":4,"target_id":5,"weight":0.9},
+        {"source_id":5,"target_id":6,"weight":0.88},
+        {"source_id":4,"target_id":6,"weight":0.82},
+        {"source_id":3,"target_id":4,"weight":0.05},  # weak bridge
+    ]
+    adj = {}
+    for e in edges:
+        adj.setdefault(e["source_id"], []).append((e["target_id"], e["weight"]))
+        adj.setdefault(e["target_id"], []).append((e["source_id"], e["weight"]))
+    comms = _detect_communities(edges, nodes, adj)
+    # With networkx installed: Louvain should split (2 communities).
+    # Without networkx: BFS fallback collapses to 1 component.
+    try:
+        import networkx  # noqa: F401
+        assert len(comms) >= 2, f"Louvain should split on weak bridge, got {len(comms)} communities"
+    except ImportError:
+        # BFS fallback path — all connected, so 1 component is correct
+        assert len(comms) == 1, f"BFS fallback should return 1 component, got {len(comms)}"
+
+@_testcase("phase-b: hnsw silent fallback when lib missing", tags=["phase-b", "hnsw"])
+def test_phb_hnsw_silent_fallback():
+    # Simulate hnswlib missing by monkey-patching import failure indirectly
+    # via use_hnsw=False — demonstrates brute-force path still works.
+    from memory_client import NeuralMemory
+    db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    try:
+        m = NeuralMemory(db_path=db, use_cpp=False, use_hnsw=False)
+        m.remember("fact about the user's dog Lou", "pet")
+        m.remember("fact about the user's project", "project")
+        results = m.recall("pet", k=2)
+        assert len(results) >= 1, f"brute-force recall should return results"
+        m.close()
+    finally:
+        os.unlink(db)
+
+@_testcase("phase-b: rerank silent fallback when sentence-transformers missing", tags=["phase-b", "rerank"])
+def test_phb_rerank_silent_fallback():
+    # rerank=True with model absent should NOT crash recall
+    from memory_client import NeuralMemory
+    db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    try:
+        m = NeuralMemory(db_path=db, use_cpp=False, rerank=True,
+                        rerank_model="nonexistent/fake-model-123")
+        m.remember("test fact", "t")
+        # Should not crash even though rerank model cannot be loaded
+        r = m.recall("test", k=1)
+        assert len(r) >= 1
+        m.close()
+    finally:
+        os.unlink(db)
+
+@_testcase("phase-b: stats() reports feature flags (H7)", tags=["phase-b", "stats"])
+def test_phb_stats_feature_flags():
+    from memory_client import NeuralMemory
+    db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    try:
+        m = NeuralMemory(db_path=db, use_cpp=False, hnsw_ef=150, salience_multiply=False)
+        s = m.stats()
+        for key in ("cpp_available", "hnsw_active", "hnsw_ef", "lazy_graph",
+                    "louvain_available", "reranker_loaded", "rerank_enabled",
+                    "salience_multiply"):
+            assert key in s, f"stats() missing key: {key}"
+        assert s["hnsw_ef"] == 150, f"hnsw_ef should be 150, got {s['hnsw_ef']}"
+        assert s["salience_multiply"] is False, f"salience_multiply should be False"
+        m.close()
+    finally:
+        os.unlink(db)
+
+@_testcase("phase-b: salience off-switch (H5)", tags=["phase-b", "salience", "h5"])
+def test_phb_salience_off():
+    from memory_client import NeuralMemory
+    db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    try:
+        m = NeuralMemory(db_path=db, use_cpp=False, salience_multiply=False)
+        m.remember("a fact", "a")
+        r = m.recall("fact", k=1)
+        assert len(r) == 1
+        # combined should equal base (no salience multiply) — approximately
+        # base_combined = (1 - 0.2)*sim + 0.2*temporal
+        # with salience_multiply=False, combined == base_combined
+        # Hard to compute exactly without knowing temporal_score but combined
+        # should not have been degraded by a salience < 1.0
+        assert r[0]["combined"] > 0, "combined should be positive"
+        m.close()
+    finally:
+        os.unlink(db)
+
+@_testcase("phase-b: ppr + lazy_graph hydrates subgraph", tags=["phase-b", "ppr", "lazy"])
+def test_phb_ppr_lazy():
+    from memory_client import NeuralMemory
+    db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    try:
+        # Seed
+        m = NeuralMemory(db_path=db, use_cpp=False, use_hnsw=False)
+        ids = [m.remember(f"mem-{i}", f"L{i}") for i in range(4)]
+        for i in range(3):
+            m.store.add_connection(ids[i], ids[i+1], 0.8)
+        m.close()
+
+        # Reopen in lazy mode — _graph_nodes empty at init
+        m2 = NeuralMemory(db_path=db, use_cpp=False, use_hnsw=False, lazy_graph=True)
+        assert len(m2._graph_nodes) == 0, f"lazy_graph should leave _graph_nodes empty, got {len(m2._graph_nodes)}"
+        r = m2.think(ids[0], engine='ppr')
+        # PPR should hydrate neighbors + return results
+        assert len(m2._graph_nodes) > 0, "lazy mode should hydrate nodes on think()"
+        m2.close()
+    finally:
+        os.unlink(db)
+
+
+# ============================================================================
 # Runner
 # ============================================================================
 

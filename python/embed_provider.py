@@ -859,11 +859,33 @@ class EmbeddingProvider:
     
     def _auto_detect(self):
         """Auto-detect best available backend.
-        Priority: CUDA sentence-transformers > FastEmbed > MPS sentence-transformers > CPU sentence-transformers > TF-IDF > hash
+        
+        Priority: Shared Server (already running) > CUDA sentence-transformers > FastEmbed > 
+                  MPS sentence-transformers > CPU sentence-transformers > TF-IDF > hash
+        
+        The shared server is checked FIRST because it means another process already loaded
+        the model. We do NOT reload it — we connect via socket.
         """
         import torch
 
-        # 1. CUDA sentence-transformers FIRST (user's RTX 4060 Ti has 15GB VRAM)
+        # 0. SHARED SERVER FIRST — if socket exists and server is alive, USE IT
+        # This is the whole point of the shared server architecture!
+        if not os.environ.get('EMBED_NO_SHARED'):
+            try:
+                client = SharedEmbedClient()
+                dim = client.dim
+                client.close()
+                backend = SentenceTransformerBackend()
+                backend._is_client = True
+                backend.dim = dim
+                backend.model = None
+                backend._client = SharedEmbedClient()
+                print(f"[embed] Auto-selected: shared server ({dim}d)")
+                return backend
+            except Exception:
+                pass  # No server running, fall through to direct load
+
+        # 1. CUDA sentence-transformers (user's RTX 4060 Ti has 15GB VRAM)
         if torch.cuda.is_available():
             try:
                 free = torch.cuda.mem_get_info(0)[0] / 1024**2

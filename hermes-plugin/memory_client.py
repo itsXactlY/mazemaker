@@ -232,13 +232,19 @@ class SQLiteStore:
             )
             self.conn.commit()
 
-    def get_connections(self, node_id: int, at_time: Optional[float] = None) -> list[dict]:
+    def get_connections(self, node_id: int, at_time: Optional[float] = None,
+                        include_expired: bool = False) -> list[dict]:
         """Return edges touching node_id.
 
-        If `at_time` is provided, filter to edges valid at that instant:
-        `valid_from <= at_time <= valid_to` (NULLs treated as unbounded).
-        Pre-bitemporal edges with all-NULL temporal fields always pass.
+        - Default (no args): returns currently-valid edges only (edges with
+          `valid_to IS NULL` or `valid_to > now`). This keeps dream-pruned
+          soft-deleted edges out of default recall.
+        - `at_time=ts`: filter to edges valid at that instant:
+          `valid_from <= at_time <= valid_to` (NULLs treated as unbounded).
+        - `include_expired=True`: return ALL edges regardless of validity
+          (useful for audit / replay over `connection_history`).
         """
+        import time as _time
         rows = self.conn.execute(
             """SELECT source_id, target_id, weight, edge_type,
                       event_time, ingestion_time, valid_from, valid_to
@@ -246,13 +252,15 @@ class SQLiteStore:
                WHERE source_id = ? OR target_id = ? ORDER BY weight DESC""",
             (node_id, node_id),
         ).fetchall()
+        now = at_time if at_time is not None else _time.time()
         out = []
         for r in rows:
             vf, vt = r[6], r[7]
-            if at_time is not None:
-                if vf is not None and at_time < vf:
+            if not include_expired:
+                # Filter expired edges (H6 soft-delete awareness)
+                if vf is not None and now < vf:
                     continue
-                if vt is not None and at_time > vt:
+                if vt is not None and now > vt:
                     continue
             out.append({
                 'source': r[0], 'target': r[1], 'weight': r[2], 'type': r[3],
@@ -260,6 +268,52 @@ class SQLiteStore:
                 'valid_from': vf, 'valid_to': vt,
             })
         return out
+
+    def set_edges_valid_to(self, node_id: int, ts: float,
+                           edge_type: Optional[str] = None) -> int:
+        """H3/H6: mark all currently-valid edges touching node_id as expired at ts.
+
+        If `edge_type` is provided, only edges of that type are affected.
+        Returns count of rows updated.
+
+        Used by:
+          - remember() supersede branch (H3) — invalidate edges on conflict
+          - dream_engine NREM prune (H6) — soft-delete instead of hard-delete
+        """
+        with self._lock:
+            if edge_type is None:
+                cur = self.conn.execute(
+                    """UPDATE connections SET valid_to = ?
+                       WHERE (source_id = ? OR target_id = ?)
+                         AND valid_to IS NULL""",
+                    (ts, node_id, node_id),
+                )
+            else:
+                cur = self.conn.execute(
+                    """UPDATE connections SET valid_to = ?
+                       WHERE (source_id = ? OR target_id = ?)
+                         AND edge_type = ?
+                         AND valid_to IS NULL""",
+                    (ts, node_id, node_id, edge_type),
+                )
+            self.conn.commit()
+            return cur.rowcount
+
+    def set_edge_valid_to(self, source_id: int, target_id: int, ts: float) -> int:
+        """H6: mark a specific edge (source<->target, either direction) as expired at ts.
+
+        Returns count updated (0, 1, or 2 if duplicate rows exist in both directions).
+        """
+        with self._lock:
+            cur = self.conn.execute(
+                """UPDATE connections SET valid_to = ?
+                   WHERE ((source_id = ? AND target_id = ?)
+                       OR (source_id = ? AND target_id = ?))
+                     AND valid_to IS NULL""",
+                (ts, source_id, target_id, target_id, source_id),
+            )
+            self.conn.commit()
+            return cur.rowcount
     
     def get_stats(self) -> dict:
         mem_count = self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
@@ -294,7 +348,9 @@ class NeuralMemory:
                  hnsw_ef_construction: int = 200,
                  hnsw_m: int = 16,
                  hnsw_ef: int = 100,
-                 salience_multiply: bool = True):
+                 salience_multiply: bool = True,
+                 hnsw_index_path: Optional[str] = None,
+                 hnsw_save_every: int = 50):
         from embed_provider import EmbeddingProvider
 
         self.embedder = EmbeddingProvider(backend=embedding_backend)
@@ -319,6 +375,17 @@ class NeuralMemory:
 
         # H1: Remember ef for observability
         self._hnsw_ef = hnsw_ef
+
+        # H4: HNSW persistence — index saved to disk next to the DB.
+        # Auto-derives from db_path if not explicit.
+        if hnsw_index_path is None:
+            try:
+                hnsw_index_path = str(Path(db_path).with_suffix(".hnsw.bin"))
+            except Exception:
+                hnsw_index_path = str(Path.home() / ".neural_memory" / "hnsw.bin")
+        self._hnsw_index_path = hnsw_index_path
+        self._hnsw_save_every = max(1, int(hnsw_save_every))
+        self._hnsw_writes_since_save = 0
 
         # C++ SIMD index for fast retrieval (primary search path)
         self._cpp = None
@@ -395,19 +462,10 @@ class NeuralMemory:
                     cpp_id = self._cpp.store(emb, mem.get('label', ''), mem.get('content', ''))
                     self._cpp_id_map[cpp_id] = mem['id']
 
-        # Populate HNSW index if present
+        # Populate HNSW index if present (H4: try persist-cache first, bulk-rebuild on miss)
         if self._hnsw is not None and all_mems:
-            self._hnsw_ensure_capacity(len(all_mems))
-            import numpy as np
-            vecs = np.asarray([m['embedding'] for m in all_mems], dtype=np.float32)
-            ids = np.asarray([m['id'] for m in all_mems], dtype=np.int64)
-            try:
-                self._hnsw.add_items(vecs, ids)
-                self._hnsw_count = len(all_mems)
-            except Exception as exc:
-                import logging
-                logging.getLogger(__name__).debug("hnsw bulk add failed: %s", exc)
-                self._hnsw = None
+            if not self._try_load_hnsw(expected_count=len(all_mems)):
+                self._bulk_build_hnsw(all_mems)
 
     def _load_indexes_only(self):
         """For lazy_graph mode: populate C++/HNSW indexes without filling _graph_nodes."""
@@ -419,15 +477,85 @@ class NeuralMemory:
                     cpp_id = self._cpp.store(emb, mem.get('label', ''), mem.get('content', ''))
                     self._cpp_id_map[cpp_id] = mem['id']
         if self._hnsw is not None and all_mems:
+            if not self._try_load_hnsw(expected_count=len(all_mems)):
+                self._bulk_build_hnsw(all_mems)
+
+    # -- H4: HNSW persistence helpers --------------------------------------
+
+    def _try_load_hnsw(self, expected_count: int) -> bool:
+        """Attempt to load HNSW index from disk. Returns True on success.
+
+        Staleness check: loaded count must equal expected_count (from DB).
+        Mismatches trigger a rebuild.
+        """
+        if self._hnsw is None or not self._hnsw_index_path:
+            return False
+        p = Path(self._hnsw_index_path)
+        if not p.exists():
+            return False
+        try:
+            # Init max_elements with generous headroom before loading
+            self._hnsw_capacity = max(expected_count * 3 // 2, 1024)
+            self._hnsw.load_index(str(p), max_elements=self._hnsw_capacity)
+            loaded = self._hnsw.get_current_count()
+            if loaded != expected_count:
+                import logging
+                logging.getLogger(__name__).debug(
+                    "hnsw index stale: loaded=%d expected=%d; rebuilding",
+                    loaded, expected_count,
+                )
+                # Re-init from scratch so bulk_build can add cleanly
+                import hnswlib  # type: ignore
+                self._hnsw = hnswlib.Index(space='cosine', dim=self.dim)
+                self._hnsw.init_index(
+                    max_elements=self._hnsw_capacity,
+                    ef_construction=200, M=16,
+                )
+                self._hnsw.set_ef(self._hnsw_ef)
+                return False
+            self._hnsw_count = loaded
+            return True
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("hnsw load failed: %s", exc)
+            return False
+
+    def _bulk_build_hnsw(self, all_mems: list[dict]) -> None:
+        """Build HNSW index from scratch via bulk add_items."""
+        if self._hnsw is None or not all_mems:
+            return
+        try:
             self._hnsw_ensure_capacity(len(all_mems))
             import numpy as np
             vecs = np.asarray([m['embedding'] for m in all_mems], dtype=np.float32)
             ids = np.asarray([m['id'] for m in all_mems], dtype=np.int64)
-            try:
-                self._hnsw.add_items(vecs, ids)
-                self._hnsw_count = len(all_mems)
-            except Exception:
-                self._hnsw = None
+            self._hnsw.add_items(vecs, ids)
+            self._hnsw_count = len(all_mems)
+            # Save so next startup is fast
+            self._save_hnsw()
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("hnsw bulk add failed: %s", exc)
+            self._hnsw = None
+
+    def _save_hnsw(self) -> None:
+        """Persist HNSW index to disk. Called on close() + periodically in remember()."""
+        if self._hnsw is None or not self._hnsw_index_path:
+            return
+        try:
+            p = Path(self._hnsw_index_path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            self._hnsw.save_index(str(p))
+            self._hnsw_writes_since_save = 0
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("hnsw save failed: %s", exc)
+
+    def _maybe_save_hnsw(self) -> None:
+        """Save HNSW index if enough writes have accumulated since last save."""
+        self._hnsw_writes_since_save += 1
+        if self._hnsw_writes_since_save >= self._hnsw_save_every:
+            self._save_hnsw()
 
     def _hnsw_ensure_capacity(self, incoming: int) -> None:
         """Grow HNSW capacity if the next insert would exceed it."""
@@ -478,6 +606,7 @@ class NeuralMemory:
                 
                 # High similarity + different content = likely update
                 if similarity > 0.7 and self._content_differs(old_content, text):
+                    now_ts = time.time()
                     # Mark old memory as superseded
                     with self.store._lock:
                         self.store.conn.execute(
@@ -485,9 +614,20 @@ class NeuralMemory:
                             (f"[SUPERSEDED] {old_content}\n[UPDATED TO] {text}", conflict_id)
                         )
                         self.store.conn.commit()
+                    # H3: invalidate old edges temporally (without deleting).
+                    # Queries with at_time=old_ts still see them; default recall ignores.
+                    try:
+                        self.store.set_edges_valid_to(conflict_id, now_ts)
+                    except Exception:
+                        pass
                     # Update in-memory graph
                     if conflict_id in self._graph_nodes:
                         self._graph_nodes[conflict_id]['embedding'] = embedding
+                        # Clear stale in-memory edges since DB marked them expired
+                        self._graph_nodes[conflict_id]['connections'] = {}
+                        # Remove references from other nodes' connections
+                        for other_id, other_node in self._graph_nodes.items():
+                            other_node.get('connections', {}).pop(conflict_id, None)
                     # Don't create duplicate - update existing
                     return conflict_id
         
@@ -518,6 +658,8 @@ class NeuralMemory:
                     np.asarray([mem_id], dtype=np.int64),
                 )
                 self._hnsw_count += 1
+                # H4: periodic persistence so we're not rebuilding from scratch on every startup
+                self._maybe_save_hnsw()
             except Exception:
                 pass
 
@@ -1099,6 +1241,8 @@ class NeuralMemory:
         }
     
     def close(self):
+        # H4: flush HNSW before closing so next session starts fast
+        self._save_hnsw()
         if self._cpp:
             try:
                 self._cpp.shutdown()

@@ -257,6 +257,9 @@ class SQLiteDreamBackend(DreamBackend):
 
     def add_bridge(self, source_id: int, target_id: int,
                     weight: float = 0.3) -> None:
+        """Add a REM bridge edge. H6: stamps bi-temporal metadata if schema supports it,
+        so bridges are temporally traceable (`valid_from = ingestion_time = now`).
+        """
         conn = self._connect()
         try:
             existing = conn.execute(
@@ -266,22 +269,53 @@ class SQLiteDreamBackend(DreamBackend):
                 (source_id, target_id, target_id, source_id)
             ).fetchone()
             if not existing:
-                conn.execute(
-                    "INSERT INTO connections (source_id, target_id, weight, created_at) "
-                    "VALUES (?, ?, ?, ?)",
-                    (source_id, target_id, weight, time.time())
-                )
+                now_ts = time.time()
+                cols = {r[1] for r in conn.execute("PRAGMA table_info(connections)")}
+                if {"ingestion_time", "valid_from"}.issubset(cols):
+                    # H6: bi-temporal-aware insert
+                    conn.execute(
+                        """INSERT INTO connections
+                           (source_id, target_id, weight, edge_type, created_at,
+                            ingestion_time, valid_from)
+                           VALUES (?, ?, ?, 'rem_bridge', ?, ?, ?)""",
+                        (source_id, target_id, weight, now_ts, now_ts, now_ts),
+                    )
+                else:
+                    # Pre-migration fallback
+                    conn.execute(
+                        "INSERT INTO connections (source_id, target_id, weight, edge_type, created_at) "
+                        "VALUES (?, ?, ?, 'rem_bridge', ?)",
+                        (source_id, target_id, weight, now_ts)
+                    )
                 conn.commit()
         finally:
             conn.close()
 
     def prune_weak(self, threshold: float = 0.05) -> int:
+        """H6: soft-delete weak edges (set valid_to=now) rather than hard-delete.
+
+        Makes the connections table a temporal audit log — previous graph states
+        remain queryable via `get_connections(..., at_time=past_ts)`.
+
+        Only targets currently-valid edges (valid_to IS NULL). Already-expired
+        edges are untouched. Falls back to hard-DELETE if bi-temporal columns
+        aren't available (very old DBs pre-migration).
+        """
         conn = self._connect()
         try:
-            count = conn.execute(
-                "DELETE FROM connections WHERE weight < ?",
-                (threshold,)
-            ).rowcount
+            # Check if bi-temporal column exists
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(connections)")}
+            if "valid_to" in cols:
+                count = conn.execute(
+                    """UPDATE connections SET valid_to = ?
+                       WHERE weight < ? AND valid_to IS NULL""",
+                    (time.time(), threshold),
+                ).rowcount
+            else:
+                count = conn.execute(
+                    "DELETE FROM connections WHERE weight < ?",
+                    (threshold,)
+                ).rowcount
             conn.commit()
             return count
         finally:

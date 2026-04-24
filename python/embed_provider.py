@@ -268,7 +268,16 @@ class SharedEmbedServer:
 # ============================================================================
 
 class SharedEmbedClient:
-    """Client that connects to SharedEmbedServer via UNIX socket."""
+    """Client that connects to SharedEmbedServer via UNIX socket.
+    
+    Retry logic: if server is temporarily unresponsive (e.g. loading model,
+    processing another client), retry with exponential backoff before giving up.
+    This prevents sessions from falling back to direct-load when the shared
+    server is the intended architecture.
+    """
+    
+    _MAX_RETRIES = 5
+    _BASE_DELAY = 0.2  # seconds
     
     def __init__(self, timeout=10.0):
         self._sock = None
@@ -277,12 +286,29 @@ class SharedEmbedClient:
         self._connect()
     
     def _connect(self):
-        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._sock.settimeout(self._timeout)
-        self._sock.connect(str(SOCKET_PATH))
-        # Get dim
-        resp = self._send({"cmd": "ping"})
-        self._dim = resp.get("dim", 1024)
+        last_err = None
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self._sock.settimeout(self._timeout)
+                self._sock.connect(str(SOCKET_PATH))
+                # Get dim
+                resp = self._send({"cmd": "ping"})
+                self._dim = resp.get("dim", 1024)
+                return  # success
+            except (socket.timeout, socket.error, OSError) as e:
+                last_err = e
+                if self._sock:
+                    try:
+                        self._sock.close()
+                    except Exception:
+                        pass
+                    self._sock = None
+                if attempt < self._MAX_RETRIES - 1:
+                    delay = self._BASE_DELAY * (2 ** attempt)  # 0.2, 0.4, 0.8, 1.6, 3.2s
+                    time.sleep(delay)
+        # All retries exhausted — raise last error so _auto_detect falls through
+        raise last_err if last_err else RuntimeError("SharedEmbedClient: all retries failed")
     
     def _send(self, req):
         msg = json.dumps(req).encode()
@@ -304,13 +330,39 @@ class SharedEmbedClient:
     def dim(self):
         return self._dim
     
+    def _reconnect(self):
+        """Reconnect if socket was broken (e.g. server restarted)."""
+        try:
+            self._sock.close()
+        except Exception:
+            pass
+        self._connect()
+    
     def embed(self, text):
-        resp = self._send({"cmd": "embed", "text": text})
-        return resp["vec"]
+        try:
+            resp = self._send({"cmd": "embed", "text": text})
+            return resp["vec"]
+        except (socket.timeout, socket.error, OSError):
+            # Socket may have broken — try reconnect + one retry
+            try:
+                self._reconnect()
+                resp = self._send({"cmd": "embed", "text": text})
+                return resp["vec"]
+            except Exception:
+                raise RuntimeError("SharedEmbedClient: embed failed after reconnect")
     
     def embed_batch(self, texts):
-        resp = self._send({"cmd": "embed_batch", "texts": texts})
-        return resp["vecs"]
+        try:
+            resp = self._send({"cmd": "embed_batch", "texts": texts})
+            return resp["vecs"]
+        except (socket.timeout, socket.error, OSError):
+            # Socket may have broken — try reconnect + one retry
+            try:
+                self._reconnect()
+                resp = self._send({"cmd": "embed_batch", "texts": texts})
+                return resp["vecs"]
+            except Exception:
+                raise RuntimeError("SharedEmbedClient: embed_batch failed after reconnect")
     
     def close(self):
         if self._sock:

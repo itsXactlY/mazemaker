@@ -92,9 +92,29 @@ class SQLiteStore:
         self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")  # Better concurrent read perf
         self.conn.execute("PRAGMA synchronous=NORMAL") # Faster writes
+        self.conn.execute("PRAGMA wal_autocheckpoint=100000") # Safety: checkpoint every 100K pages (~400MB), not 1000 (~4MB)
         self.conn.executescript(SCHEMA)
         self.conn.commit()
         self._lock = threading.Lock()
+        self._db_path = str(db_path)
+        # Background WAL checkpoint — prevents WAL bloat even with sessions always running
+        self._checkpoint_thread = threading.Thread(target=self._bg_checkpoint, daemon=True)
+        self._checkpoint_thread.start()
+    
+    def _bg_checkpoint(self):
+        """Background checkpoint every 60s — keeps WAL bounded regardless of session count."""
+        import time
+        while True:
+            time.sleep(60)
+            try:
+                with self._lock:
+                    result = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                    # (0, pages, unreferenced) = OK, WAL truncated
+                    # (1, pages, unreferenced) = BUSY, WAL not truncated (sessions still hold locks)
+                    if result[0] == 0:
+                        pass  # checkpoint OK
+            except Exception:
+                pass  # ignore errors in background thread
     
     def store(self, label: str, content: str, embedding: list[float]) -> int:
         blob = struct.pack(f'{len(embedding)}f', *embedding)

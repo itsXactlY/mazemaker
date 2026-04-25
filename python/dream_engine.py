@@ -497,9 +497,120 @@ class DreamEngine:
         """Signal activity — resets idle timer."""
         self._last_activity = time.time()
 
-    def dream_now(self) -> Dict[str, Any]:
-        """Force an immediate dream cycle. Returns stats."""
-        return self._run_dream_cycle()
+    def dream_now(self, dispatch: str = "inline") -> Dict[str, Any]:
+        """Force an immediate dream cycle.
+
+        H20: `dispatch` controls execution mode.
+          - "inline" (default): runs in-process, blocks until complete. Original
+            behavior preserved.
+          - "subprocess": spawns a Python subprocess that re-opens the DB and
+            runs the cycle there. Returns immediately with a job id; status
+            file written to ~/.neural_memory/dream-jobs/<job_id>.json.
+            Recall in the parent process is not blocked by the dream cycle.
+
+        SQLite WAL mode (already enabled in SQLiteStore.__init__) makes
+        concurrent read+write safe across processes.
+        """
+        if dispatch == "inline":
+            return self._run_dream_cycle()
+        elif dispatch == "subprocess":
+            return self._dispatch_subprocess()
+        else:
+            raise ValueError(f"unknown dream dispatch: {dispatch!r}")
+
+    def _dispatch_subprocess(self) -> Dict[str, Any]:
+        """H20: spawn a subprocess to run the dream cycle. Returns immediately
+        with a job descriptor; status file polled via dream_status().
+        """
+        import json as _json
+        import os as _os
+        import subprocess as _subprocess
+        import sys as _sys
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+
+        # Locate the DB path so the subprocess can re-open it
+        db_path = None
+        if hasattr(self, "_memory") and self._memory is not None:
+            store = getattr(self._memory, "store", None)
+            db_path = getattr(store, "db_path", None) if store is not None else None
+        # Fall back to a sane default if not introspectable
+        if not db_path:
+            db_path = str(_Path.home() / ".neural_memory" / "memory.db")
+
+        job_id = f"dream-{int(time.time() * 1000)}-{_os.getpid()}"
+        status_dir = _Path.home() / ".neural_memory" / "dream-jobs"
+        status_dir.mkdir(parents=True, exist_ok=True)
+        status_path = status_dir / f"{job_id}.json"
+        status_path.write_text(_json.dumps({
+            "job_id": job_id,
+            "status": "queued",
+            "started_at": time.time(),
+        }))
+
+        # Locate the python/ dir so the subprocess can `import memory_client`
+        # & `import dream_engine`. __file__ lives in python/ — use its parent.
+        py_dir = str(_Path(__file__).resolve().parent)
+
+        runner = (
+            "import sys, json, time\n"
+            f"sys.path.insert(0, {py_dir!r})\n"
+            "from memory_client import NeuralMemory\n"
+            "from dream_engine import DreamEngine\n"
+            f"mem = NeuralMemory(db_path={db_path!r}, use_cpp=False)\n"
+            "engine = DreamEngine(mem)\n"
+            "started = time.time()\n"
+            "try:\n"
+            "    result = engine._run_dream_cycle()\n"
+            "    status = 'complete'\n"
+            "    error = None\n"
+            "except Exception as exc:\n"
+            "    result = {}\n"
+            "    status = 'error'\n"
+            "    error = str(exc)\n"
+            f"sp = {str(status_path)!r}\n"
+            "with open(sp, 'w') as fh:\n"
+            "    json.dump({\n"
+            f"        'job_id': {job_id!r},\n"
+            "        'status': status,\n"
+            f"        'started_at': started,\n"
+            "        'finished_at': time.time(),\n"
+            "        'result': result,\n"
+            "        'error': error,\n"
+            "    }, fh)\n"
+            "mem.close()\n"
+        )
+
+        # stdout/stderr to /dev/null so subprocess doesn't pipe back
+        proc = _subprocess.Popen(
+            [_sys.executable, "-c", runner],
+            stdout=_subprocess.DEVNULL,
+            stderr=_subprocess.DEVNULL,
+            close_fds=True,
+        )
+        return {
+            "job_id": job_id,
+            "pid": proc.pid,
+            "status_path": str(status_path),
+            "status": "queued",
+            "dispatch": "subprocess",
+        }
+
+    def dream_status(self, job_id: str) -> Dict[str, Any]:
+        """H20: poll job status from the status file written by the subprocess.
+
+        Returns {'status': 'unknown'} if the job_id isn't found.
+        Status values: 'queued' | 'complete' | 'error' | 'unknown'.
+        """
+        from pathlib import Path as _Path
+        import json as _json
+        status_path = _Path.home() / ".neural_memory" / "dream-jobs" / f"{job_id}.json"
+        if not status_path.exists():
+            return {"job_id": job_id, "status": "unknown"}
+        try:
+            return _json.loads(status_path.read_text())
+        except Exception as exc:
+            return {"job_id": job_id, "status": "error", "error": str(exc)}
 
     # -- Main loop -----------------------------------------------------------
 

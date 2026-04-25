@@ -96,6 +96,25 @@ CREATE TABLE IF NOT EXISTS connections (
 
 CREATE INDEX IF NOT EXISTS idx_connections_source ON connections(source_id);
 CREATE INDEX IF NOT EXISTS idx_connections_target ON connections(target_id);
+
+-- H19 Active Contradiction Replacement: archive table for superseded memories.
+-- When supersede fires, the OLD content moves here and the original memories
+-- row is replaced cleanly. Audit history preserved; current state stays clean.
+CREATE TABLE IF NOT EXISTS superseded_memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_id INTEGER NOT NULL,
+    content TEXT,
+    label TEXT,
+    embedding BLOB,
+    salience REAL,
+    superseded_by INTEGER,
+    superseded_at REAL DEFAULT (unixepoch()),
+    superseded_reason TEXT,
+    FOREIGN KEY (superseded_by) REFERENCES memories(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_superseded_original ON superseded_memories(original_id);
+CREATE INDEX IF NOT EXISTS idx_superseded_by ON superseded_memories(superseded_by);
 """
 
 # Columns to add via ALTER TABLE on existing DBs (migration for bi-temporal fields).
@@ -298,6 +317,45 @@ class SQLiteStore:
                 )
             self.conn.commit()
             return cur.rowcount
+
+    def archive_superseded(self, original_id: int, content: str, label: str,
+                           embedding: list[float], salience: float,
+                           superseded_by: Optional[int] = None,
+                           superseded_at: Optional[float] = None,
+                           superseded_reason: str = "") -> int:
+        """H19: archive a memory's prior content to superseded_memories before
+        replace_memory() rewrites the row. Returns the audit-table row id.
+        """
+        import time as _time
+        if superseded_at is None:
+            superseded_at = _time.time()
+        blob = struct.pack(f'{len(embedding)}f', *embedding) if embedding else None
+        with self._lock:
+            cur = self.conn.execute(
+                """INSERT INTO superseded_memories
+                   (original_id, content, label, embedding, salience,
+                    superseded_by, superseded_at, superseded_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (original_id, content, label, blob, salience,
+                 superseded_by, superseded_at, superseded_reason),
+            )
+            self.conn.commit()
+            return cur.lastrowid
+
+    def replace_memory(self, memory_id: int, content: str, label: str,
+                       embedding: list[float]) -> None:
+        """H19: cleanly replace a memory's content + label + embedding in place.
+        No `[SUPERSEDED]` prefix. Caller should have called archive_superseded()
+        first to preserve audit history.
+        """
+        blob = struct.pack(f'{len(embedding)}f', *embedding) if embedding else None
+        with self._lock:
+            self.conn.execute(
+                """UPDATE memories SET content = ?, label = ?, embedding = ?
+                   WHERE id = ?""",
+                (content, label, blob, memory_id),
+            )
+            self.conn.commit()
 
     def set_edge_valid_to(self, source_id: int, target_id: int, ts: float) -> int:
         """H6: mark a specific edge (source<->target, either direction) as expired at ts.
@@ -586,15 +644,75 @@ class NeuralMemory:
         self._graph_nodes[node_id] = node
         return node
     
-    def remember(self, text: str, label: str = "", detect_conflicts: bool = True) -> int:
+    @staticmethod
+    def _normalize_dates(text: str, ref_time: float = None) -> str:
+        """H18: replace relative dates ("yesterday", "last week", "N days ago")
+        with absolute ISO dates. Conservative — leaves ambiguous phrasings
+        ("a few days ago", "shortly") untouched.
+
+        Parallels Anthropic Auto-Dream's Consolidate-phase date normalization:
+        "Yesterday we decided to use Redis" → "On 2026-04-24 we decided to use Redis".
+        """
+        if not text:
+            return text
+        import re
+        from datetime import datetime, timedelta
+        ref = datetime.fromtimestamp(ref_time) if ref_time else datetime.now()
+
+        def _iso(dt: datetime) -> str:
+            return dt.strftime("%Y-%m-%d")
+
+        def _sub_static(match, days_offset):
+            return f"on {_iso(ref + timedelta(days=days_offset))}"
+
+        def _sub_n(match, factor):
+            n = int(match.group(1))
+            return f"on {_iso(ref - timedelta(days=n * factor))}"
+
+        # Static patterns (case-insensitive)
+        static = [
+            (r"\byesterday\b", -1),
+            (r"\btoday\b", 0),
+            (r"\btomorrow\b", 1),
+            (r"\bearlier today\b", 0),
+            (r"\bthis morning\b", 0),
+            (r"\bthis afternoon\b", 0),
+            (r"\bthis evening\b", 0),
+            (r"\btonight\b", 0),
+            (r"\blast week\b", -7),
+            (r"\bnext week\b", 7),
+            (r"\blast month\b", -30),
+            (r"\bnext month\b", 30),
+        ]
+        out = text
+        for pat, offset in static:
+            out = re.sub(pat, lambda m, o=offset: _sub_static(m, o), out, flags=re.IGNORECASE)
+
+        # N-day / N-week ago patterns
+        out = re.sub(r"\b(\d+)\s+days?\s+ago\b",
+                     lambda m: _sub_n(m, 1), out, flags=re.IGNORECASE)
+        out = re.sub(r"\b(\d+)\s+weeks?\s+ago\b",
+                     lambda m: _sub_n(m, 7), out, flags=re.IGNORECASE)
+
+        return out
+
+    def remember(self, text: str, label: str = "", detect_conflicts: bool = True,
+                 normalize_dates: bool = True) -> int:
         """Store a memory. Returns memory ID.
-        
+
         If detect_conflicts=True, checks for existing memories about the same
         topic that contain contradictory information and updates/invalidates them.
+
+        If normalize_dates=True (default; H18), relative dates in the content
+        are converted to absolute ISO dates before storage. Pass False to
+        preserve verbatim text.
         """
         import math
         import time
-        
+
+        if normalize_dates:
+            text = self._normalize_dates(text)
+
         embedding = self.embedder.embed(text)
         
         # Knowledge-update: detect conflicts with existing memories
@@ -607,15 +725,45 @@ class NeuralMemory:
                 # High similarity + different content = likely update
                 if similarity > 0.7 and self._content_differs(old_content, text):
                     now_ts = time.time()
-                    # Mark old memory as superseded
-                    with self.store._lock:
-                        self.store.conn.execute(
-                            "UPDATE memories SET content = ? WHERE id = ?",
-                            (f"[SUPERSEDED] {old_content}\n[UPDATED TO] {text}", conflict_id)
+                    # H19: archive old content to superseded_memories, then
+                    # cleanly replace the memories row. No more [SUPERSEDED]
+                    # prefix. Audit history preserved separately.
+                    try:
+                        # Fetch the full old row for archive (need embedding + label + salience)
+                        old_full = self.store.get(conflict_id) or {}
+                        old_embedding = old_full.get('embedding', [])
+                        old_label = old_full.get('label', '') or conflict_info.get('label', '')
+                        old_salience = old_full.get('salience', 1.0)
+                        self.store.archive_superseded(
+                            original_id=conflict_id,
+                            content=old_content,
+                            label=old_label,
+                            embedding=old_embedding,
+                            salience=old_salience,
+                            superseded_by=conflict_id,  # same id; new content will be there
+                            superseded_at=now_ts,
+                            superseded_reason=f"cosine={similarity:.3f} content_differs",
                         )
-                        self.store.conn.commit()
+                        self.store.replace_memory(
+                            memory_id=conflict_id,
+                            content=text,
+                            label=label or text[:60],
+                            embedding=embedding,
+                        )
+                    except Exception as exc:
+                        # Fall back to legacy [SUPERSEDED] prefix if anything
+                        # unexpected happens (defensive — keeps recall semantics)
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            "H19 supersede archive failed, falling back to prefix: %s", exc,
+                        )
+                        with self.store._lock:
+                            self.store.conn.execute(
+                                "UPDATE memories SET content = ? WHERE id = ?",
+                                (f"[SUPERSEDED] {old_content}\n[UPDATED TO] {text}", conflict_id),
+                            )
+                            self.store.conn.commit()
                     # H3: invalidate old edges temporally (without deleting).
-                    # Queries with at_time=old_ts still see them; default recall ignores.
                     try:
                         self.store.set_edges_valid_to(conflict_id, now_ts)
                     except Exception:

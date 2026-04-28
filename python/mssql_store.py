@@ -140,6 +140,36 @@ class MSSQLStore:
                         pass  # Ignore if already exists
             self.conn.commit()
 
+        # Idempotent migration: canonicalise legacy connection rows.
+        # Iter 50 made every NEW write canonical (source<target). Rows
+        # written by older code or by sync_bridge before that fix can still
+        # carry arbitrary orientation, and add_connection's MERGE only
+        # checks the canonical pair — so a re-add of (a,b) would not find
+        # the existing (b,a) row and would INSERT a duplicate edge.
+        # Sweep once on connect: for any pair where source>target, delete
+        # the row outright IF a canonical (source<target) row already exists,
+        # otherwise rewrite it to canonical orientation. This is a one-time
+        # cleanup — subsequent runs see no non-canonical rows and the loop
+        # is a fast no-op.
+        try:
+            cursor.execute("""
+                DELETE FROM connections
+                 WHERE source_id > target_id
+                   AND EXISTS (
+                       SELECT 1 FROM connections c2
+                        WHERE c2.source_id = connections.target_id
+                          AND c2.target_id = connections.source_id
+                   )
+            """)
+            cursor.execute("""
+                UPDATE connections
+                   SET source_id = target_id, target_id = source_id
+                 WHERE source_id > target_id
+            """)
+            self.conn.commit()
+        except Exception:
+            pass
+
         # Idempotent migration: bump embedding column to VARBINARY(MAX).
         # The original schema declared VARBINARY(8000) — 8000 bytes / 4 = 2000
         # floats, fine for the default 1024-d model but a hard ceiling for any

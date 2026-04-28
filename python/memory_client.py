@@ -479,6 +479,26 @@ class SQLiteStore:
                 )
             self.conn.commit()
 
+    def get_all_connections(self) -> list[dict]:
+        """Return every edge as a list — used for bulk graph hydration.
+
+        One SELECT across the whole connections table. Caller groups
+        the rows by node id; cheaper than calling get_connections once
+        per memory on startup.
+        """
+        rows = self.conn.execute(
+            "SELECT source_id, target_id, weight, edge_type FROM connections"
+        ).fetchall()
+        return [
+            {
+                "source": r["source_id"],
+                "target": r["target_id"],
+                "weight": float(r["weight"] or 0.0),
+                "type": r["edge_type"] or "similar",
+            }
+            for r in rows
+        ]
+
     def get_connections(self, node_id: int, at_time: Optional[float] = None) -> list[dict]:
         params: list[Any] = [node_id, node_id]
         time_filter = ""
@@ -804,8 +824,34 @@ class NeuralMemory:
                 "connections": {},
             }
         self._quarantined_dim = quarantined
-        for mem in all_mems:
-            self._refresh_connections(mem["id"])
+
+        # Bulk-load all edges in one SQL pass and bucket them onto each node,
+        # rather than firing one get_connections query per memory. With 10K
+        # memories the per-row variant burned 10K SQL round-trips on startup;
+        # the bulk variant is one round-trip plus a Python loop.
+        if hasattr(self.store, "get_all_connections"):
+            for edge in self.store.get_all_connections():
+                src = int(edge["source"])
+                tgt = int(edge["target"])
+                w = float(edge["weight"])
+                # _graph_nodes already exists for known memories; the
+                # default-dict-style branch handles edges pointing to memories
+                # that aren't in _graph_nodes (orphan edges that pre-date a
+                # delete) without crashing.
+                node_s = self._graph_nodes.setdefault(src, {
+                    "embedding": [], "label": f"memory:{src}", "content": "", "connections": {},
+                })
+                node_t = self._graph_nodes.setdefault(tgt, {
+                    "embedding": [], "label": f"memory:{tgt}", "content": "", "connections": {},
+                })
+                node_s.setdefault("connections", {})[tgt] = w
+                node_t.setdefault("connections", {})[src] = w
+        else:
+            # MSSQL store path (no get_all_connections) — fall back to the
+            # per-memory query so behaviour is preserved on non-SQLite backends.
+            for mem in all_mems:
+                self._refresh_connections(mem["id"])
+
         if self._cpp:
             for mem in all_mems:
                 emb = mem.get("embedding", [])

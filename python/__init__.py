@@ -260,6 +260,7 @@ class NeuralMemoryProvider(MemoryProvider):
                 ppr_hops=int(self._config.get("ppr_hops", 2) or 2),
                 mmr_lambda=float(self._config.get("mmr_lambda", 0.0) or 0.0),
                 recall_score_floor=float(self._config.get("recall_score_floor", 0.0) or 0.0),
+                recall_score_percentile=float(self._config.get("recall_score_percentile", 0.0) or 0.0),
             )
 
             # Load initial context from memory — DEFERRED to a daemon thread.
@@ -1320,7 +1321,12 @@ memory?") call `neural_graph` to summarise.
                 "required": False,
                 "default": 0,
             },
-            {"key": "retrieval_mode", "description": "Retrieval mode (semantic, hybrid, advanced, skynet)", "required": False, "default": "semantic"},
+            {"key": "retrieval_mode",
+             "description": "Retrieval mode (semantic, hybrid, advanced, skynet, lean, trim). "
+                            "lean drops bm25/temporal/salience — beats skynet on real prose by "
+                            "+0.18 R@5 per the 2026-04-28 benchmark and is 4× faster on synthetic. "
+                            "trim drops only salience (conservative middle-ground).",
+             "required": False, "default": "semantic"},
             {"key": "use_hnsw", "description": "Use HNSW ANN index (auto, true, false)", "required": False, "default": "auto"},
             {"key": "lazy_graph", "description": "Hydrate graph nodes on demand instead of at startup", "required": False, "default": False},
             {"key": "think_engine", "description": "Graph thinking engine (bfs or ppr)", "required": False, "default": "bfs"},
@@ -1328,7 +1334,12 @@ memory?") call `neural_graph` to summarise.
             {"key": "store_raw_turns", "description": "Store raw per-turn messages (debug only)", "required": False, "default": False},
             {"key": "archive_raw_turns", "description": "Archive raw turns before compression (debug only)", "required": False, "default": False},
             {"key": "mmr_lambda", "description": "MMR diversity weight for recall (0.0=relevance only, 0.7=balanced; off by default)", "required": False, "default": 0.0},
-            {"key": "recall_score_floor", "description": "Minimum similarity to return a recall hit (e.g. 0.3 to drop weak matches)", "required": False, "default": 0.0},
+            {"key": "recall_score_floor",
+             "description": "Minimum similarity to return a recall hit on the RAW RRF scale (~0..0.05; legacy, use recall_score_percentile instead). 0 = off.",
+             "required": False, "default": 0.0},
+            {"key": "recall_score_percentile",
+             "description": "Calibrated [0,1] alternative to recall_score_floor. Drops the bottom X fraction of candidates by RANK (0.5=keep top half). Off by default.",
+             "required": False, "default": 0.0},
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:

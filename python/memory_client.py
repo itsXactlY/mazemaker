@@ -720,6 +720,7 @@ class NeuralMemory:
         ppr_hops: int = 2,
         mmr_lambda: float = 0.0,
         recall_score_floor: float = 0.0,
+        recall_score_percentile: float = 0.0,
     ):
         if embedder is not None:
             self.embedder = embedder
@@ -766,6 +767,10 @@ class NeuralMemory:
         # everything. Use the new `score_percentile` kwarg on recall() for
         # a properly calibrated [0,1] alternative.
         self._recall_score_floor = max(0.0, float(recall_score_floor or 0.0))
+        # Constructor-level default for score_percentile. The recall() kwarg
+        # of the same name overrides this per-call. Calibrated [0,1] knob —
+        # see comment on score_floor above for why this companion exists.
+        self._recall_score_percentile = max(0.0, min(1.0, float(recall_score_percentile or 0.0)))
         # Default channel mix. The 2026-04-28 benchmark's channel_ablation
         # measured per-channel contribution on paraphrase data:
         #   ppr      Δmrr=-0.1216 (most helpful)
@@ -1586,7 +1591,12 @@ class NeuralMemory:
         # raw RRF scores, so it's well-defined regardless of the
         # underlying relevance scale. e.g. score_percentile=0.5 → keep
         # top half. Combines with score_floor — both are applied if set.
-        pct = float(score_percentile or 0.0)
+        # Falls back to the constructor default when the per-call kwarg
+        # is None (matches mmr_lambda / score_floor behaviour).
+        pct = (
+            self._recall_score_percentile if score_percentile is None
+            else float(score_percentile or 0.0)
+        )
         if pct > 0.0:
             keep_n = max(1, int(round(len(results) * (1.0 - min(1.0, pct)))))
             results = results[:keep_n]

@@ -72,7 +72,8 @@ class Memory:
                  ppr_iters: int = 20,
                  ppr_hops: int = 2,
                  mmr_lambda: float = 0.0,
-                 recall_score_floor: float = 0.0):
+                 recall_score_floor: float = 0.0,
+                 recall_score_percentile: float = 0.0):
         
         Path.home().joinpath(".neural_memory").mkdir(parents=True, exist_ok=True)
         
@@ -121,12 +122,14 @@ class Memory:
             ppr_hops=ppr_hops,
             mmr_lambda=mmr_lambda,
             recall_score_floor=recall_score_floor,
+            recall_score_percentile=recall_score_percentile,
         )
         # Cache the configured defaults so Memory.recall() can pass an
         # explicit override per-call. NeuralMemory.recall() falls back to
         # its own stored defaults when these are None.
         self._mmr_lambda_default = float(mmr_lambda or 0.0)
         self._recall_score_floor_default = float(recall_score_floor or 0.0)
+        self._recall_score_percentile_default = float(recall_score_percentile or 0.0)
         # _use_mssql for external probes (the plugin init's \"mssql=%s\" log
         # line and dashboards). \`backend\` and \`dim\` are exposed as @property
         # below — those compute from runtime state so they reflect post-init

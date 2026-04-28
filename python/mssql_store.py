@@ -58,7 +58,7 @@ CREATE TABLE memories (
     id BIGINT IDENTITY(1,1) PRIMARY KEY,
     label NVARCHAR(256),
     content NVARCHAR(MAX),
-    embedding VARBINARY(8000),
+    embedding VARBINARY(MAX),
     vector_dim INT NOT NULL,
     salience FLOAT DEFAULT 1.0,
     created_at DATETIME2(7) DEFAULT SYSUTCDATETIME(),
@@ -124,7 +124,7 @@ class MSSQLStore:
         self._ensure_schema()
     
     def _ensure_schema(self):
-        """Create tables if they don't exist"""
+        """Create tables if they don't exist + apply idempotent migrations."""
         cursor = self.conn.cursor()
         # Check if memories table exists
         try:
@@ -136,9 +136,35 @@ class MSSQLStore:
                 if stmt and 'GO' not in stmt and 'CREATE DATABASE' not in stmt:
                     try:
                         cursor.execute(stmt)
-                    except Exception as e:
+                    except Exception:
                         pass  # Ignore if already exists
             self.conn.commit()
+
+        # Idempotent migration: bump embedding column to VARBINARY(MAX).
+        # The original schema declared VARBINARY(8000) — 8000 bytes / 4 = 2000
+        # floats, fine for the default 1024-d model but a hard ceiling for any
+        # modern higher-dim model (e5-mistral-7b at 4096-d, gte-Qwen at 3584-d,
+        # etc.). At write time SQL Server raises a string-truncation error if
+        # the blob exceeds 8000 bytes — silent ONLY if ANSI_WARNINGS OFF, which
+        # is rare but possible under certain ODBC connection options.
+        # This migration is in-place and preserves all existing data; ALTER
+        # COLUMN to a larger varbinary is metadata-only on SQL Server.
+        try:
+            cursor.execute(
+                "SELECT max_length FROM sys.columns "
+                "WHERE object_id = OBJECT_ID('dbo.memories') AND name = 'embedding'"
+            )
+            row = cursor.fetchone()
+            # max_length = -1 indicates VARBINARY(MAX); positive values are
+            # the byte cap. Migrate anything below MAX (i.e., not -1) up.
+            if row is not None and row[0] != -1:
+                cursor.execute("ALTER TABLE memories ALTER COLUMN embedding VARBINARY(MAX)")
+                self.conn.commit()
+        except Exception:
+            # Permission errors, table missing on first run, etc — leave as-is;
+            # writes that fit under the original cap continue to work, and the
+            # migration retries on next process start.
+            pass
     
     def store(self, label: str, content: str, embedding: list[float],
               id_: Optional[int] = None) -> int:

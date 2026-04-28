@@ -463,17 +463,64 @@ class Memory:
         and canonicalises source<target, so calling this repeatedly for
         the same memory keeps the MSSQL connections table consistent
         with SQLite without producing duplicates.
+
+        Backfills the OTHER endpoint when needed: the MSSQL connections
+        table has FK constraints to memories(id); if auto_connect attached
+        an edge to an older memory whose row was never mirrored (e.g.
+        memories pre-dating the MSSQL configuration, or written when
+        MSSQL was unreachable), the INSERT would fail FK validation and
+        the edge would be silently dropped. Lazy-backfill the missing
+        memory from SQLite before the edge insert so this is no longer
+        a silent corruption path.
         """
         if not self._mssql_store:
             return
+        store = self._sqlite_memory.store
         try:
-            store = self._sqlite_memory.store
             for c in store.get_connections(mem_id):
                 src = int(c.get("source"))
                 tgt = int(c.get("target"))
                 weight = float(c.get("weight") or 0.0)
                 edge_type = c.get("edge_type") or c.get("type") or "similar"
+                # Backfill whichever endpoint isn't `mem_id` (the one we
+                # just mirrored). This pulls a single SQLite get + a
+                # single MSSQL upsert per missing memory.
+                other = tgt if src == mem_id else src
+                if other != mem_id:
+                    self._ensure_mssql_memory(other)
                 self._mssql_store.add_connection(src, tgt, weight, edge_type)
+        except Exception:
+            pass
+
+    def _ensure_mssql_memory(self, mem_id: int) -> None:
+        """Make sure memory `mem_id` exists in MSSQL; mirror it from SQLite if not.
+
+        Cheap fast-path: if MSSQLStore already has the row, MSSQLStore.store's
+        MERGE is a no-op update of identical content. The expensive case
+        (lazy backfill) only fires for memories pre-dating MSSQL
+        configuration, which is exactly when it's needed.
+        """
+        if not self._mssql_store:
+            return
+        try:
+            existing = self._mssql_store.get(int(mem_id))
+            if existing is not None:
+                return
+        except Exception:
+            return
+        try:
+            mem = self._sqlite_memory.store.get(int(mem_id), include_embedding=True)
+        except Exception:
+            return
+        if mem is None:
+            return
+        try:
+            self._mssql_store.store(
+                mem.get("label") or "",
+                mem.get("content") or "",
+                mem.get("embedding") or [],
+                id_=int(mem_id),
+            )
         except Exception:
             pass
     

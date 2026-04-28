@@ -248,17 +248,57 @@ class MSSQLStore:
         )
         return [self._row_to_dict(r) for r in cursor.fetchall()]
 
-    def get(self, id_: int) -> Optional[dict]:
+    def get(self, id_: int, include_embedding: bool = True) -> Optional[dict]:
+        """Fetch a single memory.
+
+        Mirrors SQLiteStore.get's `include_embedding=True` default and the
+        same opt-out for label-only lookups. Pulling the embedding blob
+        across the wire for every neighbour-label lookup in recall_multihop
+        is wasteful (~4KB per memory at 1024-d); skipping it when the
+        caller only needs label/content drops MSSQL bandwidth proportional
+        to the result size.
+        """
         cursor = self.conn.cursor()
+        if include_embedding:
+            cursor.execute(
+                "SELECT id, label, content, embedding, vector_dim, salience, "
+                "created_at, last_accessed, access_count FROM memories WHERE id = ?",
+                id_,
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self._row_to_dict(row)
+        # Embedding-skip path — return the same dict shape with embedding=[].
         cursor.execute(
-            "SELECT id, label, content, embedding, vector_dim, salience, "
+            "SELECT id, label, content, salience, "
             "created_at, last_accessed, access_count FROM memories WHERE id = ?",
             id_,
         )
         row = cursor.fetchone()
         if not row:
             return None
-        return self._row_to_dict(row)
+        id_, label, content, salience, created_at, last_accessed, access = row
+
+        def _epoch(dt) -> float | None:
+            if dt is None:
+                return None
+            try:
+                from datetime import timezone as _tz
+                if dt.tzinfo is None:
+                    return dt.replace(tzinfo=_tz.utc).timestamp()
+                return dt.timestamp()
+            except Exception:
+                return None
+
+        return {
+            "id": id_, "label": label, "content": content,
+            "embedding": [],
+            "salience": salience,
+            "created_at": _epoch(created_at),
+            "last_accessed": _epoch(last_accessed),
+            "access_count": access,
+        }
     
     def touch(self, id_: int):
         cursor = self.conn.cursor()

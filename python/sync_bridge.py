@@ -73,10 +73,30 @@ class SyncState:
             }
 
     def save(self):
-        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        """Persist sync state atomically.
+
+        Writes to a sibling .tmp then os.replace()'s onto the final path so a
+        Ctrl+C / OOM-kill mid-write can never leave a half-written JSON file.
+        Without this, _load() catches JSONDecodeError on the next start and
+        falls back to defaults, silently zeroing out cumulative counters
+        (total_synced_*, last_memory_id, etc.) — so a single interruption
+        wipes weeks of running totals.
+        """
+        path = Path(self.path)
+        path.parent.mkdir(parents=True, exist_ok=True)
         self.data["last_sync_time"] = datetime.now(timezone.utc).isoformat()
-        with open(self.path, "w") as f:
-            json.dump(self.data, f, indent=2)
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            with open(tmp, "w") as f:
+                json.dump(self.data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except OSError:
+            # Best-effort cleanup; surface the error.
+            try: tmp.unlink()
+            except OSError: pass
+            raise
 
     def record_success(self, memories: int, connections: int):
         self.data["synced_memories"] = memories

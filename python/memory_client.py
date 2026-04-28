@@ -394,16 +394,26 @@ class SQLiteStore:
             self.conn.commit()
 
     def update_memory(self, memory_id: int, content: str, embedding: list[float], label: Optional[str] = None) -> None:
+        """Rewrite a memory's content/embedding (e.g. conflict fusion).
+
+        Updates DO NOT bump access_count — that counter tracks how often a
+        memory is RECALLED, and is what feeds the salience boost in touch().
+        Counting writes there meant every conflict-fused memory immediately
+        looked "frequently accessed" and floated to the top of subsequent
+        recalls regardless of whether anyone had actually queried it.
+        last_accessed is also kept stable for the same reason; touch() owns
+        the access timeline.
+        """
         blob = struct.pack(f"{len(embedding)}f", *embedding)
         with self._lock:
             if label is None:
                 self.conn.execute(
-                    "UPDATE memories SET content = ?, embedding = ?, last_accessed = unixepoch(), access_count = access_count + 1 WHERE id = ?",
+                    "UPDATE memories SET content = ?, embedding = ? WHERE id = ?",
                     (content, blob, memory_id),
                 )
             else:
                 self.conn.execute(
-                    "UPDATE memories SET label = ?, content = ?, embedding = ?, last_accessed = unixepoch(), access_count = access_count + 1 WHERE id = ?",
+                    "UPDATE memories SET label = ?, content = ?, embedding = ? WHERE id = ?",
                     (label, content, blob, memory_id),
                 )
             self.conn.commit()

@@ -21,6 +21,12 @@ Semantic memory system with knowledge graph, spreading activation, embedding-bas
 
 ## Quick Start
 
+> **🌀 Don't want to self-host?** A managed hosted version is in the works:
+> **[mazemaker.dev](https://mazemaker.dev)** / **[mazemaker.online](https://mazemaker.online)**
+> — *Build the maze. Your agent finds the way.*  Sign up once, point your
+> agent at an MCP endpoint, and skip the install entirely. (Both domains
+> are placeholders until launch.)
+
 ```bash
 cd ~/projects/neural-memory-adapter
 bash install.sh          # auto-detect hermes-agent

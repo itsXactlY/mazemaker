@@ -108,10 +108,13 @@ class LeanSkynetBenchmark:
         print("\n=== Lean-Skynet Comparison Benchmark ===")
         results: Dict[str, Any] = {"modes": {}}
 
-        # Three modes: semantic (no fusion), skynet (full fusion),
-        # lean (skynet minus dead-weight channels per channel_ablation
-        # evidence).
-        for mode in ["semantic", "skynet", "lean"]:
+        # Four modes: semantic (no fusion), skynet (full fusion),
+        # lean (synthetic-tuned: drops bm25/temporal/salience),
+        # trim (universally-safe: drops only salience).
+        # codex v6 (2026-04-28) caught that lean over-generalises from
+        # synthetic data — on real prose bm25/temporal contribute, but
+        # salience is universally dead/harmful. trim is the safer default.
+        for mode in ["semantic", "skynet", "lean", "trim"]:
             print(f"  [{mode}] building + querying...")
             mem = self._build(mode)
             stats = _measure(mem, self.queries, self.k)
@@ -129,36 +132,39 @@ class LeanSkynetBenchmark:
         # Cross-mode lifts and latency comparisons.
         sky = results["modes"]["skynet"]
         lean = results["modes"]["lean"]
+        trim = results["modes"]["trim"]
         sem = results["modes"]["semantic"]
+
+        def _vs(arm: Dict[str, Any], baseline: Dict[str, Any]) -> Dict[str, Any]:
+            return {
+                "recall_delta": round(arm["recall_at_k"] - baseline["recall_at_k"], 4),
+                "mrr_delta": round(arm["mrr"] - baseline["mrr"], 4),
+                "p50_speedup": (
+                    round(baseline["p50_ms"] / arm["p50_ms"], 2)
+                    if arm["p50_ms"] > 0 else None
+                ),
+                "p50_savings_ms": round(baseline["p50_ms"] - arm["p50_ms"], 3),
+            }
+
         results["analysis"] = {
-            "lean_vs_skynet_recall_delta": round(
-                lean["recall_at_k"] - sky["recall_at_k"], 4
-            ),
-            "lean_vs_skynet_mrr_delta": round(
-                lean["mrr"] - sky["mrr"], 4
-            ),
-            "lean_vs_skynet_p50_speedup": (
-                round(sky["p50_ms"] / lean["p50_ms"], 2)
-                if lean["p50_ms"] > 0 else None
-            ),
-            "lean_vs_skynet_p50_savings_ms": round(
-                sky["p50_ms"] - lean["p50_ms"], 3
-            ),
-            "skynet_vs_semantic_p50_overhead_ms": round(
-                sky["p50_ms"] - sem["p50_ms"], 3
-            ),
+            "lean_vs_skynet": _vs(lean, sky),
+            "trim_vs_skynet": _vs(trim, sky),
+            "skynet_vs_semantic_p50_overhead_ms": round(sky["p50_ms"] - sem["p50_ms"], 3),
             "interpretation": (
-                "lean_vs_skynet_recall_delta should be ≈0 (within ~0.02) — "
-                "the dropped channels were proven dead-weight by "
-                "channel_ablation, so removing them should not hurt recall. "
-                "lean_vs_skynet_p50_speedup quantifies how much the "
-                "engineering caveat was worth: > 1.0× = lean is the "
-                "recommended production preset for latency-sensitive callers."
+                "lean is synthetic-tuned (drops bm25/temporal/salience); on "
+                "real prose codex v6 verdict caught those channels do "
+                "contribute. trim drops ONLY salience (universally dead per "
+                "ablation) so it's the safer production default. Compare "
+                "trim_vs_skynet on real corpora to decide; lean_vs_skynet on "
+                "synthetic to see the latency ceiling."
             ),
         }
-        print(f"\n  lean_vs_skynet:  Δrecall={results['analysis']['lean_vs_skynet_recall_delta']:+.4f}  "
-              f"speedup={results['analysis']['lean_vs_skynet_p50_speedup']}× "
-              f"({results['analysis']['lean_vs_skynet_p50_savings_ms']}ms saved)")
+        print(f"\n  lean_vs_skynet:  Δrecall={results['analysis']['lean_vs_skynet']['recall_delta']:+.4f}  "
+              f"speedup={results['analysis']['lean_vs_skynet']['p50_speedup']}× "
+              f"({results['analysis']['lean_vs_skynet']['p50_savings_ms']}ms saved)")
+        print(f"  trim_vs_skynet:  Δrecall={results['analysis']['trim_vs_skynet']['recall_delta']:+.4f}  "
+              f"speedup={results['analysis']['trim_vs_skynet']['p50_speedup']}× "
+              f"({results['analysis']['trim_vs_skynet']['p50_savings_ms']}ms saved)")
 
         out = self.output_dir / "lean_skynet_results.json"
         out.write_text(json.dumps(results, indent=2))

@@ -785,13 +785,28 @@ class NeuralMemory:
             "salience": 0.25,
         }
         # Lean preset: only the channels that empirically pull weight on the
-        # 2026-04-28 benchmark. Halves skynet's candidate-channel surface
-        # area, which is the dominant cost in p50 latency. Opt-in via
+        # 2026-04-28 SYNTHETIC benchmark. Halves skynet's candidate-channel
+        # surface area for a 4× p50 speedup at -0.02 recall. Opt-in via
         # retrieval_mode="lean"; existing modes unchanged.
+        # ⚠ Tuned for synthetic / paraphrase data — codex v6 (2026-04-28)
+        # caught that on real prose bm25 (-0.02 recall) and temporal
+        # (-0.08 recall) DO contribute, so `lean` is not the right preset
+        # for production callers with prose-heavy memories. Use "trim"
+        # instead: drops only the universally-bad channel (salience).
         if self._retrieval_mode == "lean":
             self._channel_weights.update({
                 "bm25": 0.0,
                 "temporal": 0.0,
+                "salience": 0.0,
+            })
+        # Trim preset: drop ONLY salience — the one channel that codex's
+        # v6 verdict confirmed is null-or-slightly-harmful on BOTH
+        # synthetic (Δmrr=+0.0064 when removed) AND real-text
+        # (Δrecall=+0.02, Δmrr=+0.0367 when removed). Safe default for any
+        # production caller that wants the skynet stack minus the dead
+        # weight without aggressive dataset-tuning.
+        elif self._retrieval_mode == "trim":
+            self._channel_weights.update({
                 "salience": 0.0,
             })
         if isinstance(channel_weights, dict):
@@ -1470,9 +1485,9 @@ class NeuralMemory:
         now = time.time()
         limit = max(k * 4, self._retrieval_candidates)
         if hybrid is None:
-            # `lean` is the cost-conscious skynet variant (zeroes dead-weight
-            # channels per benchmark findings) — still hybrid retrieval.
-            hybrid = self._retrieval_mode in {"hybrid", "advanced", "skynet", "lean"}
+            # `lean`/`trim` are cost-conscious skynet variants that zero
+            # dead-weight channels per benchmark findings — still hybrid.
+            hybrid = self._retrieval_mode in {"hybrid", "advanced", "skynet", "lean", "trim"}
 
         if hybrid:
             channels = self._parallel_retrieve(query, query_vec, limit, now)

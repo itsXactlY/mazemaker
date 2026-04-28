@@ -673,14 +673,21 @@ class Memory:
     
     def recall(self, query: str, k: int = 5,
                mmr_lambda: Optional[float] = None,
-               score_floor: Optional[float] = None) -> list[dict]:
+               score_floor: Optional[float] = None,
+               score_percentile: Optional[float] = None) -> list[dict]:
         """Semantic search with LSTM+kNN enhancement. Always uses SQLite for recall (MSSQLStore has no recall).
 
-        mmr_lambda and score_floor allow per-call override of the defaults
-        configured at construction. None means "use the constructor default".
-        Without this, the iter-13 MMR / score-floor knobs were configurable
-        on the internal NeuralMemory but unreachable through the public
-        Memory API that hermes uses (audit finding J).
+        mmr_lambda, score_floor, and score_percentile allow per-call override
+        of the defaults configured at construction. None means "use the
+        constructor default".
+
+        score_percentile is the calibrated [0,1] alternative to score_floor:
+        operating on rank percentile rather than raw RRF relevance, so
+        score_percentile=0.5 keeps the top half of ranked candidates
+        regardless of the underlying scale. score_floor remains exposed for
+        backwards compatibility but operates on the badly-scaled raw
+        relevance (~[0, 0.05]) — codex 2026-04-28 v5 audit caught this. See
+        memory_client.NeuralMemory.recall for the full implementation.
         """
         embedding = self._embedder.embed(query)
 
@@ -688,6 +695,7 @@ class Memory:
         base_results = self._sqlite_memory.recall(
             query, k * 3, query_vec=embedding,
             mmr_lambda=mmr_lambda, score_floor=score_floor,
+            score_percentile=score_percentile,
         )
         enhanced = self._enhance_recall(embedding, base_results, k)
         for r in enhanced:

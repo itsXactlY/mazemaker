@@ -397,7 +397,10 @@ class NeuralMemoryBenchmark:
         # exactly one chunk thanks to the global registry.
         if getattr(self.cfg, "realistic", False):
             from dataset_real import RealTextGenerator
-            n = self.cfg.dataset.queries_per_tier or 200
+            # Floor at 200 so the default queries_per_tier=50 doesn't cap
+            # the real-text run (codex v6 caught that the prior pass was
+            # only n=50, calling it a 'small slice' caveat).
+            n = max(self.cfg.dataset.queries_per_tier or 0, 200)
             rgen = RealTextGenerator(seed=self.cfg.dataset.seed)
             memories, queries = rgen.generate(n)
             print(f"Generated {len(memories)} REAL-TEXT memories from project corpus")

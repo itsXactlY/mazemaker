@@ -945,7 +945,7 @@ memory?") call `neural_graph` to summarise.
         the sync (pre_llm_call) and async (queue_prefetch) prefetch paths.
 
         Single source of truth for the score floor (0.5), the skip-pattern
-        list, the line format (\`- [sim] content[:150]\`), and the limit
+        list, the line format (`- [sim] content[:150]`), and the limit
         (config.prefetch_limit, capped at 3). Empty list = no usable hits.
         """
         if not self._memory or not query:
@@ -1190,12 +1190,35 @@ memory?") call `neural_graph` to summarise.
         except Exception as exc:
             return tool_error(str(exc))
 
+    @staticmethod
+    def _coerce_int(value, default: int) -> int:
+        """Tolerant int coercion for tool-call args.
+
+        Models emit a mix of `5`, `\"5\"`, and `null` for numeric kwargs;
+        the strict `int(args.get(\"k\", 5))` raised TypeError on None and
+        ValueError on \"five\", both bubbling up as \"int() argument must be\"
+        errors that look like adapter bugs to the model. Coerce to int when
+        possible, fall back to the default otherwise.
+        """
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                return default
+
     def _handle_recall(self, args: dict) -> str:
         if self._memory is None:
             return tool_error("Neural memory provider not initialized")
         try:
             query = args["query"]
-            limit = int(args.get("limit", 5))
+            if not isinstance(query, str) or not query.strip():
+                return tool_error("query must be a non-empty string")
+            limit = self._coerce_int(args.get("limit"), 5)
+            limit = max(1, min(limit, 50))  # sanity-clamp
             results = self._memory.recall(query, k=limit)
             return json.dumps({"results": results, "count": len(results)})
         except KeyError as exc:
@@ -1207,8 +1230,14 @@ memory?") call `neural_graph` to summarise.
         if self._memory is None:
             return tool_error("Neural memory provider not initialized")
         try:
-            memory_id = int(args["memory_id"])
-            depth = int(args.get("depth", 3))
+            mid_raw = args.get("memory_id")
+            if mid_raw is None:
+                return tool_error("Missing required argument: memory_id")
+            memory_id = self._coerce_int(mid_raw, -1)
+            if memory_id < 0:
+                return tool_error(f"memory_id must be a non-negative integer, got {mid_raw!r}")
+            depth = self._coerce_int(args.get("depth"), 3)
+            depth = max(1, min(depth, 10))  # sanity-clamp; depth>10 is unbounded BFS
             results = self._memory.think(memory_id, depth=depth)
             return json.dumps({"results": results, "count": len(results)})
         except KeyError as exc:

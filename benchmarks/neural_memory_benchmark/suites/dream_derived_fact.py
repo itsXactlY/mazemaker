@@ -108,7 +108,13 @@ def _build_premises(n: int, seed: int) -> Tuple[List[Dict[str, Any]], List[Dict[
 
 
 def _both_tokens_present(results: List[Dict[str, Any]], a_tok: str, b_tok: str) -> bool:
-    """True if the top-k results collectively contain both tokens."""
+    """LEGACY: True if the top-k results COLLECTIVELY contain both tokens.
+
+    Marked legacy_collective_metric_inflated: with small corpora and k>=5 the
+    union of top-k almost always contains P1 and P2 separately, so the metric
+    saturates pre-dream and leaves no headroom for the dream engine to lift.
+    Kept for backwards comparability only — read the strict metrics instead.
+    """
     al = a_tok.lower()
     bl = b_tok.lower()
     saw_a = saw_b = False
@@ -123,9 +129,48 @@ def _both_tokens_present(results: List[Dict[str, Any]], a_tok: str, b_tok: str) 
     return False
 
 
-def _measure(nm: NeuralMemory, queries: List[Dict[str, Any]], k: int = 5) -> Dict[str, Any]:
+def _single_doc_both_tokens(results: List[Dict[str, Any]], a_tok: str, b_tok: str) -> bool:
+    """STRICT: True iff a SINGLE result contains BOTH tokens.
+
+    Pre-dream this is 0 by construction — every premise template puts only
+    a_tok in P1 and only b_tok in P2; no single original memory carries both.
+    A hit therefore proves the dream engine synthesised a record (e.g. a
+    derived:cluster) that fuses the two premises.
+    """
+    al = a_tok.lower()
+    bl = b_tok.lower()
+    for r in results:
+        c = (r.get("content") or "").lower()
+        if al in c and bl in c:
+            return True
+    return False
+
+
+def _derived_cluster_in_topk(results: List[Dict[str, Any]]) -> bool:
+    """STRICT: True iff any top-k result is a derived:* memory.
+
+    The dream engine's Insight phase materialises memories with a
+    'derived:cluster' (or other 'derived:') label. None exist pre-dream,
+    so a hit here is the unambiguous signal that the dream engine
+    produced AND surfaced a synthesised fact for the conjunction query.
+    """
+    for r in results:
+        label = (r.get("label") or r.get("metadata", {}).get("label") or "")
+        if isinstance(label, str) and label.startswith("derived:"):
+            return True
+    return False
+
+
+def _measure(nm: NeuralMemory, queries: List[Dict[str, Any]], k: int = 5,
+             k_strict: int = 3) -> Dict[str, Any]:
     multihop_both = 0
     semantic_both = 0
+    # Strict metrics use a tighter top-k (default 3) to remove the collective
+    # top-5 inflation Codex flagged.
+    sem_single_doc = 0
+    mh_single_doc = 0
+    sem_derived = 0
+    mh_derived = 0
     n = len(queries) or 1
     for q in queries:
         # Try multihop first — graph-aware.
@@ -138,9 +183,35 @@ def _measure(nm: NeuralMemory, queries: List[Dict[str, Any]], k: int = 5) -> Dic
         sem = nm.recall(q["query"], k=k)
         if _both_tokens_present(sem, q["a_tok"], q["b_tok"]):
             semantic_both += 1
+
+        # Strict pass — re-query at k_strict so collective-top-k inflation
+        # cannot mask a real lift. recall() is cheap; re-issuing keeps the
+        # legacy numbers stable for downstream regressions.
+        try:
+            mh_strict = nm.recall_multihop(q["query"], k=k_strict, hops=2)
+        except Exception:
+            mh_strict = []
+        sem_strict = nm.recall(q["query"], k=k_strict)
+        if _single_doc_both_tokens(sem_strict, q["a_tok"], q["b_tok"]):
+            sem_single_doc += 1
+        if _single_doc_both_tokens(mh_strict, q["a_tok"], q["b_tok"]):
+            mh_single_doc += 1
+        if _derived_cluster_in_topk(sem_strict):
+            sem_derived += 1
+        if _derived_cluster_in_topk(mh_strict):
+            mh_derived += 1
     return {
+        # Legacy — collective top-k saturation; do not interpret without context.
+        "legacy_collective_metric_inflated": True,
         "semantic_both_tokens_rate": round(semantic_both / n, 4),
         "multihop_both_tokens_rate": round(multihop_both / n, 4),
+        # Strict metrics — only fireable by a dream-synthesised record.
+        "single_doc_both_tokens_rate_semantic": round(sem_single_doc / n, 4),
+        "single_doc_both_tokens_rate_multihop": round(mh_single_doc / n, 4),
+        "derived_fact_hit_rate_semantic": round(sem_derived / n, 4),
+        "derived_fact_hit_rate_multihop": round(mh_derived / n, 4),
+        "k_legacy": k,
+        "k_strict": k_strict,
         "n": n,
     }
 
@@ -153,12 +224,16 @@ class DreamDerivedFactBenchmark:
         n_premises: int = 25,
         seed: int = 42,
         k: int = 5,
+        k_strict: int = 3,
+        n_distractors: int = 300,
     ):
         self.db_path = db_path
         self.output_dir = output_dir or Path.home() / ".neural_memory_benchmark" / "results"
         self.n_premises = n_premises
         self.seed = seed
         self.k = k
+        self.k_strict = k_strict
+        self.n_distractors = n_distractors
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def run(self) -> Dict[str, Any]:
@@ -172,6 +247,22 @@ class DreamDerivedFactBenchmark:
             embedding_backend="auto",
             retrieval_mode="semantic",
         )
+
+        # Inject paraphrase distractors BEFORE premises so the conjunction
+        # queries have to discriminate the right entity from a noisy corpus.
+        # Distractors land under a 'distractor:' label so they are excluded
+        # from the premise-count metric and easy to filter in analysis.
+        if self.n_distractors > 0:
+            pg = ParaphraseGenerator(seed=self.seed + 9001)
+            distractor_mems, _ = pg.generate(self.n_distractors)
+            for dm in distractor_mems:
+                nm.remember(
+                    dm["text"],
+                    label=f"distractor:{dm.get('label', 'paraphrase')}",
+                    auto_connect=True,
+                )
+            print(f"  Injected {self.n_distractors} paraphrase distractors")
+
         for m in memories:
             nm.remember(m["text"], label=m["label"], auto_connect=True)
 
@@ -188,7 +279,7 @@ class DreamDerivedFactBenchmark:
             "pre_dream": {
                 "connections": pre_conns,
                 "derived_facts": pre_derived,
-                "recall": _measure(nm, queries, self.k),
+                "recall": _measure(nm, queries, self.k, self.k_strict),
             }
         }
         print(f"  pre-dream: {results['pre_dream']['recall']}  "
@@ -216,30 +307,48 @@ class DreamDerivedFactBenchmark:
             "connections": post_conns,
             "derived_facts": post_derived,
             "dream_elapsed_s": round(dream_s, 2),
-            "recall": _measure(nm, queries, self.k),
+            "recall": _measure(nm, queries, self.k, self.k_strict),
         }
         print(f"  post-dream: {results['post_dream']['recall']}  "
               f"connections={post_conns} derived={post_derived}  "
               f"dream={dream_s:.2f}s")
 
+        pre_r = results["pre_dream"]["recall"]
+        post_r = results["post_dream"]["recall"]
         results["lift"] = {
-            "semantic_both_tokens": round(
-                results["post_dream"]["recall"]["semantic_both_tokens_rate"]
-                - results["pre_dream"]["recall"]["semantic_both_tokens_rate"],
-                4,
-            ),
-            "multihop_both_tokens": round(
-                results["post_dream"]["recall"]["multihop_both_tokens_rate"]
-                - results["pre_dream"]["recall"]["multihop_both_tokens_rate"],
-                4,
-            ),
+            # Legacy lifts — kept for comparability, but inflated.
+            "semantic_both_tokens_legacy": round(
+                post_r["semantic_both_tokens_rate"]
+                - pre_r["semantic_both_tokens_rate"], 4),
+            "multihop_both_tokens_legacy": round(
+                post_r["multihop_both_tokens_rate"]
+                - pre_r["multihop_both_tokens_rate"], 4),
+            # Strict lifts — these are the ones to read.
+            "single_doc_both_tokens_semantic": round(
+                post_r["single_doc_both_tokens_rate_semantic"]
+                - pre_r["single_doc_both_tokens_rate_semantic"], 4),
+            "single_doc_both_tokens_multihop": round(
+                post_r["single_doc_both_tokens_rate_multihop"]
+                - pre_r["single_doc_both_tokens_rate_multihop"], 4),
+            "derived_fact_hit_rate_semantic": round(
+                post_r["derived_fact_hit_rate_semantic"]
+                - pre_r["derived_fact_hit_rate_semantic"], 4),
+            "derived_fact_hit_rate_multihop": round(
+                post_r["derived_fact_hit_rate_multihop"]
+                - pre_r["derived_fact_hit_rate_multihop"], 4),
             "new_connections": post_conns - pre_conns,
             "new_derived_facts": post_derived - pre_derived,
             "interpretation": (
-                "If lift.both_tokens > 0, the dream engine produced edges or "
-                "derived facts that improved cross-memory recall. If both "
-                "lifts are 0 even though new_connections/new_derived_facts > 0, "
-                "the structural changes did not improve task quality."
+                "Read the STRICT metrics (single_doc_both_tokens, "
+                "derived_fact_hit_rate). Pre-dream both must be 0 by "
+                "construction: no premise template puts both a_tok and "
+                "b_tok in the same memory and no derived:* labels exist. "
+                "Post-dream derived_fact_hit_rate > 0 is the unambiguous "
+                "signal that the Insight phase materialised a synthesised "
+                "memory AND retrieval surfaced it. The legacy "
+                "*_both_tokens_rate fields use a collective top-k metric "
+                "and saturate above ~0.9 even pre-dream — do not interpret "
+                "them as evidence either way (legacy_collective_metric_inflated)."
             ),
         }
         print(f"  lift: {results['lift']}")

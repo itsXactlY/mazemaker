@@ -368,6 +368,191 @@ def generate_continuity_pairs(seed: int = 42, count: int = 50) -> List[Dict[str,
 
 
 # ---------------------------------------------------------------------------
+# Concept-continuity dataset (adversarial to raw cosine)
+# ---------------------------------------------------------------------------
+#
+# Codex audit 2026-04-28 v2: generate_continuity_pairs above is anchor-shared
+# between target and query, so raw cosine wins trivially (the rare anchor token
+# is a near-orthogonal direction in embedding space). To actually exercise
+# graph/salience/dream behavior, we need queries that:
+#
+#   1. Reference the target by its CONCEPT, never by its anchor token.
+#   2. Have a near-distractor noise pool sharing the concept vocabulary,
+#      with an UNRELATED anchor — so a pure embedding nearest-neighbour
+#      lookup will confuse target and distractor.
+#
+# Each topic below gets:
+#   * statement_tmpl    — what we store as the target (contains anchor + a
+#                         concept the query reuses).
+#   * query_tmpl        — what we ask later. Uses a *paraphrase* of the
+#                         concept and NEVER mentions {anchor}.
+#   * distractor_tmpl   — generated noise that uses MORE of the concept
+#                         vocabulary than the target itself, but with a
+#                         different (fresh) anchor. These get sprinkled into
+#                         later sessions to lure raw cosine into wrong picks.
+#
+# We deliberately keep topics small — six concepts, each with two tiers of
+# distractor closeness ("close" and "closer") so noise tier 1+ injects a
+# variety of confusables rather than identical strings.
+
+_CONCEPT_BANK: List[Dict[str, Any]] = [
+    {
+        "topic": "geo_redundancy",
+        "statement": "Subsystem {anchor} owns the cross-region failover budget.",
+        "queries": [
+            "Which component handles geo-redundancy spending?",
+            "What service governs multi-datacenter resilience cost?",
+            "Where does the budget for cross-site failover live?",
+        ],
+        "distractors_close": [
+            "Module {anchor} tracks the disaster-recovery allowance.",
+            "Service {anchor} reviews the inter-region replica costs.",
+        ],
+        "distractors_closer": [
+            "Component {anchor} owns the multi-zone redundancy budget.",
+            "Subsystem {anchor} manages the cross-region failover allocation.",
+        ],
+    },
+    {
+        "topic": "rate_limiting",
+        "statement": "Service {anchor} enforces the per-tenant API quota policy.",
+        "queries": [
+            "What controls request throttling for individual customers?",
+            "Where do per-customer call limits get applied?",
+            "Which subsystem caps client request rates?",
+        ],
+        "distractors_close": [
+            "Module {anchor} owns the request-burst smoothing policy.",
+            "Layer {anchor} implements connection-rate ceilings per account.",
+        ],
+        "distractors_closer": [
+            "Service {anchor} enforces per-customer API throttle limits.",
+            "Component {anchor} applies the per-tenant request quota policy.",
+        ],
+    },
+    {
+        "topic": "schema_evolution",
+        "statement": "Pipeline {anchor} coordinates backward-compatible field migrations.",
+        "queries": [
+            "Which system runs non-breaking column rollouts?",
+            "Where are gradual schema changes orchestrated?",
+            "What handles step-wise data model upgrades?",
+        ],
+        "distractors_close": [
+            "Pipeline {anchor} oversees additive table updates.",
+            "Module {anchor} sequences typed-column rollouts.",
+        ],
+        "distractors_closer": [
+            "Pipeline {anchor} coordinates backward-compatible schema migrations.",
+            "System {anchor} runs gradual non-breaking field rollouts.",
+        ],
+    },
+    {
+        "topic": "secret_rotation",
+        "statement": "Daemon {anchor} schedules quarterly credential refresh runs.",
+        "queries": [
+            "Who triggers the periodic key cycling?",
+            "What handles routine token re-issuance?",
+            "Which job rotates access secrets on a cadence?",
+        ],
+        "distractors_close": [
+            "Daemon {anchor} performs periodic key cycling sweeps.",
+            "Worker {anchor} re-issues client tokens on a calendar.",
+        ],
+        "distractors_closer": [
+            "Daemon {anchor} schedules quarterly credential rotation runs.",
+            "Job {anchor} cycles access secrets on a cadence.",
+        ],
+    },
+    {
+        "topic": "cold_storage",
+        "statement": "Tier {anchor} archives infrequently-accessed customer artifacts.",
+        "queries": [
+            "Where do rarely-touched user files end up?",
+            "What absorbs long-tail object retention?",
+            "Which layer warehouses dormant client data?",
+        ],
+        "distractors_close": [
+            "Tier {anchor} stores low-traffic account blobs.",
+            "Bucket {anchor} retains aged customer payloads.",
+        ],
+        "distractors_closer": [
+            "Tier {anchor} archives infrequently-accessed user artifacts.",
+            "Layer {anchor} warehouses rarely-touched customer files.",
+        ],
+    },
+    {
+        "topic": "feature_gating",
+        "statement": "Service {anchor} evaluates rollout cohort membership.",
+        "queries": [
+            "Which engine decides who sees a beta capability?",
+            "What computes audience eligibility for new functions?",
+            "Where is staged-launch participation determined?",
+        ],
+        "distractors_close": [
+            "Module {anchor} resolves experiment cohort eligibility.",
+            "Engine {anchor} determines staged-launch audience inclusion.",
+        ],
+        "distractors_closer": [
+            "Service {anchor} evaluates rollout cohort membership rules.",
+            "Engine {anchor} computes audience eligibility for beta capabilities.",
+        ],
+    },
+]
+
+
+def generate_concept_continuity_pairs(seed: int = 42, count: int = 50) -> List[Dict[str, Any]]:
+    """Cross-session continuity pairs designed to be ADVERSARIAL to raw cosine.
+
+    Returned record schema (one per target):
+
+        {
+            "target_text":              str,   # what is stored in session 1
+            "target_anchor":            str,   # rare coined token (in target only)
+            "target_id":                str,   # mem-id used by ground-truth
+            "topic":                    str,
+            "query":                    str,   # asks about the CONCEPT, no anchor
+            "near_distractor_templates": List[str],  # {anchor} placeholders;
+                                                     # caller fills with fresh
+                                                     # coined anchors (so they
+                                                     # never collide with the
+                                                     # target's anchor) and
+                                                     # injects in later sessions
+        }
+
+    Caller (continuity_controls.py) is responsible for:
+      * looping count targets to mint statements,
+      * for each noise tier > 0, picking 1-2 distractors per target, formatting
+        with a freshly-coined anchor, and adding them to all retrievers.
+    """
+    gen = ParaphraseGenerator(seed=seed)
+    rng = random.Random(seed)
+
+    pairs: List[Dict[str, Any]] = []
+    for _ in range(count):
+        topic = rng.choice(_CONCEPT_BANK)
+        anchor = gen._fresh_anchor()
+        target_text = topic["statement"].format(anchor=anchor)
+        query = rng.choice(topic["queries"])
+        # Combine both tiers of distractor templates; the suite will sample
+        # 1-2 of these per noise tier per target. Keep the {anchor} slot
+        # unfilled so the caller can plug in a *fresh* coined anchor — the
+        # whole point is that the distractor's anchor != the target's anchor.
+        distractor_templates = list(topic["distractors_close"]) + list(topic["distractors_closer"])
+
+        mem_id = f"concept-{topic['topic']}-{anchor}"
+        pairs.append({
+            "target_text": target_text,
+            "target_anchor": anchor,
+            "target_id": mem_id,
+            "topic": topic["topic"],
+            "query": query,
+            "near_distractor_templates": distractor_templates,
+        })
+    return pairs
+
+
+# ---------------------------------------------------------------------------
 # Conflict-quality dataset
 # ---------------------------------------------------------------------------
 

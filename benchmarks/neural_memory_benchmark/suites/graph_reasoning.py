@@ -16,6 +16,13 @@ Each chain is constructed so that:
   * B's MEMORY says "see also C" using C's anchor.
   * C's MEMORY contains the actual answer token.
   * No memory other than C contains the answer token.
+  * Edges are added EXPLICITLY (auto_connect=False) — exactly two per
+    chain (A→B and B→C, no A→C). Otherwise auto_connect's cosine
+    threshold either over-links (creating an A↔C shortcut that
+    trivialises multihop) or under-links (leaving the chain
+    disconnected so the multihop test is unwinnable). Either way the
+    suite stops measuring traversal — that was the GPT-5.5 codex
+    finding that motivated this rewrite.
 
 We measure hop-distance recall:
   * Direct cosine (numpy baseline) — should fail on hop-2 chains.
@@ -210,17 +217,75 @@ class GraphReasoningBenchmark:
                 for i in idxs
             ]
 
-        # NeuralMemory side. Use a HIGH auto_connect_threshold-friendly content
-        # so the chain edges are actually formed.
+        # NeuralMemory side. Critically, auto_connect is DISABLED — auto_connect
+        # creates edges by cosine similarity of the chain texts, which both
+        # (a) sometimes spuriously links A↔C directly (because they share the
+        # chain's topical vocabulary), trivialising multihop, and (b) sometimes
+        # fails to link A→B / B→C, leaving the chain disconnected. Either way
+        # the suite stops actually testing graph traversal. The fix: ingest with
+        # auto_connect=False, then EXPLICITLY add A→B and B→C edges (and only
+        # those) so the only way from A to C is via a real graph hop.
         nm = NeuralMemory(
             db_path=self.db_path,
             embedding_backend="auto",
             retrieval_mode="semantic",
         )
-        for m in memories:
-            nm.remember(m["text"], label=m["label"], auto_connect=True)
+        # Map per-chain (a, b, c anchors) → (a_id, b_id, c_id) DB ids.
+        chain_ids: List[Tuple[int, int, int]] = []
+        memory_ids: List[int] = []
+        for i in range(0, len(memories), 3):
+            a_mem, b_mem, c_mem = memories[i], memories[i + 1], memories[i + 2]
+            a_id = int(nm.remember(a_mem["text"], label=a_mem["label"], auto_connect=False))
+            b_id = int(nm.remember(b_mem["text"], label=b_mem["label"], auto_connect=False))
+            c_id = int(nm.remember(c_mem["text"], label=c_mem["label"], auto_connect=False))
+            chain_ids.append((a_id, b_id, c_id))
+            memory_ids.extend([a_id, b_id, c_id])
 
-        results: Dict[str, Any] = {"setup": {"chains": self.n_chains, "memories": len(memories)}}
+        # Explicit chain edges. add_connection canonicalises source<target,
+        # so we don't care which way we pass the args — the canonical row is
+        # what survives. We use edge_type='references' (matches A's "see also B"
+        # semantics) and weight 0.7 (above any reasonable similarity floor).
+        for a_id, b_id, c_id in chain_ids:
+            nm.store.add_connection(a_id, b_id, weight=0.7, edge_type="references")
+            nm.store.add_connection(b_id, c_id, weight=0.7, edge_type="references")
+
+        # ------------------------------------------------------------------
+        # Verify the graph is what we claim it is. These assertions catch the
+        # exact regression Codex found: auto_connect creating A↔C shortcuts
+        # or skipping chain edges entirely.
+        # ------------------------------------------------------------------
+        edge_count = nm.store.conn.execute(
+            "SELECT COUNT(*) AS n FROM connections WHERE source_id IN "
+            "(SELECT id FROM memories WHERE label LIKE 'chain:%')"
+            "   OR target_id IN "
+            "(SELECT id FROM memories WHERE label LIKE 'chain:%')"
+        ).fetchone()["n"]
+        expected_edges = 2 * self.n_chains
+        print(f"  chain edges    : {edge_count} (expected {expected_edges})")
+        assert edge_count == expected_edges, (
+            f"chain edge count mismatch: got {edge_count}, expected "
+            f"{expected_edges} (2 per chain: A→B and B→C)"
+        )
+        # No A↔C shortcuts allowed for any chain.
+        for a_id, _b_id, c_id in chain_ids:
+            row = nm.store.conn.execute(
+                "SELECT COUNT(*) AS n FROM connections "
+                "WHERE (source_id = ? AND target_id = ?) "
+                "   OR (source_id = ? AND target_id = ?)",
+                (a_id, c_id, c_id, a_id),
+            ).fetchone()
+            assert row["n"] == 0, (
+                f"unexpected A→C shortcut in chain (a_id={a_id}, c_id={c_id}); "
+                "the multihop test would be trivialised"
+            )
+
+        results: Dict[str, Any] = {
+            "setup": {
+                "chains": self.n_chains,
+                "memories": len(memories),
+                "explicit_edges": edge_count,
+            }
+        }
 
         # 1. Raw cosine baseline — should be near zero on hop-2.
         results["raw_cosine"] = _measure_pipeline("raw_cosine", raw_recall, queries, self.k)
@@ -280,24 +345,80 @@ class GraphReasoningBenchmark:
         print(f"  nm_think       : R@{self.k}={results['nm_think']['recall_C_at_k']}  "
               f"MRR={results['nm_think']['mrr_C']}")
 
-        # 6. Negative control: shuffle the chain by scrambling edges.
-        # Drop all chain edges, re-add edges between RANDOMLY paired
-        # chain memories, and re-run multihop. If multihop's win was
-        # graph-driven, this should collapse to ~raw_cosine.
+        # 6. Negative control: scramble the chain edges.
+        # Drop EVERY edge touching any chain memory (covers source_id and
+        # target_id, since add_connection canonicalises endpoints), verify
+        # the chain is fully disconnected, then re-add EXACTLY the same
+        # number of edges (2 * n_chains) between RANDOMLY paired chain
+        # memories — so any multihop lift here must be coincidental, not
+        # graph-structured. If multihop's gain was graph-driven, this run
+        # should collapse to ~raw_cosine.
         try:
             nm.store.conn.execute(
                 "DELETE FROM connections WHERE source_id IN "
+                "(SELECT id FROM memories WHERE label LIKE 'chain:%') "
+                "   OR target_id IN "
                 "(SELECT id FROM memories WHERE label LIKE 'chain:%')"
             )
             nm.store.conn.commit()
-            chain_ids = [
-                int(r["id"]) for r in nm.store.conn.execute(
-                    "SELECT id FROM memories WHERE label LIKE 'chain:%'"
-                ).fetchall()
-            ]
-            random.Random(self.seed + 7).shuffle(chain_ids)
-            for i in range(0, len(chain_ids) - 1, 2):
-                nm.store.add_connection(chain_ids[i], chain_ids[i + 1], 0.6)
+            # Hard-verify the chain is actually disconnected before we add
+            # the random edges. If any leftover edges (e.g. from a future
+            # auto_connect bug) still touch chain memories, fail loudly so
+            # the control isn't silently invalidated.
+            residual = nm.store.conn.execute(
+                "SELECT COUNT(*) AS n FROM connections WHERE source_id IN "
+                "(SELECT id FROM memories WHERE label LIKE 'chain:%') "
+                "   OR target_id IN "
+                "(SELECT id FROM memories WHERE label LIKE 'chain:%')"
+            ).fetchone()["n"]
+            assert residual == 0, (
+                f"shuffle control: chain not fully disconnected after delete "
+                f"({residual} edges remain) — random pairings would not be "
+                "the only graph signal"
+            )
+            # Invalidate the in-memory graph cache so think()/recall_multihop
+            # re-read the (now empty/random) edge set from SQLite.
+            try:
+                nm._graph_nodes.clear()
+            except Exception:
+                pass
+
+            # Random pairings: same edge count as the real chain (2*n).
+            rng_ctrl = random.Random(self.seed + 7)
+            shuffled = list(memory_ids)
+            rng_ctrl.shuffle(shuffled)
+            target_edge_count = 2 * self.n_chains
+            added: set[Tuple[int, int]] = set()
+            attempts = 0
+            while len(added) < target_edge_count and attempts < target_edge_count * 20:
+                attempts += 1
+                a, b = rng_ctrl.sample(shuffled, 2)
+                key = (a, b) if a < b else (b, a)
+                if key in added:
+                    continue
+                # Also forbid recreating any of the real chain edges by
+                # accident — would partially restore the genuine signal.
+                real_pair = False
+                for ca, cb, cc in chain_ids:
+                    if key == tuple(sorted((ca, cb))) or key == tuple(sorted((cb, cc))):
+                        real_pair = True
+                        break
+                if real_pair:
+                    continue
+                nm.store.add_connection(key[0], key[1], weight=0.7, edge_type="references")
+                added.add(key)
+
+            ctrl_edge_count = nm.store.conn.execute(
+                "SELECT COUNT(*) AS n FROM connections WHERE source_id IN "
+                "(SELECT id FROM memories WHERE label LIKE 'chain:%') "
+                "   OR target_id IN "
+                "(SELECT id FROM memories WHERE label LIKE 'chain:%')"
+            ).fetchone()["n"]
+            assert ctrl_edge_count == target_edge_count, (
+                f"shuffle control: built {ctrl_edge_count} edges, "
+                f"expected {target_edge_count}"
+            )
+            print(f"  shuffle edges  : {ctrl_edge_count} (random pairings)")
 
             results["nm_multihop_shuffled"] = _measure_pipeline(
                 "nm_multihop_shuffled",

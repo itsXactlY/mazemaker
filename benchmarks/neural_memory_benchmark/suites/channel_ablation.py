@@ -88,21 +88,49 @@ class ChannelAblationBenchmark:
     def run(self) -> Dict[str, Any]:
         print("\n=== Channel Ablation Benchmark ===")
         # Default skynet (all channels at their natural weights).
+        # IMPORTANT: pass channel_weights=None so NeuralMemory uses its own
+        # built-in defaults — that's what production callers do, and the
+        # ablation arms must be measured against the same baseline.
         baseline_mem = self._build(channel_weights=None)
         baseline = _measure(baseline_mem, self.queries, self.k)
         print(f"  all channels   : R@{self.k}={baseline['recall_at_k']}  MRR={baseline['mrr']}")
 
-        results: Dict[str, Any] = {"all_channels": baseline, "ablation": {}}
+        # Resolve the actual default weight dict from the live instance
+        # rather than guessing. NeuralMemory.__init__ assigns these to
+        # self._channel_weights (memory_client.py around L765); reading
+        # them post-construction guarantees we match the source of truth
+        # regardless of future changes. Memory wraps NeuralMemory as
+        # self._sqlite_memory.
+        try:
+            default_weights = dict(baseline_mem._sqlite_memory._channel_weights)
+        except AttributeError as e:
+            raise RuntimeError(
+                "channel_ablation: cannot read NeuralMemory._channel_weights "
+                "from the live Memory instance — internal layout has shifted. "
+                "Update this suite to match memory_client.NeuralMemory."
+            ) from e
 
-        # Default channel weights as documented in memory_client.NeuralMemory
-        # — pulled from the public defaults so we know what 0-ing one does.
-        default_weights = {
-            "semantic":  1.0,
-            "bm25":      0.55,
-            "entity":    0.45,
-            "temporal":  0.20,
-            "ppr":       0.55,
-            "salience":  0.25,
+        # Sanity check: every channel we ablate must exist in the resolved
+        # defaults. If a new channel was added upstream and CHANNELS wasn't
+        # updated (or vice-versa), fail loudly so the suite isn't silently
+        # measuring nothing.
+        missing = [ch for ch in CHANNELS if ch not in default_weights]
+        if missing:
+            raise RuntimeError(
+                f"channel_ablation: CHANNELS contains keys not present in "
+                f"NeuralMemory defaults: {missing}. "
+                f"Resolved defaults: {default_weights}"
+            )
+        extra = [k for k in default_weights if k not in CHANNELS]
+        if extra:
+            print(f"  [warn] NeuralMemory has extra channels not ablated: {extra}")
+
+        print(f"  [resolved defaults] {default_weights}")
+
+        results: Dict[str, Any] = {
+            "all_channels": baseline,
+            "ablation": {},
+            "resolved_defaults": default_weights,
         }
 
         for ch in CHANNELS:

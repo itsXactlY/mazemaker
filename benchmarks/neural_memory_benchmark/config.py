@@ -21,12 +21,20 @@ if str(SRC_ROOT) not in sys.path:
 
 
 # ── Storage paths ─────────────────────────────────────────────────────────────
+# Results live under the project's benchmarks/ dir (NOT /tmp and NOT the
+# ~/.neural_memory* trees) so they're version-controllable and survive reboots.
+# Override with NEURAL_BENCH_OUTPUT_DIR if you want a different destination.
+_BENCH_DIR = BENCH_ROOT.parent  # benchmarks/
+_DEFAULT_OUTPUT = Path(os.environ.get("NEURAL_BENCH_OUTPUT_DIR",
+                                      str(_BENCH_DIR / "results")))
+
+
 @dataclass
 class Paths:
     """Where the benchmark stores its data."""
-    output_dir: Path = field(default_factory=lambda: Path.home() / ".neural_memory_benchmark")
-    results_dir: Path = field(default_factory=lambda: Path.home() / ".neural_memory_benchmark" / "results")
-    data_dir: Path = field(default_factory=lambda: Path.home() / ".neural_memory_benchmark" / "data")
+    output_dir: Path = field(default_factory=lambda: _DEFAULT_OUTPUT)
+    results_dir: Path = field(default_factory=lambda: _DEFAULT_OUTPUT / "latest")
+    data_dir: Path = field(default_factory=lambda: _DEFAULT_OUTPUT / "data")
 
     def ensure(self):
         for d in [self.output_dir, self.results_dir, self.data_dir]:

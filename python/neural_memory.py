@@ -424,11 +424,27 @@ class Memory:
         # primary key. Without this, the two backends drift into separate id
         # spaces and any cross-backend lookup (recall_multihop, think) silently
         # returns nothing because it queries MSSQL with the SQLite id.
+        #
+        # We must mirror what SQLite ACTUALLY wrote, not what we passed in:
+        # NeuralMemory.remember may have run conflict-fusion and rewritten
+        # the row's content as \"[CANONICAL] new\\n[PREVIOUSLY] old\". Passing
+        # the bare \`text\` would diverge the mirror from SQLite's
+        # post-fusion content. Read the canonical row back and mirror that.
         if self._mssql_store:
             try:
-                self._mssql_store.store(
-                    label or text[:60], text, embedding, id_=int(mem_id)
-                )
+                canonical = self._sqlite_memory.store.get(int(mem_id), include_embedding=True)
+                if canonical is not None:
+                    self._mssql_store.store(
+                        canonical.get("label") or label or text[:60],
+                        canonical.get("content") or text,
+                        canonical.get("embedding") or embedding,
+                        id_=int(mem_id),
+                    )
+                else:
+                    # Fall back to the input if the read-back somehow failed.
+                    self._mssql_store.store(
+                        label or text[:60], text, embedding, id_=int(mem_id)
+                    )
             except Exception:
                 pass
         return mem_id

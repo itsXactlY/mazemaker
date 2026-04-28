@@ -140,27 +140,35 @@ class MSSQLStore:
                         pass  # Ignore if already exists
             self.conn.commit()
 
-        # Idempotent migration: canonicalise legacy connection rows.
-        # Iter 50 made every NEW write canonical (source<target). Rows
-        # written by older code or by sync_bridge before that fix can still
-        # carry arbitrary orientation, and add_connection's MERGE only
-        # checks the canonical pair — so a re-add of (a,b) would not find
-        # the existing (b,a) row and would INSERT a duplicate edge.
-        # Sweep once on connect: for any pair where source>target, delete
-        # the row outright IF a canonical (source<target) row already exists,
-        # otherwise rewrite it to canonical orientation. This is a one-time
-        # cleanup — subsequent runs see no non-canonical rows and the loop
-        # is a fast no-op.
+        # Idempotent migration: canonicalise legacy connection rows w/
+        # max-weight merge (mirrors the SQLite-side iter 62 fix).
+        # add_connection's MERGE policy keeps the larger of the two weights
+        # when collisions happen at write time; the migration must match
+        # that semantic, otherwise simply DELETEing the non-canonical row
+        # would silently drop a higher weight.
         try:
+            # Step 1: lift the canonical row's weight to MAX(both) when its
+            # non-canonical twin exists.
             cursor.execute("""
-                DELETE FROM connections
-                 WHERE source_id > target_id
+                UPDATE c1
+                   SET c1.weight = CASE WHEN c2.weight > c1.weight THEN c2.weight ELSE c1.weight END
+                  FROM connections c1
+                  JOIN connections c2
+                    ON c2.source_id = c1.target_id
+                   AND c2.target_id = c1.source_id
+                 WHERE c1.source_id < c1.target_id
+            """)
+            # Step 2: drop the non-canonical duplicates.
+            cursor.execute("""
+                DELETE c1 FROM connections c1
+                 WHERE c1.source_id > c1.target_id
                    AND EXISTS (
                        SELECT 1 FROM connections c2
-                        WHERE c2.source_id = connections.target_id
-                          AND c2.target_id = connections.source_id
+                        WHERE c2.source_id = c1.target_id
+                          AND c2.target_id = c1.source_id
                    )
             """)
+            # Step 3: swap survivors in place.
             cursor.execute("""
                 UPDATE connections
                    SET source_id = target_id, target_id = source_id

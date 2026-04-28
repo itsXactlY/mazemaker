@@ -77,28 +77,49 @@ R = TestResult()
 # ========================================================================
 
 def test_install_sync():
+    """Verify python/ source files exist and hermes-plugin/ holds metadata only.
+
+    Architecture (since refactor e4f33d9):
+      python/         — single source of truth for all .py files
+      hermes-plugin/  — Hermes-specific metadata (plugin.yaml, etc.)
+      Deploy targets  — SYMLINKS back to python/, created by install.sh
+
+    Pre-refactor this test verified .py copies in hermes-plugin/ were in
+    sync; that path no longer exists. Same fix as tests/test_upside_down.py
+    (iter 1 commit 52bdc24).
+    """
     print("\n[1] INSTALLATION SYNC")
-    shared = [
+    sources = [
         '__init__.py', 'access_logger.py', 'config.py', 'cpp_bridge.py',
         'cpp_dream_backend.py', 'dream_engine.py', 'dream_mssql_store.py',
         'dream_worker.py', 'embed_provider.py', 'lstm_knn_bridge.py',
         'memory_client.py', 'mssql_store.py', 'neural_memory.py',
     ]
-    for f in shared:
-        py = PYTHON_DIR / f
-        hp = PLUGIN_DIR / f
-        if not py.exists():
-            R.fail(f"sync/{f}", "missing from python/")
-            continue
-        if not hp.exists():
-            R.fail(f"sync/{f}", "missing from hermes-plugin/")
-            continue
-        py_hash = hashlib.md5(py.read_bytes()).hexdigest()
-        hp_hash = hashlib.md5(hp.read_bytes()).hexdigest()
-        if py_hash == hp_hash:
-            R.ok(f"sync/{f}")
+    missing = [f for f in sources if not (PYTHON_DIR / f).exists()]
+    if missing:
+        R.fail("sync/sources", f"missing from python/: {missing}")
+    else:
+        R.ok("sync/sources", f"all {len(sources)} source files present in python/")
+
+    plugin_only = ['plugin.yaml', 'neural_skin.yaml', 'skills']
+    for f in plugin_only:
+        if (PLUGIN_DIR / f).exists():
+            R.ok(f"sync/plugin-only/{f}", "present")
         else:
-            R.fail(f"sync/{f}", "files differ!")
+            R.fail(f"sync/plugin-only/{f}", "missing from hermes-plugin")
+
+    # Regression guard: hermes-plugin/ should NOT contain .py copies
+    # (symlinks to python/ are fine for in-tree testing).
+    stray = []
+    if PLUGIN_DIR.exists():
+        for p in PLUGIN_DIR.glob("*.py"):
+            if not p.is_symlink():
+                stray.append(p.name)
+    if stray:
+        R.fail("sync/no-stray-copies",
+               f"hermes-plugin/ has non-symlink .py files (regression): {stray}")
+    else:
+        R.ok("sync/no-stray-copies", "hermes-plugin/ has no stray .py copies")
 
 
 # ========================================================================

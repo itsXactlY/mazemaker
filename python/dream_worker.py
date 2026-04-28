@@ -329,25 +329,75 @@ class DreamWorker:
                 if emb:
                     comp_embeds[mem["id"]] = emb
 
-            # Find bridges: for each isolated memory, find similar unconnected
-            for iso_id, iso_emb in iso_embeds.items():
-                similarities = []
-                for comp_id, comp_emb in comp_embeds.items():
-                    sim = self._similarity(iso_emb, comp_emb)
-                    if 0.3 < sim < 0.95:
-                        similarities.append((comp_id, sim))
+            # Vectorised bridge discovery: a single (|iso| x |comp|) matmul
+            # replaces |iso| * |comp| Python sum-zip cosines. With the
+            # default 50 isolated × 500 comparison memories at 1024-d, that
+            # was ~25K Python loops per REM phase; the numpy path runs in
+            # one matrix op. Falls back to the pure-Python loop if numpy
+            # isn't available, which preserves the original behaviour.
+            try:
+                import numpy as np
 
-                # Sort by similarity, take top 3
-                similarities.sort(key=lambda x: -x[1])
-                for comp_id, sim in similarities[:3]:
-                    bridge_weight = round(sim * 0.3, 3)
-                    self.store.add_bridge(iso_id, comp_id, bridge_weight)
-                    self.store.log_connection_change(
-                        iso_id, comp_id, 0.0, bridge_weight, "rem_bridge"
-                    )
-                    stats["bridges"] += 1
+                if not iso_embeds or not comp_embeds:
+                    raise RuntimeError("nothing to compare")
+                # Filter dim-mismatched embeddings (cf. iter 11's cosine
+                # guard) so the stack/matmul doesn't blow up.
+                iso_dim = len(next(iter(iso_embeds.values())))
+                iso_items = [(mid, e) for mid, e in iso_embeds.items() if len(e) == iso_dim]
+                comp_items = [(mid, e) for mid, e in comp_embeds.items() if len(e) == iso_dim]
+                if not iso_items or not comp_items:
+                    raise RuntimeError("dim mismatch only")
 
-                stats["explored"] += 1
+                iso_ids_arr = [mid for mid, _ in iso_items]
+                comp_ids_arr = [mid for mid, _ in comp_items]
+                iso_mat = np.asarray([e for _, e in iso_items], dtype=np.float32)
+                comp_mat = np.asarray([e for _, e in comp_items], dtype=np.float32)
+                # Row-normalise both sides so the matmul yields cosine
+                # similarity directly.
+                iso_norms = np.linalg.norm(iso_mat, axis=1, keepdims=True).clip(min=1e-12)
+                comp_norms = np.linalg.norm(comp_mat, axis=1, keepdims=True).clip(min=1e-12)
+                iso_n = iso_mat / iso_norms
+                comp_n = comp_mat / comp_norms
+                sims = iso_n @ comp_n.T  # (|iso|, |comp|)
+
+                for i, iso_id in enumerate(iso_ids_arr):
+                    row = sims[i]
+                    # Mask the [0.3, 0.95] band, take top-3 by similarity.
+                    mask = (row > 0.3) & (row < 0.95)
+                    idxs = np.where(mask)[0]
+                    if idxs.size == 0:
+                        stats["explored"] += 1
+                        continue
+                    # Sort the surviving candidates descending by similarity.
+                    top = idxs[np.argsort(-row[idxs])[:3]]
+                    for j in top:
+                        comp_id = comp_ids_arr[int(j)]
+                        sim = float(row[int(j)])
+                        bridge_weight = round(sim * 0.3, 3)
+                        self.store.add_bridge(iso_id, comp_id, bridge_weight)
+                        self.store.log_connection_change(
+                            iso_id, comp_id, 0.0, bridge_weight, "rem_bridge"
+                        )
+                        stats["bridges"] += 1
+                    stats["explored"] += 1
+            except Exception:
+                # Pure-Python fallback (numpy missing, dim mismatch only,
+                # or any other failure). Original behaviour preserved.
+                for iso_id, iso_emb in iso_embeds.items():
+                    similarities = []
+                    for comp_id, comp_emb in comp_embeds.items():
+                        sim = self._similarity(iso_emb, comp_emb)
+                        if 0.3 < sim < 0.95:
+                            similarities.append((comp_id, sim))
+                    similarities.sort(key=lambda x: -x[1])
+                    for comp_id, sim in similarities[:3]:
+                        bridge_weight = round(sim * 0.3, 3)
+                        self.store.add_bridge(iso_id, comp_id, bridge_weight)
+                        self.store.log_connection_change(
+                            iso_id, comp_id, 0.0, bridge_weight, "rem_bridge"
+                        )
+                        stats["bridges"] += 1
+                    stats["explored"] += 1
 
             logger.info("REM: %d explored, %d bridges created",
                         stats["explored"], stats["bridges"])

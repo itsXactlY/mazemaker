@@ -381,11 +381,17 @@ class DreamWorker:
                         comp_id = comp_ids_arr[int(j)]
                         sim = float(row[int(j)])
                         bridge_weight = round(sim * 0.3, 3)
-                        self.store.add_bridge(iso_id, comp_id, bridge_weight)
-                        self.store.log_connection_change(
-                            iso_id, comp_id, 0.0, bridge_weight, "rem_bridge"
-                        )
-                        stats["bridges"] += 1
+                        # Same fix as dream_engine._phase_rem: only log when
+                        # add_bridge actually inserted, and canonicalise the
+                        # history row's (src, tgt) to match the canonical
+                        # orientation of the connections row.
+                        if self.store.add_bridge(iso_id, comp_id, bridge_weight):
+                            src, tgt = ((iso_id, comp_id) if iso_id < comp_id
+                                        else (comp_id, iso_id))
+                            self.store.log_connection_change(
+                                src, tgt, 0.0, bridge_weight, "rem_bridge"
+                            )
+                            stats["bridges"] += 1
                     stats["explored"] += 1
             except Exception:
                 # Pure-Python fallback (numpy missing, dim mismatch only,
@@ -399,11 +405,13 @@ class DreamWorker:
                     similarities.sort(key=lambda x: -x[1])
                     for comp_id, sim in similarities[:3]:
                         bridge_weight = round(sim * 0.3, 3)
-                        self.store.add_bridge(iso_id, comp_id, bridge_weight)
-                        self.store.log_connection_change(
-                            iso_id, comp_id, 0.0, bridge_weight, "rem_bridge"
-                        )
-                        stats["bridges"] += 1
+                        if self.store.add_bridge(iso_id, comp_id, bridge_weight):
+                            src, tgt = ((iso_id, comp_id) if iso_id < comp_id
+                                        else (comp_id, iso_id))
+                            self.store.log_connection_change(
+                                src, tgt, 0.0, bridge_weight, "rem_bridge"
+                            )
+                            stats["bridges"] += 1
                     stats["explored"] += 1
 
             logger.info("REM: %d explored, %d bridges created",

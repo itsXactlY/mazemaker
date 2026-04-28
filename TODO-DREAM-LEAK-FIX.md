@@ -22,6 +22,8 @@
 | L10 | SIMD unaligned loads | `simd.h:37-38,66-67` | `_mm256_loadu_ps` vs aligned — 10-20% perf loss; no AVX-512 path | MEDIUM |
 | L11 | EpisodicMemory evict index rebuild | `memory_manager.cpp:115-118` | O(n) full-map rebuild on every remove() | MEDIUM |
 | L12 | SemanticMemory centroid lookups | `memory_manager.cpp:237-240` | Repeated hash lookups per cluster member in hot path | LOW |
+| L13 | memory_client.py remember() | `memory_client.py:758-770` | `_fuse_conflict` triggers on bare label match — any new memory whose label collides with an existing memory triggers destructive content merge (`[CANONICAL] new \n[PREVIOUSLY] old`). With common labels like "bug"/"decision"/"architecture", every write overwrites a previous memory. **Severity: HIGH.** | HIGH |
+| L14 | memory_client.py auto_connect | `memory_client.py:783-798` | Default `auto_connect=True` creates an edge for every other memory with `cos(query, other) > 0.45` — a noise-floor threshold for FastEmbed/e5-large. Result: O(n²) edge growth. Observed: 1,038,672 connections on 2,640 memories ≈ 393 avg conn/memory. Saturates the knowledge graph, biases recall toward super-hubs regardless of query. **Severity: HIGH.** | HIGH |
 
 ---
 
@@ -237,3 +239,5 @@ Signal: <subagent>-FAILED:<reason>
 - [ ] Lock-free pipeline: <1ms latency per phase handoff
 - [ ] Per-layer maze: each phase isolated, configurable memory budgets
 - [ ] Full test suite passing before and after every change
+
+2026-04-28: leak audit extended with L13, L14 (writer-side bugs in `memory_client.remember()`). See conversation context for diagnosis details.

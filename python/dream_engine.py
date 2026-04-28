@@ -703,6 +703,12 @@ class DreamEngine:
                         idle, new_since_last,
                     )
                     self._run_dream_cycle()
+                    # Reset idle timer so the next cycle doesn't re-trigger
+                    # on the very next 30s wake.  Without this, every poll
+                    # after the threshold is crossed sees idle >= threshold
+                    # and fires another cycle, pegging CPU on spreading
+                    # activation indefinitely.
+                    self._last_activity = time.time()
 
             except Exception as e:
                 logger.debug("Dream loop error: %s", e)

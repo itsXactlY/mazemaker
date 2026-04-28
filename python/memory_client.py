@@ -760,6 +760,15 @@ class NeuralMemory:
                 old_content = other.get("content", "") or ""
                 if old_content.strip() == text.strip():
                     return int(other["id"])
+                # Same label is not enough — require high embedding similarity
+                # before treating this as a conflict to merge.  Without this,
+                # common labels like "bug"/"decision" turn every write into a
+                # destructive overwrite of the first existing memory.
+                # NOTE: find_by_label already SELECTs the embedding column, so
+                # other["embedding"] is populated (see MemoryStore.find_by_label).
+                other_emb = other.get("embedding") or []
+                if other_emb and self._cosine_similarity(embedding, other_emb) < 0.85:
+                    continue
                 if self._content_differs(old_content, text) or old_content.strip() != text.strip():
                     fused = self._fuse_conflict(old_content, text)
                     self.store.add_revision(int(other["id"]), old_content, text, "conflict_fusion")
@@ -790,7 +799,10 @@ class NeuralMemory:
                 if not other_emb:
                     continue
                 sim = self._cosine_similarity(embedding, other_emb)
-                if sim > 0.45:
+                # 0.45 is a noise floor with FastEmbed/e5-large — produces O(n²)
+                # edge growth (spurious matches); 0.70 keeps semantically-related
+                # pairs while killing low-signal connections.
+                if sim > 0.70:
                     edge_type = self._infer_edge_type(text, node.get("content", ""))
                     self.store.add_connection(mem_id, other_id, sim, edge_type=edge_type)
                     if other_id in self._graph_nodes:
@@ -1244,6 +1256,26 @@ class NeuralMemory:
             "lazy_graph": self._lazy_graph,
             "hnsw_enabled": self._hnsw_enabled,
         }
+
+    def prune_connections_below(self, threshold: float) -> int:
+        """Drop all graph edges with weight below `threshold`. Returns count deleted.
+
+        Designed for one-shot graph hygiene on saturated stores — the auto_connect
+        bug at sim>0.45 (now 0.70) accumulated ~390 connections per memory; this
+        sweeps the existing hairball without touching memories themselves.
+        """
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError(f"threshold must be in [0,1], got {threshold}")
+        cur = self.store.conn.execute(
+            "DELETE FROM connections WHERE weight < ?", (float(threshold),)
+        )
+        deleted = cur.rowcount
+        self.store.conn.commit()
+        # Invalidate in-memory graph cache so subsequent recalls re-read.
+        for nid in list(self._graph_nodes.keys()):
+            self._graph_nodes[nid]["connections"] = {}
+        self._hnsw_dirty = True
+        return int(deleted)
 
     def close(self):
         if self._cpp:

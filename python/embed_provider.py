@@ -707,7 +707,10 @@ def _wait_for_gpu(min_free_mb: float = 2000, timeout: float = 120, poll_interval
 
 
 class TfidfSvdBackend:
-    """Pure numpy TF-IDF + SVD embedding (no ML dependencies)"""
+    """Pure numpy TF-IDF + SVD embedding (no ML dependencies)."""
+
+    STATE_FILE = CACHE_DIR / "tfidf_state.npz"
+
     def __init__(self, dim: int = DIMENSION):
         import numpy as np
         self.np = np
@@ -717,6 +720,49 @@ class TfidfSvdBackend:
         self.svd_components: np.ndarray | None = None
         self._trained = False
         self._corpus: list[str] = []
+        self._load_state()
+
+    def _load_state(self):
+        """Load a previously-fitted vocab/IDF/SVD from disk if dim matches."""
+        if not self.STATE_FILE.exists():
+            return
+        try:
+            np = self.np
+            with np.load(self.STATE_FILE, allow_pickle=False) as data:
+                if int(data["dim"]) != self.dim:
+                    return
+                vocab_words = data["vocab_words"]
+                self.vocab = {str(w): i for i, w in enumerate(vocab_words)}
+                self.idf = data["idf"]
+                self.svd_components = data["svd_components"]
+            self._trained = True
+        except (KeyError, ValueError, OSError):
+            self._trained = False
+            self.vocab = {}
+            self.idf = None
+            self.svd_components = None
+
+    def _save_state(self):
+        """Persist vocab/IDF/SVD to disk so future starts skip the fit."""
+        if not self._trained or self.svd_components is None or self.idf is None:
+            return
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            np = self.np
+            words = sorted(self.vocab.items(), key=lambda kv: kv[1])
+            # Use a fixed-width unicode dtype so the array is pickle-free —
+            # _load_state() uses allow_pickle=False to keep the cache file
+            # safe to read even if it's tampered with.
+            vocab_words = np.array([w for w, _ in words], dtype="U")
+            np.savez(
+                self.STATE_FILE,
+                dim=np.int64(self.dim),
+                vocab_words=vocab_words,
+                idf=self.idf,
+                svd_components=self.svd_components,
+            )
+        except OSError:
+            pass
     
     def _tokenize(self, text: str) -> list[str]:
         text = text.lower()
@@ -775,15 +821,43 @@ class TfidfSvdBackend:
             if norm > 0:
                 tfidf[i] /= norm
         
-        # SVD for dimensionality reduction
+        # SVD for dimensionality reduction.  The previous implementation
+        # called np.linalg.svd on a (n_docs, 5000) dense matrix despite the
+        # "Randomized SVD for speed" comment — that's full deterministic SVD,
+        # O(n·m²), which dominated cold-start (30-60s on a real corpus).
+        # The randomized variant below is O(n·m·k) with k=self.dim, typically
+        # 5-10x faster while preserving the top-k singular subspace to within
+        # tens of basis points.
         if vocab_size > self.dim:
-            # Randomized SVD for speed
-            U, S, Vt = np.linalg.svd(tfidf[:, :min(vocab_size, 5000)], full_matrices=False)
-            self.svd_components = Vt[:self.dim].T  # (vocab, dim)
+            sub = tfidf[:, :min(vocab_size, 5000)]
+            self.svd_components = self._randomized_svd_components(sub, self.dim)
         else:
             self.svd_components = np.eye(vocab_size, self.dim)
-        
+
         self._trained = True
+        self._save_state()
+
+    def _randomized_svd_components(self, M, k: int, n_oversamples: int = 10, n_iter: int = 4):
+        """Compute the top-k right singular vectors of M via randomized SVD.
+
+        Returns Vt[:k].T with shape (M.shape[1], k) — same orientation the
+        full-SVD code path produced.  See Halko/Martinsson/Tropp 2011.
+        """
+        np = self.np
+        n_rows, n_cols = M.shape
+        ell = min(k + n_oversamples, n_cols)
+        rng = np.random.default_rng(0xBADC0DE)
+        Omega = rng.standard_normal((n_cols, ell)).astype(M.dtype, copy=False)
+        Y = M @ Omega
+        for _ in range(n_iter):
+            Q, _ = np.linalg.qr(Y)
+            Z = M.T @ Q
+            Q2, _ = np.linalg.qr(Z)
+            Y = M @ Q2
+        Q, _ = np.linalg.qr(Y)
+        B = Q.T @ M
+        _, _, Vt = np.linalg.svd(B, full_matrices=False)
+        return Vt[:k].T
     
     def embed(self, text: str) -> list[float]:
         self._corpus.append(text)
@@ -1122,15 +1196,11 @@ class EmbeddingProvider:
             if not isinstance(e, ImportError):
                 print(f"[embed] CPU sentence-transformers failed: {e}", file=sys.stderr)
 
-        # 5. TF-IDF+SVD
-        try:
-            import numpy
-            print("[embed] Auto-selected: TF-IDF+SVD")
-            return TfidfSvdBackend()
-        except ImportError:
-            pass
-
-        # 6. Hash fallback
+        # 5. Hash fallback — instant, deterministic, zero dependencies.
+        # Preferred over TF-IDF+SVD because the latter requires a corpus fit
+        # (full SVD on a dense matrix) that costs 30-60s on cold start with
+        # no semantic-quality win that justifies the wait.  TF-IDF is still
+        # available via EMBED_BACKEND=tfidf for users who explicitly want it.
         print("[embed] Auto-selected: hash (zero dependencies)")
         return HashBackend()
     

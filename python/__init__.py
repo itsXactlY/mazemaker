@@ -266,9 +266,22 @@ class NeuralMemoryProvider(MemoryProvider):
         logger.debug("Neural memory session_id updated: %s", session_id)
 
     def _start_dream_engine(self) -> None:
-        """Start dream engine — MSSQL (C++) if available, SQLite fallback."""
+        """Start dream engine — MSSQL (C++) if available, SQLite fallback.
+
+        Idempotent: if a prior DreamEngine is still running (e.g. caller is
+        re-initialising NeuralMemory after a session split or model switch),
+        stop it first.  Without this each call leaks a daemon thread plus
+        its DB handle and C++ backend state.
+        """
         import os
         from pathlib import Path
+
+        if self._dream is not None:
+            try:
+                self._dream.stop()
+            except Exception as e:
+                logger.debug("Prior dream engine stop failed: %s", e)
+            self._dream = None
 
         try:
             from dream_engine import DreamEngine
@@ -310,12 +323,21 @@ class NeuralMemoryProvider(MemoryProvider):
             self._dream = None
 
     def _start_consolidation_thread(self) -> None:
-        """Start background consolidation thread."""
+        """Start background consolidation thread.
+
+        Idempotent: signals any existing loop to stop and joins it before
+        spawning a replacement, so re-initialisation can't leak threads.
+        """
         if not self._config:
             return
         interval = self._config.get("consolidation_interval", 0)
         if interval <= 0:
             return  # Consolidation disabled
+
+        prior = getattr(self, "_consolidation_thread", None)
+        if prior is not None and prior.is_alive():
+            self._consolidation_stop.set()
+            prior.join(timeout=3.0)
 
         self._consolidation_stop.clear()
 

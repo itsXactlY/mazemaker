@@ -743,9 +743,16 @@ class TfidfSvdBackend:
             self.svd_components = None
 
     def _save_state(self):
-        """Persist vocab/IDF/SVD to disk so future starts skip the fit."""
+        """Persist vocab/IDF/SVD to disk so future starts skip the fit.
+
+        Writes to a sibling .tmp file and os.replace()'s onto STATE_FILE so
+        an interrupted save (Ctrl+C, OOM, kill -9) can never leave a half-
+        written .npz on disk that the next process would have to retrain
+        from scratch (~30-60s SVD fit).
+        """
         if not self._trained or self.svd_components is None or self.idf is None:
             return
+        tmp_path = None
         try:
             CACHE_DIR.mkdir(parents=True, exist_ok=True)
             np = self.np
@@ -754,15 +761,31 @@ class TfidfSvdBackend:
             # _load_state() uses allow_pickle=False to keep the cache file
             # safe to read even if it's tampered with.
             vocab_words = np.array([w for w, _ in words], dtype="U")
-            np.savez(
-                self.STATE_FILE,
-                dim=np.int64(self.dim),
-                vocab_words=vocab_words,
-                idf=self.idf,
-                svd_components=self.svd_components,
-            )
+            # np.savez auto-appends .npz when given a string/Path lacking that
+            # suffix, which would land us at <name>.tmp.npz instead of
+            # <name>.tmp. Pass a file handle so the path is honoured exactly.
+            tmp_path = self.STATE_FILE.with_name(self.STATE_FILE.name + ".tmp")
+            with open(tmp_path, "wb") as fh:
+                np.savez(
+                    fh,
+                    dim=np.int64(self.dim),
+                    vocab_words=vocab_words,
+                    idf=self.idf,
+                    svd_components=self.svd_components,
+                )
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_path, self.STATE_FILE)
+            tmp_path = None  # ownership transferred
         except OSError:
             pass
+        finally:
+            # If replace() didn't run (exception before it), clean up the tmp.
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
     
     def _tokenize(self, text: str) -> list[str]:
         text = text.lower()

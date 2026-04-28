@@ -118,14 +118,11 @@ class Memory:
             ppr_iters=ppr_iters,
             ppr_hops=ppr_hops,
         )
-        # Public attributes for __repr__, logs, and external probes.
-        # Without these, Memory.__repr__ raised AttributeError on self.backend
-        # / self.dim, and the plugin init's \"backend=%s, mssql=%s\" log line
-        # fell through hasattr() to 'unknown'/False — confusing output like
-        # \"backend=mssql, mssql=False\". Now: \"hybrid\" / \"sqlite\" string,
-        # and the actual mssql-active flag.
-        self.backend = "hybrid" if use_mssql else "sqlite"
-        self.dim = self._dim
+        # _use_mssql for external probes (the plugin init's \"mssql=%s\" log
+        # line and dashboards). \`backend\` and \`dim\` are exposed as @property
+        # below — those compute from runtime state so they reflect post-init
+        # mutations correctly. Setting them as instance attrs here would
+        # AttributeError on the read-only properties.
         self._use_mssql = bool(use_mssql)
 
         if not use_mssql:

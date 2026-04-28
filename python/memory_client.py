@@ -678,6 +678,12 @@ class NeuralMemory:
             self._hnsw_enabled = "auto"
         self._hnsw_index = None
         self._hnsw_ids: list[int] = []
+        # Highest memory id already inserted into the live HNSW index. If the
+        # current store top-id matches, a recall can skip rebuild entirely.
+        # If only larger ids exist (i.e., new appends), we add_items the diff
+        # instead of rebuilding from scratch.
+        self._hnsw_known: set[int] = set()
+        self._hnsw_capacity: int = 0
         self._hnsw_dirty = True
 
         self._cpp = None
@@ -824,6 +830,17 @@ class NeuralMemory:
         return True
 
     def _ensure_hnsw(self) -> bool:
+        """Build or incrementally update the HNSW ANN index.
+
+        First call constructs from scratch (paying O(N log N) once).
+        Subsequent calls after writes only add the new memory ids via
+        hnswlib.add_items, which is O(M log N) for M new items — way
+        cheaper than the previous always-rebuild path that paid O(N log N)
+        on every recall after even a single write.
+
+        Falls back to full rebuild only when the live capacity is exhausted
+        or when the index contains ids the store no longer has (deletes).
+        """
         if self._hnsw_enabled is False or str(self._hnsw_enabled).lower() in {"0", "false", "no", "off"}:
             return False
         if self._hnsw_index is not None and not self._hnsw_dirty:
@@ -838,20 +855,45 @@ class NeuralMemory:
             return False
         if str(self._hnsw_enabled).lower() == "auto" and len(mems) < 1000:
             return False
-        ids, vecs = [], []
-        for m in mems:
-            emb = m.get("embedding") or []
-            if len(emb) == self.dim:
-                ids.append(int(m["id"]))
-                vecs.append(emb)
-        if not ids:
+
+        # Filter to dim-matching embeddings (quarantine awareness)
+        usable = [(int(m["id"]), m["embedding"]) for m in mems
+                  if (m.get("embedding") and len(m["embedding"]) == self.dim)]
+        if not usable:
             return False
+        store_ids = {mid for mid, _ in usable}
+
+        # Decide: incremental add or full rebuild?
+        new_ids = store_ids - self._hnsw_known
+        deleted_ids = self._hnsw_known - store_ids
+        can_increment = (
+            self._hnsw_index is not None
+            and not deleted_ids
+            and (len(self._hnsw_known) + len(new_ids)) <= self._hnsw_capacity
+        )
+
+        if can_increment and new_ids:
+            new_pairs = [(mid, emb) for mid, emb in usable if mid in new_ids]
+            ids_arr = np.asarray([mid for mid, _ in new_pairs], dtype=np.int64)
+            vecs_arr = np.asarray([emb for _, emb in new_pairs], dtype=np.float32)
+            self._hnsw_index.add_items(vecs_arr, ids_arr)
+            self._hnsw_known.update(new_ids)
+            self._hnsw_ids = list(self._hnsw_known)
+            self._hnsw_dirty = False
+            return True
+
+        # Full rebuild (cold start, deletions, or capacity overflow)
+        ids = [mid for mid, _ in usable]
+        vecs = [emb for _, emb in usable]
+        capacity = max(len(ids) * 2, len(ids) + 1024)
         index = hnswlib.Index(space="cosine", dim=self.dim)
-        index.init_index(max_elements=max(len(ids) * 2, len(ids) + 1024), ef_construction=200, M=16)
+        index.init_index(max_elements=capacity, ef_construction=200, M=16)
         index.add_items(np.asarray(vecs, dtype=np.float32), np.asarray(ids, dtype=np.int64))
         index.set_ef(64)
         self._hnsw_index = index
         self._hnsw_ids = ids
+        self._hnsw_known = set(ids)
+        self._hnsw_capacity = capacity
         self._hnsw_dirty = False
         return True
 

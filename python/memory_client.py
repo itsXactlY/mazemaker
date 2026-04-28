@@ -759,29 +759,39 @@ class NeuralMemory:
         model = getattr(backend, "model_name", None) or getattr(backend, "name", "")
         return f"{cls}::{self.dim}::{model}"
 
+    def _pin_fingerprint_if_unset(self) -> None:
+        """Write the active backend's fingerprint to db_meta if absent.
+
+        Called from remember() before the first write so the pin only
+        happens when the DB actually gets a memory. Read-only sessions
+        that never call remember() leave the fingerprint unset and don't
+        lock the user into whichever backend they happened to use for
+        exploration.
+        """
+        if not hasattr(self.store, "get_meta"):
+            return
+        if self.store.get_meta("embed_fingerprint") is None:
+            self.store.set_meta("embed_fingerprint", self._embed_fingerprint)
+        if self.store.get_meta("embed_dim") is None:
+            self.store.set_meta("embed_dim", str(self.dim))
+
     def _enforce_dim_lock(self) -> tuple[bool, str]:
         """Compare the active backend against the DB's stored fingerprint.
 
-        First write to a fresh DB pins the fingerprint. Subsequent opens
-        with a different-dim backend produce a soft-fail: the DB stays
-        readable, mismatched-dim memories are quarantined out of the
-        in-memory graph, and remember() rejects new writes that don't
-        match the locked dim. Same-dim swaps (different model, same
-        vector size) are allowed because the existing memories remain
-        comparable.
+        Read-only check: this method NEVER writes to db_meta. The
+        fingerprint is pinned on first remember() (see
+        _pin_fingerprint_if_unset). Empty DBs and mid-init reads are
+        therefore harmless; only an actual mismatch against a
+        previously-pinned fingerprint produces dim_locked=False.
         """
         if not hasattr(self.store, "get_meta"):
             # MSSQLStore doesn't expose db_meta; treat as unlocked.
             return False, ""
         stored = self.store.get_meta("embed_fingerprint")
         if stored is None:
-            # Fresh DB — pin to current backend on first construction. The
-            # fingerprint is also persisted lazily on first remember(), but
-            # writing it here makes stats() informative even before a write.
-            self.store.set_meta("embed_fingerprint", self._embed_fingerprint)
-            stored_dim = self.store.get_meta("embed_dim")
-            if stored_dim is None:
-                self.store.set_meta("embed_dim", str(self.dim))
+            # Empty DB or read-only init — no pin yet. The first remember()
+            # call will pin via _pin_fingerprint_if_unset(). Treat as
+            # locked-on-current-backend so that initial writes succeed.
             return True, ""
         try:
             stored_dim = int(self.store.get_meta("embed_dim") or "0")
@@ -985,6 +995,11 @@ class NeuralMemory:
                 f"embedder produced dim={len(embedding)}, expected {self.dim} "
                 f"({self._embed_fingerprint})"
             )
+        # First write to a fresh DB pins the embedding fingerprint into
+        # db_meta. Read-only sessions that never call remember() leave the
+        # DB un-pinned, so they don't lock a different-backend operator out
+        # of the same DB later.
+        self._pin_fingerprint_if_unset()
         label = label or text[:60]
 
         if detect_conflicts and label:

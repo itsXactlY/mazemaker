@@ -1548,31 +1548,51 @@ class NeuralMemory:
         seen = {r["id"] for r in direct}
         all_results = list(direct)
         query_emb = self.embedder.embed(query)
+
+        # First pass: walk every think() expansion, collect the new candidate
+        # ids without firing per-id store.get queries. Second pass: one
+        # get_many for all of them, then fold in similarity + activation.
+        candidates: list[tuple[int, float]] = []  # (id, activation)
         for result in direct:
             for act in self.think(result["id"], depth=hops, engine="ppr"):
-                if act["id"] in seen:
+                aid = act["id"]
+                if aid in seen:
                     continue
-                mem = self.store.get(act["id"])
+                seen.add(aid)
+                candidates.append((aid, act["activation"]))
+        if candidates:
+            cand_ids = [cid for cid, _ in candidates]
+            mems = self.store.get_many(cand_ids, include_embedding=True)
+            for cid, activation in candidates:
+                mem = mems.get(cid)
                 if not mem:
                     continue
-                direct_sim = self._cosine_similarity(query_emb, mem.get("embedding", [])) if mem.get("embedding") else 0.0
-                combined = 0.5 * direct_sim + 0.5 * act["activation"]
+                emb = mem.get("embedding") or []
+                direct_sim = self._cosine_similarity(query_emb, emb) if emb else 0.0
+                combined = 0.5 * direct_sim + 0.5 * activation
                 all_results.append({
-                    "id": act["id"], "label": mem["label"], "content": mem["content"],
-                    "similarity": round(direct_sim, 4), "activation": act["activation"],
+                    "id": cid, "label": mem["label"], "content": mem["content"],
+                    "similarity": round(direct_sim, 4), "activation": activation,
                     "combined": round(combined, 4), "relevance": round(combined, 4),
                     "hop": 1, "connections": [],
                 })
-                seen.add(act["id"])
         all_results.sort(key=lambda x: -x.get("relevance", x.get("combined", x.get("similarity", 0))))
         return all_results[:k * 2]
 
     def connections(self, mem_id: int, at_time: Optional[float] = None) -> list[dict]:
         conns = self.store.get_connections(mem_id, at_time=at_time)
+        if not conns:
+            return []
+        # Collect every neighbour id and resolve in a single get_many.
+        # The previous loop did one SQL round-trip per connection, which on a
+        # densely-connected hub memory could mean dozens of synchronous
+        # queries just to render labels.
+        other_ids = [c["target"] if c["source"] == mem_id else c["source"] for c in conns]
+        neighbour_mems = self.store.get_many(other_ids, include_embedding=False)
         results = []
         for c in conns:
             other = c["target"] if c["source"] == mem_id else c["source"]
-            mem = self.store.get(other, include_embedding=False)
+            mem = neighbour_mems.get(int(other))
             if mem:
                 results.append({
                     "id": other,

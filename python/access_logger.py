@@ -188,7 +188,11 @@ class AccessLogger:
             (sequence, target) or None if insufficient data.
         """
         with self._file_lock:
-            events = list(self._buffer[-max_seq:])
+            # collections.deque does not support negative-index slicing —
+            # \`self._buffer[-max_seq:]\` raises TypeError. Use itertools.islice
+            # to take the last `max_seq` items in O(n) but never crash.
+            start = max(0, len(self._buffer) - max_seq)
+            events = list(itertools.islice(self._buffer, start, None))
 
         if len(events) < 2:
             return None

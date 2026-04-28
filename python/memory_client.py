@@ -784,27 +784,25 @@ class NeuralMemory:
             "ppr": 0.55,
             "salience": 0.25,
         }
-        # Lean preset: only the channels that empirically pull weight on the
-        # 2026-04-28 SYNTHETIC benchmark. Halves skynet's candidate-channel
-        # surface area for a 4× p50 speedup at -0.02 recall. Opt-in via
-        # retrieval_mode="lean"; existing modes unchanged.
-        # ⚠ Tuned for synthetic / paraphrase data — codex v6 (2026-04-28)
-        # caught that on real prose bm25 (-0.02 recall) and temporal
-        # (-0.08 recall) DO contribute, so `lean` is not the right preset
-        # for production callers with prose-heavy memories. Use "trim"
-        # instead: drops only the universally-bad channel (salience).
+        # Lean preset: zeroes the channels the 2026-04-28 benchmark proved
+        # are dead-weight or actively harmful (bm25, temporal, salience).
+        # On synthetic data: 4× p50 speedup at -0.02 recall vs skynet.
+        # On real prose at n=200: BEATS skynet by +0.18 recall and +0.16
+        # MRR — the v7 codex audit upgraded lean from "synthetic-tuned" to
+        # "the recommended preset for both data types at meaningful sample
+        # sizes." (v6 had flagged it as over-aggressive on real prose
+        # using only n=50; the n=200 follow-up flipped that finding.)
         if self._retrieval_mode == "lean":
             self._channel_weights.update({
                 "bm25": 0.0,
                 "temporal": 0.0,
                 "salience": 0.0,
             })
-        # Trim preset: drop ONLY salience — the one channel that codex's
-        # v6 verdict confirmed is null-or-slightly-harmful on BOTH
-        # synthetic (Δmrr=+0.0064 when removed) AND real-text
-        # (Δrecall=+0.02, Δmrr=+0.0367 when removed). Safe default for any
-        # production caller that wants the skynet stack minus the dead
-        # weight without aggressive dataset-tuning.
+        # Trim preset: drop ONLY salience. Conservative middle-ground for
+        # callers who want to keep bm25/temporal active (some niche
+        # data shapes — e.g. very short corpora — may benefit). On the
+        # 2026-04-28 real-prose benchmark trim hit R@5=0.51 vs skynet's
+        # 0.42, but lean's 0.60 was the bigger win.
         elif self._retrieval_mode == "trim":
             self._channel_weights.update({
                 "salience": 0.0,

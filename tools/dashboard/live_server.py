@@ -137,7 +137,14 @@ def read_sqlite(db_path: str) -> dict:
     import sqlite3
     t0 = time.perf_counter()
     conn = sqlite3.connect(db_path, timeout=10)
-    cur  = conn.cursor()
+    try:
+        return _read_sqlite_body(conn, t0, db_path)
+    finally:
+        conn.close()
+
+
+def _read_sqlite_body(conn, t0, db_path):
+    cur = conn.cursor()
 
     cur.execute("""
         SELECT m.id, m.label, m.content, m.salience, m.access_count, m.created_at,
@@ -164,13 +171,20 @@ def read_sqlite(db_path: str) -> dict:
         })
 
     hub_ids = [n["id"] for n in nodes[:NODE_LIMIT]]
-    placeholders = ",".join(str(i) for i in hub_ids)  # ints from our own query — safe
-    cur.execute(
-        f"SELECT source_id, target_id, weight FROM connections "
-        f"WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders}) "
-        f"ORDER BY weight DESC LIMIT {EDGE_LIMIT}"
-    )
-    edges = [{"source": r[0], "target": r[1], "weight": round(r[2], 4)} for r in cur.fetchall()]
+    if hub_ids:
+        # `IN (?, ...)` with bound params is safer than f-stringing ints, and
+        # also avoids the empty-DB \"IN ()\" syntax error that would crash
+        # the dashboard's first paint on a freshly-installed empty store.
+        placeholders = ",".join("?" * len(hub_ids))
+        cur.execute(
+            f"SELECT source_id, target_id, weight FROM connections "
+            f"WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders}) "
+            f"ORDER BY weight DESC LIMIT {int(EDGE_LIMIT)}",
+            hub_ids + hub_ids,
+        )
+        edges = [{"source": r[0], "target": r[1], "weight": round(r[2], 4)} for r in cur.fetchall()]
+    else:
+        edges = []
 
     cur.execute("""
         SELECT cat, COUNT(*) FROM (
@@ -220,7 +234,6 @@ def read_sqlite(db_path: str) -> dict:
     except Exception:
         pass
 
-    conn.close()
     ms = round((time.perf_counter() - t0) * 1000, 2)
     _metrics["db_query_ms"] = ms
     return {

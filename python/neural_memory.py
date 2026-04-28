@@ -214,7 +214,15 @@ class Memory:
                 mem_id = r.get('id')
                 emb = r.get('embedding')
                 
-                # If embedding not in result, try to fetch it
+                # If embedding not in result, try to fetch it.
+                # Order: MSSQL (if mirror is active) -> in-memory SQLite graph
+                # cache -> SQLite store on disk. The original code stopped
+                # at MSSQL when it was configured, so any base_result whose
+                # MSSQL row hadn't been mirrored yet (mid-backfill, transient
+                # connectivity loss, sync_bridge lag) was silently dropped
+                # from the kNN candidate set — degrading the rerank quality
+                # without any signal that it had happened. Fall through to
+                # SQLite when MSSQL returns nothing.
                 if emb is None:
                     if self._mssql_store:
                         try:
@@ -222,7 +230,7 @@ class Memory:
                             emb = full.get('embedding', []) if full else []
                         except Exception:
                             emb = []
-                    elif self._sqlite_memory:
+                    if not emb and self._sqlite_memory:
                         # Fast path: in-memory graph has embeddings
                         node = self._sqlite_memory._graph_nodes.get(mem_id, {})
                         emb = node.get('embedding', [])

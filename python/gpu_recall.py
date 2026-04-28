@@ -95,6 +95,14 @@ class GpuRecallEngine:
             raise RuntimeError("No embed function configured")
 
         query_vec = self._embed_fn(query)
+        # Dim guard: a query produced by the active backend (e.g. 1024-d
+        # FastEmbed) against a GPU cache that was populated by a different
+        # backend (e.g. 384-d MiniLM) would crash inside torch.matmul. The
+        # outer try/except in memory_client catches the crash, but doing
+        # the check up-front skips the exception machinery and yields a
+        # clean fast path through the CPU/HNSW fallbacks instead.
+        if len(query_vec) != self._dim:
+            return []
         q = torch.tensor(query_vec, device=self._device, dtype=torch.float32)
 
         # Normalize if needed (check magnitude)

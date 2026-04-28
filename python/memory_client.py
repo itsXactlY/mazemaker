@@ -1468,35 +1468,49 @@ class NeuralMemory:
         max_rel = max((r.get("relevance", 0.0) for r in ranked), default=1.0) or 1.0
         pool = list(ranked)
         selected: list[dict] = []
+        # Cache embeddings keyed by memory id to avoid repeated dict lookups.
+        embed_of = {mid: m.get("embedding") or [] for mid, m in mems.items()}
         # Always seed with the top-relevance pick — MMR's first iteration is
         # equivalent to argmax(relevance) since selected is empty.
         first = pool.pop(0)
         selected.append(first)
-        # Cache embeddings keyed by memory id to avoid repeated dict lookups.
-        embed_of = {mid: m.get("embedding") or [] for mid, m in mems.items()}
+        # Running max-similarity-to-selected for every remaining candidate.
+        # Updated incrementally as we add to `selected` — saves the O(|sel|)
+        # inner max() call per candidate per outer iteration. Total work
+        # drops from O(k * |pool| * |selected|) to O(k * |pool|).
+        max_sim_to_sel: dict[int, float] = {}
+        first_emb = embed_of.get(first["id"], [])
+        for cand in pool:
+            cand_emb = embed_of.get(cand["id"], [])
+            if cand_emb and first_emb:
+                max_sim_to_sel[cand["id"]] = self._cosine_similarity(cand_emb, first_emb)
+            else:
+                max_sim_to_sel[cand["id"]] = 0.0
         while pool and len(selected) < k:
             best_idx = -1
             best_score = -float("inf")
             for i, cand in enumerate(pool):
                 rel = cand.get("relevance", 0.0) / max_rel
-                cand_emb = embed_of.get(cand["id"], [])
-                if not cand_emb:
-                    # Missing/mismatched embedding -> diversity term is zero;
-                    # rank it on relevance only.
-                    div = 0.0
-                else:
-                    div = max(
-                        (self._cosine_similarity(cand_emb, embed_of.get(s["id"], []))
-                         for s in selected),
-                        default=0.0,
-                    )
+                div = max_sim_to_sel.get(cand["id"], 0.0)
                 score = lam * rel - (1.0 - lam) * div
                 if score > best_score:
                     best_score = score
                     best_idx = i
             if best_idx < 0:
                 break
-            selected.append(pool.pop(best_idx))
+            picked = pool.pop(best_idx)
+            selected.append(picked)
+            # Update each remaining candidate's running max against the
+            # newly-picked item only — O(|pool|) per outer iter.
+            picked_emb = embed_of.get(picked["id"], [])
+            if picked_emb:
+                for cand in pool:
+                    cand_emb = embed_of.get(cand["id"], [])
+                    if not cand_emb:
+                        continue
+                    sim = self._cosine_similarity(cand_emb, picked_emb)
+                    if sim > max_sim_to_sel.get(cand["id"], 0.0):
+                        max_sim_to_sel[cand["id"]] = sim
         # Append leftovers (preserving original ranking) so consumers asking
         # for k > pool_size or downstream code that walks past k still gets
         # the full ordering rather than a truncated tail.

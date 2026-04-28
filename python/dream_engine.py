@@ -455,13 +455,24 @@ class SQLiteDreamBackend(DreamBackend):
 
     def add_bridge(self, source_id: int, target_id: int,
                     weight: float = 0.3) -> None:
+        """Insert a REM-discovered bridge edge.
+
+        Canonicalises source<target to match add_connection's invariant.
+        Without this, the connections table held mixed-orientation rows:
+        an edge added by remember()'s auto_connect path was always (min,max),
+        but a bridge from REM could be (max,min). Any downstream code that
+        assumed canonical form (\"WHERE source=? AND target=?\") would miss
+        the bridge edge half the time.
+        """
+        if source_id == target_id:
+            return
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
         conn = self._connect()
         try:
             existing = conn.execute(
-                "SELECT id FROM connections "
-                "WHERE (source_id = ? AND target_id = ?) "
-                "OR (source_id = ? AND target_id = ?)",
-                (source_id, target_id, target_id, source_id)
+                "SELECT id FROM connections WHERE source_id = ? AND target_id = ?",
+                (source_id, target_id),
             ).fetchone()
             if not existing:
                 conn.execute(

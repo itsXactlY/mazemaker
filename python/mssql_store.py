@@ -232,6 +232,18 @@ class MSSQLStore:
         self.conn.commit()
     
     def add_connection(self, source: int, target: int, weight: float, edge_type: str = "similar"):
+        """MERGE an edge into MSSQL connections.
+
+        Canonicalises source<target so the row layout matches the SQLiteStore
+        invariant (see iter 23). Mixed-orientation rows in MSSQL — the
+        previous behaviour — meant any query that filters on a single
+        ordering would miss half the bridge edges, breaking cross-backend
+        graph traversal.
+        """
+        if source == target:
+            return
+        if source > target:
+            source, target = target, source
         cursor = self.conn.cursor()
         cursor.execute(
             "MERGE connections AS target "

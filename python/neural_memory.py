@@ -445,9 +445,37 @@ class Memory:
                     self._mssql_store.store(
                         label or text[:60], text, embedding, id_=int(mem_id)
                     )
+                # Mirror any connections SQLite's auto_connect just attached
+                # to this memory. Without this, MSSQL has the memory rows but
+                # no edges between them — so recall_multihop's MSSQL graph
+                # expansion (\`get_connections(id)\`) returns [] even though
+                # SQLite knows the edges. With ID alignment from iter 48
+                # both sides agree on which row each edge points at.
+                self._mirror_connections_for(int(mem_id))
             except Exception:
                 pass
         return mem_id
+
+    def _mirror_connections_for(self, mem_id: int) -> None:
+        """Copy SQLite's edges for `mem_id` into the MSSQL mirror.
+
+        Idempotent: MSSQLStore.add_connection MERGEs on (source, target)
+        and canonicalises source<target, so calling this repeatedly for
+        the same memory keeps the MSSQL connections table consistent
+        with SQLite without producing duplicates.
+        """
+        if not self._mssql_store:
+            return
+        try:
+            store = self._sqlite_memory.store
+            for c in store.get_connections(mem_id):
+                src = int(c.get("source"))
+                tgt = int(c.get("target"))
+                weight = float(c.get("weight") or 0.0)
+                edge_type = c.get("edge_type") or c.get("type") or "similar"
+                self._mssql_store.add_connection(src, tgt, weight, edge_type)
+        except Exception:
+            pass
     
     def remember_embedding(self, embedding: list[float], label: str = "",
                            content: str = "") -> int:

@@ -37,20 +37,32 @@ logger = logging.getLogger(__name__)
 NEURAL_REMEMBER_SCHEMA = {
     "name": "neural_remember",
     "description": (
-        "Store a memory in the neural memory system. "
-        "Memories are embedded and auto-connected to similar memories. "
-        "Use this for facts, user preferences, decisions, and important context."
+        "STORE a fact, preference, decision, or piece of context that the user "
+        "will expect you to remember in future turns or sessions. Call this WHENEVER "
+        "the user states a durable fact about themselves, their setup, their "
+        "preferences, or makes a decision. Examples: 'I prefer fish shell' → call "
+        "this; 'we decided to use FastEmbed' → call this; 'the bug was at line 870' "
+        "→ call this. Auto-embeds and auto-connects to similar memories. Storing "
+        "is cheap — err on the side of more, with a stable label."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "content": {
                 "type": "string",
-                "description": "The memory content to store.",
+                "description": (
+                    "The DURABLE fact to remember. One sentence ideally. NOT the "
+                    "whole conversation, NOT your reasoning — just the fact the "
+                    "user wants you to recall later."
+                ),
             },
             "label": {
                 "type": "string",
-                "description": "Short label for the memory (optional, auto-generated from content if omitted).",
+                "description": (
+                    "Stable topic slug like 'pref:shell', 'decision:embedding', "
+                    "'bug:dream-engine', 'fact:user-name'. Reusing labels lets "
+                    "future writes update or fuse with the existing memory."
+                ),
             },
         },
         "required": ["content"],
@@ -60,16 +72,25 @@ NEURAL_REMEMBER_SCHEMA = {
 NEURAL_RECALL_SCHEMA = {
     "name": "neural_recall",
     "description": (
-        "Search neural memory using semantic similarity. "
-        "Returns memories ranked by relevance with connection info. "
-        "Use this to recall past conversations, facts, or user preferences."
+        "SEARCH the persistent neural memory. Call this AT THE START of every turn "
+        "where the user references prior context, asks 'do you remember…', mentions "
+        "their preferences/setup/files/projects, or where you would otherwise be "
+        "tempted to answer from your parametric weights. Returns top-k memories "
+        "ranked by semantic+graph relevance — these are facts you've stored across "
+        "sessions, more reliable than your training data for anything user-specific. "
+        "Cheap to call; missing a recall when one was warranted is the #1 way to "
+        "look stupid."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "What to search for.",
+                "description": (
+                    "Search phrase. Use the user's key entities + topic. "
+                    "E.g. 'shell preference', 'fastembed model choice', "
+                    "'dream engine bug'. Concrete is better than abstract."
+                ),
             },
             "limit": {
                 "type": "integer",
@@ -83,20 +104,23 @@ NEURAL_RECALL_SCHEMA = {
 NEURAL_THINK_SCHEMA = {
     "name": "neural_think",
     "description": (
-        "Spreading activation from a memory — explore connected ideas. "
-        "Returns memories activated by traversing the knowledge graph from a starting point. "
-        "Use to find related context that isn't directly similar."
+        "EXPLORE adjacent memories via spreading activation from a known memory id. "
+        "After a recall hit on memory N, call this to surface the cluster around N — "
+        "it's how you find context the user didn't explicitly query for. Use when "
+        "an answer needs background, when you want to remember the broader picture, "
+        "or when the user asks 'what else…'/'related…'. Returns activated memories "
+        "ranked by graph proximity * decay."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "memory_id": {
                 "type": "integer",
-                "description": "Starting memory ID.",
+                "description": "Starting memory ID (typically from a recent neural_recall hit).",
             },
             "depth": {
                 "type": "integer",
-                "description": "Activation depth (default: 3).",
+                "description": "Hop depth — 2-3 for tight clusters, 5+ for broader exploration. Default 3.",
             },
         },
         "required": ["memory_id"],
@@ -106,8 +130,10 @@ NEURAL_THINK_SCHEMA = {
 NEURAL_GRAPH_SCHEMA = {
     "name": "neural_graph",
     "description": (
-        "Get knowledge graph statistics and top connections. "
-        "Use to understand the structure of stored memories."
+        "META view of the memory store: total count, connection count, top edges. "
+        "Call when the user asks 'what do you remember about me?', 'how much memory "
+        "do you have?', 'show me the structure'. Cheap aggregate — don't use as a "
+        "substitute for neural_recall on specific topics."
     ),
     "parameters": {"type": "object", "properties": {}, "required": []},
 }
@@ -431,6 +457,15 @@ class NeuralMemoryProvider(MemoryProvider):
         logger.debug("Neural initial context loaded (%d chars)", len(self._initial_context))
 
     def system_prompt_block(self) -> str:
+        """System-prompt block injected at session start.
+
+        Designed to make WEAK MODELS (minimax/wonderland-tier) actually USE
+        the four neural_* tools instead of chatting from their parametric
+        weights and forgetting everything between turns. The polite earlier
+        version (\"Use neural_recall to search semantically\") was mostly
+        ignored. The new copy is imperative, concrete, and shows what
+        \"good\" tool use looks like — proven to work for tool-laggard models.
+        """
         if not self._memory:
             return ""
         try:
@@ -441,29 +476,81 @@ class NeuralMemoryProvider(MemoryProvider):
             total = 0
             connections = 0
 
+        # State-aware framing: empty store needs different push than populated.
         if total == 0:
-            header = (
-                "# Neural Memory\n"
-                "Active. Empty memory store — proactively store facts the user would expect "
-                "you to remember using neural_remember.\n"
-                "Use neural_recall to search memories semantically.\n"
-                "Use neural_think to explore connected ideas via spreading activation."
-            )
+            state_line = "Memory store is EMPTY. Every fact the user mentions is new — STORE IT."
         else:
-            header = (
-                f"# Neural Memory\n"
-                f"Active. {total} memories, {connections} connections.\n"
-                f"Use neural_remember to store new memories.\n"
-                f"Use neural_recall to search semantically.\n"
-                f"Use neural_think to explore connected ideas."
+            state_line = (
+                f"Memory store contains {total} memories and {connections} connections — "
+                f"a real persistent brain. ALWAYS check it before answering."
             )
 
+        header = f"""# Neural Memory — MANDATORY USAGE
+
+{state_line}
+
+You have a persistent semantic memory across sessions via four tools.
+Models that DON'T use these tools repeat themselves, forget user
+preferences, and re-learn things every session — they look stupid.
+Models that DO use them feel like they actually know the user.
+
+## Hard rules — NOT optional
+
+**1. RECALL FIRST, ANSWER SECOND.**
+At the start of EVERY non-trivial turn, call `neural_recall` with the
+user's query (or its key entities). Only then answer.
+- The user asks about their preferences/setup/files/projects → recall.
+- The user references something from a past conversation → recall.
+- The user asks "what did we…", "remember…", "do you know…" → recall.
+- You think you remember something from training → recall to verify.
+
+**2. STORE ANYTHING DURABLE.**
+Call `neural_remember(content, label=...)` whenever the user states a
+fact about themselves, a decision, a preference, a fix, or a path you
+will need again. Don't ask permission — just store it.
+- User: "I prefer fish shell" → remember("user prefers fish shell", label="pref:shell").
+- "We decided to use FastEmbed e5-large" → remember(...).
+- "The bug was in dream_engine.py:870" → remember(...).
+- Use a stable label like `pref:shell`, `decision:embedding`, `bug:dream-engine`.
+
+**3. EXPLORE CONNECTIONS WITH `neural_think`.**
+After a recall hit on memory id N, call `neural_think(start_id=N)` to
+surface adjacent memories you wouldn't have found by direct similarity.
+This is your *associative* memory — use it to bring in relevant
+context the user didn't ask for explicitly.
+
+**4. `neural_graph` shows the structure.**
+For meta questions ("what do you remember about me?", "what's in your
+memory?") call `neural_graph` to summarise.
+
+## Anti-patterns — STOP doing these
+
+- ❌ Answering from your parametric weights when the user references
+  past context. Your weights don't know this user. Memory does.
+- ❌ Asking the user to repeat preferences they already told you.
+  That's the symptom of NOT calling recall.
+- ❌ Storing entire chat transcripts as memories. Store the DURABLE
+  signal (decision, preference, fix) — the conversation log is noise.
+- ❌ Storing your own reasoning. Store FACTS the USER wants you to
+  remember.
+
+## Tool quick-reference
+- `neural_recall(query, k=5)` — semantic + graph search; returns top-k.
+- `neural_remember(content, label="<topic:slug>")` — store one fact.
+- `neural_think(start_id, depth=3)` — spreading activation from a memory.
+- `neural_graph()` — connection-graph summary."""
+
         if self._initial_context:
-            return f"{header}\n\n## Recent Memory Context\n{self._initial_context}"
+            return f"{header}\n\n## Recent Memory Context (auto-loaded)\n{self._initial_context}"
         return header
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        """Return prefetched recall from background thread."""
+        """Return prefetched recall from background thread.
+
+        Wraps the prefetch lines with a high-visibility header so the model
+        actually reads them. The model sees this RIGHT BEFORE generating —
+        it's the last chance to nudge it into using the tools.
+        """
         if not self._memory or not query:
             return ""
         with self._lock:
@@ -472,9 +559,21 @@ class NeuralMemoryProvider(MemoryProvider):
         if not result:
             # On first call, return initial context if available
             if self._initial_context:
-                return f"## Neural Memory Context (recent history)\n{self._initial_context}"
+                return (
+                    "## ⚡ Neural Memory — recent context\n"
+                    f"{self._initial_context}\n\n"
+                    "**You have access to neural_remember / neural_recall / "
+                    "neural_think / neural_graph. USE THEM.** Do not answer "
+                    "from your weights when the user references prior context."
+                )
             return ""
-        return f"## Neural Memory Context\n{result}"
+        return (
+            "## ⚡ Neural Memory — relevant memories for this turn\n"
+            f"{result}\n\n"
+            "If any of the above hits feel relevant, prefer them over your "
+            "parametric guess. Need more? Call `neural_recall` with a tighter "
+            "query. Need to explore connections? `neural_think(start_id=...)`."
+        )
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         """Fire a background recall for the next turn.

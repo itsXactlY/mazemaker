@@ -230,6 +230,57 @@ class SQLiteStore:
         self.conn.execute("UPDATE connections SET edge_type = 'similar' WHERE edge_type IS NULL OR edge_type = ''")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_connections_valid_time ON connections(valid_from, valid_to)")
 
+        # Canonicalise legacy connection rows. Iter 23 made every new write
+        # satisfy source<target, but rows that pre-date that fix (or that
+        # came in via paths that bypassed add_connection) can still carry
+        # arbitrary orientation. Without this sweep, `WHERE source_id=? AND
+        # target_id=?` lookups miss the legacy rows half the time and
+        # downstream code (recall connection rendering, in-memory graph
+        # hydration) sees inconsistent state. Mirrors the iter 61 MSSQL
+        # migration on the SQLite side.
+        try:
+            # Step 1: when a non-canonical row has a canonical twin, lift the
+            # canonical row's weight to MAX(both) so we don't lose the
+            # potentially-higher weight from the row we're about to drop.
+            # add_connection's MERGE policy is \"keep the larger weight\", so
+            # the migration must preserve that semantic.
+            self.conn.execute("""
+                UPDATE connections
+                   SET weight = (
+                       SELECT MAX(c1.weight, c2.weight)
+                         FROM connections c1, connections c2
+                        WHERE c1.id = connections.id
+                          AND c2.source_id = connections.target_id
+                          AND c2.target_id = connections.source_id
+                   )
+                 WHERE source_id < target_id
+                   AND EXISTS (
+                       SELECT 1 FROM connections c2
+                        WHERE c2.source_id = connections.target_id
+                          AND c2.target_id = connections.source_id
+                   )
+            """)
+            # Step 2: drop the non-canonical duplicate.
+            self.conn.execute("""
+                DELETE FROM connections
+                 WHERE source_id > target_id
+                   AND EXISTS (
+                       SELECT 1 FROM connections c2
+                        WHERE c2.source_id = connections.target_id
+                          AND c2.target_id = connections.source_id
+                   )
+            """)
+            # Step 3: swap survivors in place so they're canonical going forward.
+            self.conn.execute("""
+                UPDATE connections
+                   SET source_id = target_id, target_id = source_id
+                 WHERE source_id > target_id
+            """)
+        except sqlite3.OperationalError:
+            # Schema oddity (very old DB without these columns) — leave as-is;
+            # subsequent writes are canonical regardless.
+            pass
+
     def _ensure_fts(self) -> bool:
         try:
             self.conn.executescript(FTS_SCHEMA)

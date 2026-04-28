@@ -258,6 +258,8 @@ class NeuralMemoryProvider(MemoryProvider):
                 ppr_alpha=float(self._config.get("ppr_alpha", 0.15) or 0.15),
                 ppr_iters=int(self._config.get("ppr_iters", 20) or 20),
                 ppr_hops=int(self._config.get("ppr_hops", 2) or 2),
+                mmr_lambda=float(self._config.get("mmr_lambda", 0.0) or 0.0),
+                recall_score_floor=float(self._config.get("recall_score_floor", 0.0) or 0.0),
             )
 
             # Load initial context from memory — DEFERRED to a daemon thread.
@@ -1325,6 +1327,8 @@ memory?") call `neural_graph` to summarise.
             {"key": "rerank", "description": "Use lazy cross-encoder reranker for recall", "required": False, "default": False},
             {"key": "store_raw_turns", "description": "Store raw per-turn messages (debug only)", "required": False, "default": False},
             {"key": "archive_raw_turns", "description": "Archive raw turns before compression (debug only)", "required": False, "default": False},
+            {"key": "mmr_lambda", "description": "MMR diversity weight for recall (0.0=relevance only, 0.7=balanced; off by default)", "required": False, "default": 0.0},
+            {"key": "recall_score_floor", "description": "Minimum similarity to return a recall hit (e.g. 0.3 to drop weak matches)", "required": False, "default": 0.0},
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:

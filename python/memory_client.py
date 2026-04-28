@@ -1731,10 +1731,17 @@ class NeuralMemory:
         return results
 
     def recall_multihop(self, query: str, k: int = 5, hops: int = 2, temporal_weight: float = 0.2) -> list[dict]:
-        direct = self.recall(query, k=k, temporal_weight=temporal_weight, hybrid=True)
+        # Embed once and pass the vector into recall() so the hybrid retrieval
+        # path doesn't re-encode the same query. With a real embedding model
+        # (FastEmbed e5-large or sentence-transformers on CPU) each encode is
+        # 10-50ms — the previous code paid that cost twice per multihop.
+        query_emb = self.embedder.embed(query)
+        direct = self.recall(
+            query, k=k, temporal_weight=temporal_weight, hybrid=True,
+            query_vec=query_emb,
+        )
         seen = {r["id"] for r in direct}
         all_results = list(direct)
-        query_emb = self.embedder.embed(query)
 
         # First pass: walk every think() expansion, collect the new candidate
         # ids without firing per-id store.get queries. Second pass: one

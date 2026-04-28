@@ -202,7 +202,11 @@ def export_all(client: HindsightClient, output_dir: Path,
         try:
             stats = client.get_bank_stats(bank_id)
             name = stats.get("name", bank_id)
-        except:
+        except Exception:
+            # Narrowed from bare `except:` so KeyboardInterrupt /
+            # SystemExit propagate. API failures, network errors,
+            # JSON decode errors are still caught and the bank id
+            # itself is used as a fallback name.
             name = bank_id
         results.append(export_bank(client, bank_id, name, output_dir))
     else:
@@ -252,9 +256,16 @@ def import_bank(mem: Memory, bank_dir: Path, bank_id: str, bank_name: str,
     counts = {"memories": 0, "mental_models": 0, "connections": 0}
 
     conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return _import_bank_body(mem, bank_dir, bank_id, bank_name, batch_size, conn, counts, embedder, dim)
+    finally:
+        conn.close()
 
+
+def _import_bank_body(mem, bank_dir, bank_id, bank_name, batch_size, conn, counts, embedder, dim):
+    """Body of import_bank, called under conn try/finally for cleanup."""
     # 1. Import memories
     mem_file = bank_dir / "memories.json"
     if mem_file.exists():
@@ -414,7 +425,6 @@ def import_bank(mem: Memory, bank_dir: Path, bank_id: str, bank_name: str,
                 counts["documents"] = len(texts)
                 print(f"    Done: {len(texts)} documents")
 
-    conn.close()
     return counts
 
 
@@ -464,62 +474,63 @@ def build_connections(threshold: float = 0.15, sample_size: int = 5000):
     print(f"\n=== Building connections (threshold={threshold}) ===")
 
     conn = sqlite3.connect(str(DB_PATH))
-    rows = conn.execute("SELECT id, embedding FROM memories ORDER BY id").fetchall()
-    total = len(rows)
-    print(f"  {total} memories total")
+    try:
+        rows = conn.execute("SELECT id, embedding FROM memories ORDER BY id").fetchall()
+        total = len(rows)
+        print(f"  {total} memories total")
 
-    if total == 0:
+        if total == 0:
+            return
+
+        dim = len(rows[0][1]) // 4
+        all_ids = []
+        all_embs = []
+        for row in rows:
+            all_ids.append(row[0])
+            all_embs.append(list(struct.unpack(f'{dim}f', row[1])))
+
+        def cosine(a, b):
+            dot = sum(x * y for x, y in zip(a, b))
+            na = math.sqrt(sum(x * x for x in a))
+            nb = math.sqrt(sum(x * x for x in b))
+            return dot / (na * nb) if na * nb > 0 else 0
+
+        connections = []
+        t0 = time.time()
+
+        if total <= sample_size:
+            for i in range(total):
+                for j in range(i + 1, total):
+                    sim = cosine(all_embs[i], all_embs[j])
+                    if sim > threshold:
+                        connections.append((all_ids[i], all_ids[j], sim))
+                if (i + 1) % 500 == 0:
+                    print(f"  [{i + 1}/{total}] {len(connections)} connections", flush=True)
+        else:
+            window = 200
+            for i in range(total):
+                start = max(0, i - window)
+                end = min(total, i + window)
+                for j in range(start, end):
+                    if j <= i:
+                        continue
+                    sim = cosine(all_embs[i], all_embs[j])
+                    if sim > threshold:
+                        connections.append((all_ids[i], all_ids[j], sim))
+                if (i + 1) % 2000 == 0:
+                    elapsed = time.time() - t0
+                    rate = (i + 1) / elapsed
+                    print(f"  [{i + 1}/{total}] {len(connections)} conns, {rate:.0f}/s", flush=True)
+
+        print(f"  Inserting {len(connections)} connections...")
+        conn.executemany(
+            "INSERT OR IGNORE INTO connections (source_id, target_id, weight, edge_type) VALUES (?, ?, ?, 'similar')",
+            connections
+        )
+        conn.commit()
+        print(f"  Done: {len(connections)} connections in {time.time() - t0:.1f}s")
+    finally:
         conn.close()
-        return
-
-    dim = len(rows[0][1]) // 4
-    all_ids = []
-    all_embs = []
-    for row in rows:
-        all_ids.append(row[0])
-        all_embs.append(list(struct.unpack(f'{dim}f', row[1])))
-
-    def cosine(a, b):
-        dot = sum(x * y for x, y in zip(a, b))
-        na = math.sqrt(sum(x * x for x in a))
-        nb = math.sqrt(sum(x * x for x in b))
-        return dot / (na * nb) if na * nb > 0 else 0
-
-    connections = []
-    t0 = time.time()
-
-    if total <= sample_size:
-        for i in range(total):
-            for j in range(i + 1, total):
-                sim = cosine(all_embs[i], all_embs[j])
-                if sim > threshold:
-                    connections.append((all_ids[i], all_ids[j], sim))
-            if (i + 1) % 500 == 0:
-                print(f"  [{i + 1}/{total}] {len(connections)} connections", flush=True)
-    else:
-        window = 200
-        for i in range(total):
-            start = max(0, i - window)
-            end = min(total, i + window)
-            for j in range(start, end):
-                if j <= i:
-                    continue
-                sim = cosine(all_embs[i], all_embs[j])
-                if sim > threshold:
-                    connections.append((all_ids[i], all_ids[j], sim))
-            if (i + 1) % 2000 == 0:
-                elapsed = time.time() - t0
-                rate = (i + 1) / elapsed
-                print(f"  [{i + 1}/{total}] {len(connections)} conns, {rate:.0f}/s", flush=True)
-
-    print(f"  Inserting {len(connections)} connections...")
-    conn.executemany(
-        "INSERT OR IGNORE INTO connections (source_id, target_id, weight, edge_type) VALUES (?, ?, ?, 'similar')",
-        connections
-    )
-    conn.commit()
-    conn.close()
-    print(f"  Done: {len(connections)} connections in {time.time() - t0:.1f}s")
 
 
 # ---------------------------------------------------------------------------

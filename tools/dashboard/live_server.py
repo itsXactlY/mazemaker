@@ -259,7 +259,14 @@ def read_mssql(mssql_cfg: dict) -> dict:
         "TrustServerCertificate=yes;Encrypt=no;"
     )
     conn = pyodbc.connect(cs, autocommit=True)
-    cur  = conn.cursor()
+    try:
+        return _read_mssql_body(conn, mssql_cfg, t0)
+    finally:
+        conn.close()
+
+
+def _read_mssql_body(conn, mssql_cfg, t0):
+    cur = conn.cursor()
 
     cur.execute("""
         SELECT TOP 200 m.id, m.label, LEN(ISNULL(m.content,'')) AS clen,
@@ -336,7 +343,6 @@ def read_mssql(mssql_cfg: dict) -> dict:
     dr  = cur.fetchone()
     dim = dr[0] if dr else 1024
 
-    conn.close()
     ms = round((time.perf_counter() - t0) * 1000, 2)
     _metrics["db_query_ms"] = ms
     return {

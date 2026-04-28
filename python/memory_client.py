@@ -1239,6 +1239,25 @@ class NeuralMemory:
                 fused[mid]["channel_scores"]["ppr"] = score * self._channel_weights.get("ppr", 0.55) / self._rrf_k
 
         mems = self.store.get_many(list(fused.keys()), include_embedding=True)
+
+        # Pre-fetch connections per result-memory and collect every neighbour
+        # id we'll need to render. The previous code did one get_connections
+        # call PLUS up to 3 single-row get() calls per result memory — a
+        # 4N SQL round-trip pattern that dominated recall latency at scale.
+        # One get_many on the whole neighbour set replaces 3*N queries.
+        per_mem_conns: dict[int, list] = {}
+        all_neighbour_ids: set[int] = set()
+        for mem_id in fused.keys():
+            conns = self.store.get_connections(mem_id, at_time=at_time)[:3]
+            per_mem_conns[mem_id] = conns
+            for c in conns:
+                other = c["target"] if c["source"] == mem_id else c["source"]
+                all_neighbour_ids.add(int(other))
+        neighbour_mems = (
+            self.store.get_many(list(all_neighbour_ids), include_embedding=False)
+            if all_neighbour_ids else {}
+        )
+
         results = []
         for mem_id, data in fused.items():
             mem = mems.get(mem_id)
@@ -1256,13 +1275,17 @@ class NeuralMemory:
                 + self._channel_weights.get("salience", 0.25) * 0.05 * salience_factor
                 + self._channel_weights.get("ppr", 0.55) * 0.10 * ppr
             )
-            conns = self.store.get_connections(mem_id, at_time=at_time)
             connected = []
-            for c in conns[:3]:
+            for c in per_mem_conns.get(mem_id, ()):
                 other = c["target"] if c["source"] == mem_id else c["source"]
-                other_mem = self.store.get(other, include_embedding=False)
+                other_mem = neighbour_mems.get(int(other))
                 if other_mem:
-                    connected.append({"id": other, "label": other_mem["label"], "weight": round(float(c["weight"]), 4), "type": c.get("type", "similar")})
+                    connected.append({
+                        "id": other,
+                        "label": other_mem["label"],
+                        "weight": round(float(c["weight"]), 4),
+                        "type": c.get("type", "similar"),
+                    })
             results.append({
                 "id": mem_id,
                 "label": mem.get("label", ""),

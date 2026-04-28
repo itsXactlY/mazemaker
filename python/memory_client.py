@@ -1300,7 +1300,18 @@ class NeuralMemory:
 
     @staticmethod
     def _cosine_similarity(a, b) -> float:
+        """Cosine similarity with strict dim-equality.
+
+        Treats dim-mismatched vectors as "no signal" (returns 0.0) instead of
+        silently truncating via zip. A mismatch means the two embeddings came
+        from different models — comparing them across dim is meaningless and
+        produces noise that pollutes recall.
+        """
         if not a or not b:
+            return 0.0
+        # Strict dim guard: zip-based fallback would otherwise truncate to the
+        # shorter vector and return a meaningless partial dot product.
+        if len(a) != len(b):
             return 0.0
         if NeuralMemory._cosine_sim_fast is not None:
             import numpy as np
@@ -1308,6 +1319,9 @@ class NeuralMemory:
                 a = np.asarray(a, dtype=np.float64)
             if not isinstance(b, np.ndarray):
                 b = np.asarray(b, dtype=np.float64)
+            # numpy/fast_ops would also fail loudly on mismatch, but the
+            # explicit early return above keeps the contract uniform across
+            # both code paths.
             return float(NeuralMemory._cosine_sim_fast(a, b))
         dot = sum(x * y for x, y in zip(a, b))
         na = (sum(x * x for x in a)) ** 0.5

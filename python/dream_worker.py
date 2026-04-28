@@ -192,6 +192,16 @@ class DreamWorker:
             return None
 
     def _similarity(self, a: List[float], b: List[float]) -> float:
+        """Cosine similarity with strict dim-equality.
+
+        Mixed-dim embeddings (different models in the same DB) silently
+        zip-truncated to the shorter vector and produced a partial dot
+        product — pure noise that biased dream-engine bridge discovery
+        toward whichever model happened to win the truncation. Treat
+        mismatch as zero signal so downstream phases skip the pair.
+        """
+        if not a or not b or len(a) != len(b):
+            return 0.0
         import math
         dot = sum(x*y for x, y in zip(a, b))
         na = math.sqrt(sum(x*x for x in a))

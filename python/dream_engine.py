@@ -75,6 +75,8 @@ CREATE INDEX IF NOT EXISTS idx_dream_insights_session
     ON dream_insights(session_id);
 CREATE INDEX IF NOT EXISTS idx_conn_history_nodes
     ON connection_history(source_id, target_id);
+CREATE INDEX IF NOT EXISTS idx_conn_history_changed_at
+    ON connection_history(changed_at);
 """
 
 

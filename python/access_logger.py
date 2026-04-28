@@ -54,7 +54,15 @@ class AccessLogger:
         self._buffer: deque[dict] = deque(maxlen=1000)
         self._flush_threshold = 100
         self._ops_since_flush = 0
+        # _file_lock guards in-memory state (_buffer, _ops_since_flush). It is
+        # held only briefly to append/snapshot/reset; never during file I/O.
+        # _write_lock serializes the actual disk writes (open/append/rotate/
+        # cleanup) so the buffer-side hot path stays uncontended even when a
+        # flush is in progress. Previously _flush_buffer held _file_lock for
+        # the full open/write/rotate window, blocking every log_recall and
+        # get_sequence call on whoever was reading or writing the JSONL file.
         self._file_lock = threading.Lock()
+        self._write_lock = threading.Lock()
         # Throttle directory-scanning cleanup so it doesn't run on every flush
         # (every 100 events). Stat'ing the dir + iterating files is wasted I/O
         # at burst rates; an hour between sweeps is plenty for a 30-day cap.
@@ -95,13 +103,20 @@ class AccessLogger:
             "n_results": len(result_ids),
         }
 
+        should_flush = False
         with self._file_lock:
             self._buffer.append(event)
             self._ops_since_flush += 1
 
-            # Periodic disk flush
+            # Periodic disk flush — fire OUTSIDE the buffer lock so the slow
+            # path (open/write/rotate/cleanup) doesn't block readers and
+            # other writers. Without this, a hot recall workload stalls on
+            # disk I/O every 100 events.
             if self._ops_since_flush >= self._flush_threshold:
-                self._flush_buffer()
+                should_flush = True
+
+        if should_flush:
+            self._flush_buffer()
 
     def get_sequence(self, n: int = 20) -> list[dict]:
         """Return last N recall events (most recent last).
@@ -145,8 +160,7 @@ class AccessLogger:
 
     def save(self):
         """Persist current buffer to disk (append to JSONL file)."""
-        with self._file_lock:
-            self._flush_buffer()
+        self._flush_buffer()
 
     def load(self, n: int = 1000):
         """Load last N events from disk into buffer.
@@ -251,8 +265,7 @@ class AccessLogger:
 
     def flush(self):
         """Force flush buffer to disk."""
-        with self._file_lock:
-            self._flush_buffer()
+        self._flush_buffer()
 
     # Log rotation config
     MAX_LOG_SIZE_MB = 100
@@ -333,45 +346,56 @@ class AccessLogger:
         return event
 
     def _flush_buffer(self):
-        """Write buffered events to JSONL file (internal, assumes lock held)."""
-        if not self._buffer:
+        """Write buffered events to JSONL file.
+
+        Two-phase: snapshot under _file_lock (fast), then do the disk I/O
+        under _write_lock (slow but no longer blocks readers/writers of the
+        in-memory buffer). Previously the entire open/append/rotate ran
+        under _file_lock, so every log_recall, get_sequence, and
+        co-occurrence query stalled for the duration of the write.
+        """
+        # Phase 1 — snapshot. Hold _file_lock just long enough to slice
+        # the buffer and reset the counter. ALWAYS reset before the write
+        # attempt: if reset only on success, an IOError leaks the counter
+        # and every subsequent log_recall re-fires _flush_buffer and spams
+        # \"[AccessLogger] Flush error\" to stderr per event.
+        with self._file_lock:
+            if not self._buffer:
+                self._ops_since_flush = 0
+                return
+            events_to_flush_count = self._ops_since_flush
             self._ops_since_flush = 0
+            start = max(0, len(self._buffer) - events_to_flush_count)
+            events_snapshot = [
+                self._event_for_disk(e)
+                for e in itertools.islice(self._buffer, start, None)
+            ]
+
+        if not events_snapshot:
             return
 
-        # ALWAYS reset _ops_since_flush before the write attempt. The previous
-        # body only reset on success, which leaked the counter on IOError:
-        # subsequent log_recall calls would see _ops_since_flush still above
-        # _flush_threshold and re-fire _flush_buffer, hitting the same IOError
-        # and spamming \"[AccessLogger] Flush error\" to stderr on every event.
-        # Resetting up-front means a transient failure costs us THAT batch's
-        # events but not the steady-state flow.
-        events_to_flush_count = self._ops_since_flush
-        self._ops_since_flush = 0
+        # Phase 2 — file I/O. _write_lock serializes concurrent flushers so
+        # the JSONL stays append-coherent and rotation isn't racy, but the
+        # buffer-side hot path is now free to run in parallel.
+        with self._write_lock:
+            try:
+                if self._should_rotate():
+                    self._rotate_log()
 
-        try:
-            # Rotate if needed
-            if self._should_rotate():
-                self._rotate_log()
+                # Clean old rotated logs at most once per hour (cheap on its
+                # own but we'd otherwise iterdir+stat every 100 recalls).
+                now = time.time()
+                if now - self._last_cleanup_at >= self._cleanup_interval_s:
+                    self._clean_old_logs(keep_days=30)
+                    self._last_cleanup_at = now
 
-            # Clean old rotated logs at most once per hour (cheap on its own
-            # but we'd otherwise iterdir+stat every 100 recalls).
-            now = time.time()
-            if now - self._last_cleanup_at >= self._cleanup_interval_s:
-                self._clean_old_logs(keep_days=30)
-                self._last_cleanup_at = now
-
-            # Get events since last flush (deque: convert slice to list of recent items)
-            import itertools
-            start = max(0, len(self._buffer) - events_to_flush_count)
-            events_to_flush = list(itertools.islice(self._buffer, start, None))
-
-            with open(self._log_file, "a") as f:
-                for event in events_to_flush:
-                    f.write(json.dumps(self._event_for_disk(event), separators=(",", ":")) + "\n")
-        except IOError as e:
-            # One line, then suppressed until next flush window — operator
-            # sees the failure once instead of per-event.
-            print(f"[AccessLogger] Flush error: {e}", flush=True)
+                with open(self._log_file, "a") as f:
+                    for event in events_snapshot:
+                        f.write(json.dumps(event, separators=(",", ":")) + "\n")
+            except IOError as e:
+                # One line, then suppressed until next flush window — operator
+                # sees the failure once instead of per-event.
+                print(f"[AccessLogger] Flush error: {e}", flush=True)
 
     def __len__(self):
         return len(self._buffer)

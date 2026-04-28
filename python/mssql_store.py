@@ -199,29 +199,66 @@ class MSSQLStore:
                     pass
             return int(id_)
     
+    @staticmethod
+    def _row_to_dict(row) -> dict:
+        """Common projection used by both get() and get_all().
+
+        Returns the same field set SQLiteStore.get returns so callers that
+        run against either backend (recall_multihop, _compute_temporal_score,
+        _effective_salience) get the same shape. Previously MSSQL's row dict
+        omitted created_at/last_accessed, which silently defaulted those
+        fields to \"now\" downstream — collapsing temporal_score to 1.0 and
+        skewing salience by treating every MSSQL-fetched row as freshly
+        created.
+        """
+        id_, label, content, blob, dim, salience, created_at, last_accessed, access = row
+        embedding = list(struct.unpack(f'{dim}f', blob)) if blob else []
+
+        # Convert MSSQL DATETIME2 to epoch seconds for cross-backend parity.
+        # SQLite stores REAL epochs; consumers of this dict expect floats.
+        def _epoch(dt) -> float | None:
+            if dt is None:
+                return None
+            try:
+                from datetime import timezone as _tz
+                if dt.tzinfo is None:
+                    # MSSQL DATETIME2 is timezone-naive; SYSUTCDATETIME()
+                    # writes UTC, so attach UTC explicitly before converting.
+                    return dt.replace(tzinfo=_tz.utc).timestamp()
+                return dt.timestamp()
+            except Exception:
+                return None
+
+        return {
+            "id": id_,
+            "label": label,
+            "content": content,
+            "embedding": embedding,
+            "salience": salience,
+            "created_at": _epoch(created_at),
+            "last_accessed": _epoch(last_accessed),
+            "access_count": access,
+        }
+
     def get_all(self) -> list[dict]:
         cursor = self.conn.cursor()
-        cursor.execute("SELECT id, label, content, embedding, vector_dim, salience, access_count FROM memories ORDER BY id")
-        results = []
-        for row in cursor.fetchall():
-            id_, label, content, blob, dim, salience, access = row
-            embedding = list(struct.unpack(f'{dim}f', blob)) if blob else []
-            results.append({
-                'id': id_, 'label': label, 'content': content,
-                'embedding': embedding, 'salience': salience, 'access_count': access
-            })
-        return results
-    
+        cursor.execute(
+            "SELECT id, label, content, embedding, vector_dim, salience, "
+            "created_at, last_accessed, access_count FROM memories ORDER BY id"
+        )
+        return [self._row_to_dict(r) for r in cursor.fetchall()]
+
     def get(self, id_: int) -> Optional[dict]:
         cursor = self.conn.cursor()
-        cursor.execute("SELECT id, label, content, embedding, vector_dim, salience, access_count FROM memories WHERE id = ?", id_)
+        cursor.execute(
+            "SELECT id, label, content, embedding, vector_dim, salience, "
+            "created_at, last_accessed, access_count FROM memories WHERE id = ?",
+            id_,
+        )
         row = cursor.fetchone()
         if not row:
             return None
-        id_, label, content, blob, dim, salience, access = row
-        embedding = list(struct.unpack(f'{dim}f', blob)) if blob else []
-        return {'id': id_, 'label': label, 'content': content, 'embedding': embedding,
-                'salience': salience, 'access_count': access}
+        return self._row_to_dict(row)
     
     def touch(self, id_: int):
         cursor = self.conn.cursor()

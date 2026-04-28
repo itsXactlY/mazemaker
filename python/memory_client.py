@@ -1505,13 +1505,20 @@ class NeuralMemory:
             return []
         if engine == "ppr":
             scores = self._ppr_scores({int(start_id): 1.0}, alpha=self._ppr_alpha, iters=self._ppr_iters, hops=max(1, depth))
+            # Batch the label lookup so think(engine='ppr') is one SQL call,
+            # not N. Mirrors the BFS-path fix.
+            scored_ids = [nid for nid in scores.keys() if nid != start_id]
+            mems = self.store.get_many(scored_ids, include_embedding=False) if scored_ids else {}
             results = []
-            for node_id, act in scores.items():
-                if node_id == start_id:
-                    continue
-                mem = self.store.get(node_id, include_embedding=False)
+            for node_id in scored_ids:
+                mem = mems.get(node_id)
                 if mem:
-                    results.append({"id": node_id, "label": mem["label"], "activation": round(float(act), 4), "engine": "ppr"})
+                    results.append({
+                        "id": node_id,
+                        "label": mem["label"],
+                        "activation": round(float(scores[node_id]), 4),
+                        "engine": "ppr",
+                    })
             results.sort(key=lambda x: -x["activation"])
             return results[:20]
 
@@ -1533,13 +1540,21 @@ class NeuralMemory:
                     if neighbor_id not in visited:
                         visited.add(neighbor_id)
                         queue.append((neighbor_id, propagated, level + 1))
+        # Batch resolve labels for all activated nodes in one SQL query
+        # instead of N round-trips. With BFS depth 3 over a moderately
+        # connected graph this can save 50+ queries.
+        active_ids = [nid for nid in activation.keys() if nid != start_id]
+        mems = self.store.get_many(active_ids, include_embedding=False) if active_ids else {}
         results = []
-        for node_id, act in activation.items():
-            if node_id == start_id:
-                continue
-            mem = self.store.get(node_id, include_embedding=False)
+        for node_id in active_ids:
+            mem = mems.get(node_id)
             if mem:
-                results.append({"id": node_id, "label": mem["label"], "activation": round(act, 4), "engine": "bfs"})
+                results.append({
+                    "id": node_id,
+                    "label": mem["label"],
+                    "activation": round(activation[node_id], 4),
+                    "engine": "bfs",
+                })
         results.sort(key=lambda x: -x["activation"])
         return results
 

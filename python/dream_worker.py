@@ -236,41 +236,48 @@ class DreamWorker:
             embeddings = self.embedder.embed_batch(contents)
             embed_map = dict(zip(mem_ids, embeddings))
 
-            # For each memory, find which of its connections lead to similar content
+            # Batch-fetch every connection touching any memory in mem_ids in
+            # one SQL round-trip instead of one query per memory. The previous
+            # loop fired 100 SELECTs per NREM phase; on a large connections
+            # table that latency dominated.
             logger.info("NREM: finding activated connections...")
             activated_edges = set()
-
             cursor = self.store.conn.cursor()
-            for mid in mem_ids:
-                if mid not in embed_map:
-                    continue
-                mid_emb = embed_map[mid]
-
-                # Get connections involving this memory
+            mid_set = {m for m in mem_ids if m in embed_map}
+            if mid_set:
+                placeholders = ",".join("?" * len(mid_set))
+                ids_list = list(mid_set)
                 cursor.execute(
-                    "SELECT source_id, target_id, weight FROM connections "
-                    "WHERE source_id = ? OR target_id = ?",
-                    (mid, mid)
+                    f"SELECT source_id, target_id, weight FROM connections "
+                    f"WHERE source_id IN ({placeholders}) "
+                    f"   OR target_id IN ({placeholders})",
+                    ids_list + ids_list,
                 )
-                for row in cursor.fetchall():
-                    src, tgt, w = row
-                    other_id = tgt if src == mid else src
-                    if other_id in embed_map:
-                        sim = self._similarity(mid_emb, embed_map[other_id])
-                        if sim > 0.4:
-                            key = (min(src, tgt), max(src, tgt))
-                            activated_edges.add(key)
+                for src, tgt, _w in cursor.fetchall():
+                    # An edge counts as activated if either endpoint's
+                    # embedding is in our hot set AND the other endpoint's
+                    # embedding is similar above 0.4. We test BOTH orientations
+                    # so we don't miss when only one side is in mid_set.
+                    activated = False
+                    if src in mid_set and tgt in embed_map:
+                        if self._similarity(embed_map[src], embed_map[tgt]) > 0.4:
+                            activated = True
+                    if not activated and tgt in mid_set and src in embed_map:
+                        if self._similarity(embed_map[tgt], embed_map[src]) > 0.4:
+                            activated = True
+                    if activated:
+                        activated_edges.add((min(src, tgt), max(src, tgt)))
+            stats["processed"] = len(mid_set)
 
-                stats["processed"] += 1
-
-            # Strengthen activated connections
+            # Strengthen activated connections — single executemany instead
+            # of N individually-prepared UPDATEs.
             logger.info("NREM: strengthening %d connections...", len(activated_edges))
-            for (src, tgt) in activated_edges:
-                cursor.execute(
+            if activated_edges:
+                cursor.executemany(
                     "UPDATE connections SET weight = CASE "
                     "WHEN weight + 0.05 > 1.0 THEN 1.0 ELSE weight + 0.05 END "
                     "WHERE source_id = ? AND target_id = ?",
-                    (src, tgt)
+                    list(activated_edges),
                 )
             self.store.conn.commit()
             stats["strengthened"] = len(activated_edges)

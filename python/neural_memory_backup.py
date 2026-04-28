@@ -20,28 +20,44 @@ class NeuralMemoryBackup:
         """Create a safe backup using SQLite's online backup API."""
         ts = time.strftime("%Y%m%d_%H%M%S")
         backup_path = self.backup_dir / f"memory_{ts}.db"
-        
+
+        src = None
+        dst = None
         try:
             src = sqlite3.connect(self.db_path)
             dst = sqlite3.connect(str(backup_path))
             with dst:
                 src.backup(dst)
-            src.close()
-            dst.close()
-            
-            # Verify
-            conn = sqlite3.connect(str(backup_path))
-            count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
-            conn.close()
-            
-            # Clean old backups
-            self._clean_old_backups()
-            
-            return {"status": "ok", "path": str(backup_path), "memories": count,
-                    "size_kb": os.path.getsize(backup_path) / 1024}
         except Exception as e:
             return {"status": "error", "error": str(e)}
-    
+        finally:
+            # Always release file descriptors / WAL locks, even if backup() raised.
+            if src is not None:
+                try: src.close()
+                except Exception: pass
+            if dst is not None:
+                try: dst.close()
+                except Exception: pass
+
+        # Verify (separate try so a verification failure doesn't leak the
+        # newly-created backup file's connection)
+        conn = None
+        try:
+            conn = sqlite3.connect(str(backup_path))
+            count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+        finally:
+            if conn is not None:
+                try: conn.close()
+                except Exception: pass
+
+        # Clean old backups
+        self._clean_old_backups()
+
+        return {"status": "ok", "path": str(backup_path), "memories": count,
+                "size_kb": os.path.getsize(backup_path) / 1024}
+
     def restore(self, backup_path=None):
         """Restore from backup. Uses latest if none specified."""
         if backup_path is None:
@@ -49,52 +65,70 @@ class NeuralMemoryBackup:
             if not backups:
                 return {"status": "error", "error": "No backups found"}
             backup_path = backups[-1]
-        
+
+        conn = None
         try:
             # Verify backup is valid
             conn = sqlite3.connect(backup_path)
             count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
-            conn.close()
-            
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+        finally:
+            if conn is not None:
+                try: conn.close()
+                except Exception: pass
+
+        try:
             # Backup current before restore
             self.backup()
-            
+
             # Copy backup to main DB
             shutil.copy2(backup_path, self.db_path)
-            
+
             return {"status": "ok", "restored_from": backup_path, "memories": count}
         except Exception as e:
             return {"status": "error", "error": str(e)}
-    
+
     def verify(self, path=None):
         """Verify database integrity."""
         path = path or self.db_path
+        conn = None
         try:
             conn = sqlite3.connect(path)
             conn.execute("PRAGMA integrity_check")
             count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
-            conn.close()
             return {"status": "ok", "memories": count}
         except Exception as e:
             return {"status": "corrupted", "error": str(e)}
-    
+        finally:
+            if conn is not None:
+                try: conn.close()
+                except Exception: pass
+
     def list_backups(self):
         """List all available backups."""
         backups = sorted(glob.glob(str(self.backup_dir / "memory_*.db")))
         result = []
         for b in backups:
+            conn = None
             try:
                 conn = sqlite3.connect(b)
                 count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
-                conn.close()
                 result.append({
                     "path": b,
                     "memories": count,
                     "size_kb": os.path.getsize(b) / 1024,
                     "mtime": time.ctime(os.path.getmtime(b))
                 })
-            except:
+            except Exception:
+                # Narrowed from bare `except:` so KeyboardInterrupt/SystemExit
+                # propagate. Corrupted DBs (sqlite3.DatabaseError, OSError) are
+                # still caught and reported as `corrupted: True`.
                 result.append({"path": b, "corrupted": True})
+            finally:
+                if conn is not None:
+                    try: conn.close()
+                    except Exception: pass
         return result
     
     def _clean_old_backups(self):

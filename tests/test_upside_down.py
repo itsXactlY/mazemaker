@@ -780,61 +780,59 @@ def test_config_generation():
 # ── 15. Plugin file sync ──────────────────────────────────────────────
 
 def test_file_sync():
-    """Verify python/ and hermes-plugin/ are in sync."""
-    print("\n[15] PLUGIN FILE SYNC")
+    """Verify python/ source files exist and hermes-plugin/ holds only metadata.
 
-    import hashlib
+    Architecture (since refactor e4f33d9):
+      python/         — single source of truth for all .py files
+      hermes-plugin/  — Hermes-specific metadata (plugin.yaml, neural_skin.yaml, skills/)
+      Deploy targets  — SYMLINKS back to python/, created by install.sh
+
+    Pre-refactor this test verified .py copies in hermes-plugin/ were in sync;
+    that path no longer exists. We now (a) verify the python/ source files are
+    present, (b) verify hermes-plugin/ holds the metadata files, and
+    (c) flag stray .py files in hermes-plugin/ which would indicate a regression
+    back to the old copy-based mirror.
+    """
+    print("\n[15] PLUGIN FILE SYNC")
 
     PYTHON_DIR = PROJECT_DIR / "python"
     PLUGIN_DIR = PROJECT_DIR / "hermes-plugin"
 
-    # Files that MUST be identical
-    shared = [
+    # Source-of-truth .py files that MUST exist in python/
+    sources = [
         'neural_memory.py', 'memory_client.py', 'embed_provider.py',
         'dream_engine.py', 'dream_worker.py', 'access_logger.py',
         'cpp_bridge.py', 'cpp_dream_backend.py', 'lstm_knn_bridge.py',
         'config.py',
     ]
-
-    mismatches = []
-    for f in shared:
-        py = PYTHON_DIR / f
-        hp = PLUGIN_DIR / f
-        if not py.exists():
-            T.fail(f"sync/{f}", "missing from python/")
-            continue
-        if not hp.exists():
-            T.fail(f"sync/{f}", "missing from hermes-plugin/")
-            continue
-        py_hash = hashlib.md5(py.read_bytes()).hexdigest()
-        hp_hash = hashlib.md5(hp.read_bytes()).hexdigest()
-        if py_hash == hp_hash:
-            T.ok(f"sync/{f}", "identical")
-        elif f == 'cpp_dream_backend.py':
-            # Intentional divergence — hermes-plugin has simpler MSSQL queries
-            T.ok(f"sync/{f}", "intentionally differs (simpler MSSQL queries in plugin)")
-        else:
-            mismatches.append(f)
-            T.fail(f"sync/{f}", "MISMATCH — files differ!")
-
-    if not mismatches:
-        T.ok("sync/all", f"all {len(shared)} shared files in sync")
+    missing_sources = [f for f in sources if not (PYTHON_DIR / f).exists()]
+    if missing_sources:
+        T.fail("sync/sources", f"missing from python/: {missing_sources}")
     else:
-        # cpp_dream_backend.py has intentional divergence (hermes-plugin queries are simpler)
-        known_diffs = [f for f in mismatches if f == 'cpp_dream_backend.py']
-        real_diffs = [f for f in mismatches if f != 'cpp_dream_backend.py']
-        if real_diffs:
-            T.fail("sync/all", f"{len(real_diffs)} REAL mismatches: {real_diffs}")
-        if known_diffs:
-            T.ok("sync/known-diff", f"cpp_dream_backend.py intentionally differs (simpler MSSQL queries in plugin)")
+        T.ok("sync/sources", f"all {len(sources)} source files present in python/")
 
-    # Files unique to hermes-plugin (expected)
+    # Metadata files that must live in hermes-plugin/
     plugin_only = ['plugin.yaml', 'neural_skin.yaml', 'skills']
     for f in plugin_only:
         if (PLUGIN_DIR / f).exists():
             T.ok(f"sync/plugin-only/{f}", "present")
         else:
             T.fail(f"sync/plugin-only/{f}", "missing from hermes-plugin")
+
+    # Regression guard: hermes-plugin/ should NOT contain .py copies.
+    # Symlinks back to python/ are fine (that's how install.sh wires deploys
+    # for in-tree testing), but real files would mean someone reintroduced
+    # the old copy-based mirror.
+    stray_pyfiles = []
+    if PLUGIN_DIR.exists():
+        for p in PLUGIN_DIR.glob("*.py"):
+            if not p.is_symlink():
+                stray_pyfiles.append(p.name)
+    if stray_pyfiles:
+        T.fail("sync/no-stray-copies",
+               f"hermes-plugin/ has non-symlink .py files (regression): {stray_pyfiles}")
+    else:
+        T.ok("sync/no-stray-copies", "hermes-plugin/ has no stray .py copies")
 
     # Files unique to python/ (expected)
     python_only = ['demo.py', 'test_suite.py', 'test_integration.py']

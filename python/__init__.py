@@ -1143,10 +1143,12 @@ memory?") call `neural_graph` to summarise.
         """Clean shutdown.
 
         Stops every background thread the provider owns: dream engine,
-        consolidation loop, and the sponge worker. Previous code skipped
-        the sponge worker entirely, so an orderly shutdown leaked the
-        sponge thread on every exit (it survived only because it's a
-        daemon thread, not because shutdown handled it).
+        consolidation loop, sponge worker, and the initial-context
+        loader. Previously the sponge worker was leaked entirely
+        (survived only because it's daemon=True), and the iter-65
+        deferred initial-context thread was never joined either —
+        so an orderly shutdown could leave it touching self._memory
+        AFTER memory.close() had already torn the store down.
         """
         # Stop dream engine
         if hasattr(self, '_dream') and self._dream:
@@ -1165,6 +1167,14 @@ memory?") call `neural_graph` to summarise.
                 self._stop_sponge()
         except Exception as e:
             logger.debug("Sponge stop during shutdown failed: %s", e)
+        # Wait briefly for the initial-context loader so it doesn't race
+        # with memory.close() below. If it's still running we give up the
+        # join after 2s; the thread is daemon=True so it dies with the
+        # process anyway, and its only side-effect is a write to
+        # self._initial_context which is no longer observed post-shutdown.
+        ctx_thread = getattr(self, '_initial_context_thread', None)
+        if ctx_thread is not None and ctx_thread.is_alive():
+            ctx_thread.join(timeout=2.0)
         if self._memory:
             try:
                 self._memory.close()

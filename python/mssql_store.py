@@ -337,12 +337,32 @@ class MSSQLStore:
         self.conn.commit()
     
     def get_connections(self, node_id: int) -> list[dict]:
+        """Return edges incident to node_id.
+
+        Output dicts carry BOTH 'type' (legacy field used by Memory.recall_multihop
+        and the dashboard) and 'edge_type' (used by the mirror loop and the
+        dream backends), matching SQLiteStore.get_connections's shape exactly.
+        Without 'edge_type', any cross-backend caller that read it would get
+        None and lose the edge classification.
+        """
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT source_id, target_id, weight, edge_type FROM connections WHERE source_id = ? OR target_id = ? ORDER BY weight DESC",
-            node_id, node_id
+            "SELECT source_id, target_id, weight, edge_type "
+            "FROM connections WHERE source_id = ? OR target_id = ? "
+            "ORDER BY weight DESC",
+            node_id, node_id,
         )
-        return [{'source': r[0], 'target': r[1], 'weight': r[2], 'type': r[3]} for r in cursor.fetchall()]
+        out = []
+        for r in cursor.fetchall():
+            etype = r[3] or "similar"
+            out.append({
+                "source": r[0],
+                "target": r[1],
+                "weight": r[2],
+                "type": etype,
+                "edge_type": etype,
+            })
+        return out
     
     def stats(self) -> dict:
         cursor = self.conn.cursor()

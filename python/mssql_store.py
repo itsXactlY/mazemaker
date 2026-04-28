@@ -83,6 +83,12 @@ CREATE INDEX idx_conn_source ON connections(source_id);
 
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_conn_target')
 CREATE INDEX idx_conn_target ON connections(target_id);
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_conn_weight')
+CREATE INDEX idx_conn_weight ON connections(weight);
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_conn_edge_type_weight')
+CREATE INDEX idx_conn_edge_type_weight ON connections(edge_type, weight);
 """
 
 

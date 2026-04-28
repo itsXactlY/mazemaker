@@ -153,6 +153,14 @@ class AccessLogger:
 
         Args:
             n: Maximum events to load.
+
+        Restored from a no-op state: the previous body read events from
+        the JSONL log into a local `events` list and then replaced the
+        buffer with a re-slice of self._buffer (i.e. its existing
+        in-memory contents), silently discarding everything the disk
+        read just produced. Warm-starting an AccessLogger instance
+        therefore got an empty buffer even though access_log.jsonl
+        had thousands of usable events.
         """
         if not self._log_file.exists():
             return
@@ -162,16 +170,24 @@ class AccessLogger:
             with open(self._log_file, "r") as f:
                 for line in f:
                     line = line.strip()
-                    if line:
-                        try:
-                            events.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            continue
+                    if not line:
+                        continue
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
         except IOError:
             return
 
+        # Take the last N events (oldest dropped) so the buffer reflects
+        # recent activity. The events list is in chronological order
+        # (file is appended), so slicing from the tail keeps the latest.
+        if not events:
+            return
+        tail = events[-n:] if n and n < len(events) else events
         with self._file_lock:
-            self._buffer = deque(itertools.islice(self._buffer, max(0, len(self._buffer) - n), None), maxlen=1000)
+            self._buffer = deque(tail, maxlen=1000)
+            self._ops_since_flush = 0
 
     def get_training_pair(self, max_seq: int = 20) -> Optional[tuple[list[list[float]], list[float]]]:
         """Extract one LSTM training sample from recent access history.

@@ -335,7 +335,18 @@ class AccessLogger:
     def _flush_buffer(self):
         """Write buffered events to JSONL file (internal, assumes lock held)."""
         if not self._buffer:
+            self._ops_since_flush = 0
             return
+
+        # ALWAYS reset _ops_since_flush before the write attempt. The previous
+        # body only reset on success, which leaked the counter on IOError:
+        # subsequent log_recall calls would see _ops_since_flush still above
+        # _flush_threshold and re-fire _flush_buffer, hitting the same IOError
+        # and spamming \"[AccessLogger] Flush error\" to stderr on every event.
+        # Resetting up-front means a transient failure costs us THAT batch's
+        # events but not the steady-state flow.
+        events_to_flush_count = self._ops_since_flush
+        self._ops_since_flush = 0
 
         try:
             # Rotate if needed
@@ -351,15 +362,16 @@ class AccessLogger:
 
             # Get events since last flush (deque: convert slice to list of recent items)
             import itertools
-            start = max(0, len(self._buffer) - self._ops_since_flush)
+            start = max(0, len(self._buffer) - events_to_flush_count)
             events_to_flush = list(itertools.islice(self._buffer, start, None))
 
             with open(self._log_file, "a") as f:
                 for event in events_to_flush:
                     f.write(json.dumps(self._event_for_disk(event), separators=(",", ":")) + "\n")
-            self._ops_since_flush = 0
         except IOError as e:
-            print(f"[AccessLogger] Flush error: {e}")
+            # One line, then suppressed until next flush window — operator
+            # sees the failure once instead of per-event.
+            print(f"[AccessLogger] Flush error: {e}", flush=True)
 
     def __len__(self):
         return len(self._buffer)

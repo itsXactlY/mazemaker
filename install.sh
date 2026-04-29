@@ -336,11 +336,37 @@ cmd_install() {
         }
     fi
 
-    # Optional: sentence-transformers, pyodbc, graph/ANN accelerators
-    $PYTHON -c "import sentence_transformers" 2>/dev/null && print_ok "sentence-transformers" || print_info "sentence-transformers: optional, install later"
+    # setuptools — Python 3.14 venvs no longer bundle it; pip itself relies on
+    # it for any future install (and the plugin's setup_fast.py imports it).
+    # Hermes 3.14 transition silently lacked it before this guard landed.
+    $PYTHON -c "import setuptools" 2>/dev/null && print_ok "setuptools" || {
+        print_info "Installing setuptools (required by pip on 3.14)..."
+        $PIP install $PIP_ARGS --quiet setuptools
+        print_ok "setuptools installed"
+    }
+
+    # hnswlib — without this, recall does brute-force cosine over every row
+    # in the DB. On a 2660-row store that's ~50s per recall. Promote from
+    # warning to install — the previous warning was easy to miss and showed
+    # up in production as recall timeouts.
+    $PYTHON -c "import hnswlib" 2>/dev/null && print_ok "hnswlib (ANN)" || {
+        print_info "Installing hnswlib (ANN — fixes brute-force recall slowdown)..."
+        $PIP install $PIP_ARGS --quiet hnswlib
+        print_ok "hnswlib installed"
+    }
+
+    # sentence-transformers — needed when retrieval_mode uses rerank=true
+    # (cross-encoder MiniLM-L-6-v2). Also the fallback embed backend if
+    # FastEmbed fails to load. Auto-install since both are common.
+    $PYTHON -c "import sentence_transformers" 2>/dev/null && print_ok "sentence-transformers" || {
+        print_info "Installing sentence-transformers (cross-encoder rerank + fallback embed)..."
+        $PIP install $PIP_ARGS --quiet sentence-transformers
+        print_ok "sentence-transformers installed"
+    }
+
+    # pyodbc — only needed for MSSQL mirror. Keep optional.
     $PYTHON -c "import pyodbc" 2>/dev/null && print_ok "pyodbc" || print_info "pyodbc: optional (MSSQL mirror)"
     $PYTHON -c "import networkx" 2>/dev/null && print_ok "networkx (Louvain/PPR)" || print_warn "networkx missing — Louvain falls back to BFS components"
-    $PYTHON -c "import hnswlib" 2>/dev/null && print_ok "hnswlib (ANN)" || print_warn "hnswlib missing — recall falls back to brute-force/GPU/C++"
 
     # -------------------------------------------------------------------
     # Create symlinks

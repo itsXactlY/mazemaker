@@ -120,13 +120,28 @@ detect_pip() {
     PIP_ARGS=""
 
     if [ -f "$HERMES_AGENT/venv/bin/pip" ]; then
+        # Traditional pip-bundled venv.
         PIP="$HERMES_AGENT/venv/bin/pip"
         PYTHON="$HERMES_AGENT/venv/bin/python3"
         print_info "Using hermes-agent venv: $HERMES_AGENT/venv"
+    elif [ -f "$HERMES_AGENT/venv/bin/python3" ] && command -v uv &>/dev/null; then
+        # uv-managed venv: no pip inside, but `uv pip install --python <bin>`
+        # works against it. Hermes-agent's 3.14 transition produced this
+        # shape and the prior "No venv detected" fallback hit PEP 668 on
+        # Arch.
+        PYTHON="$HERMES_AGENT/venv/bin/python3"
+        PIP="uv pip"
+        PIP_ARGS="--python $PYTHON"
+        print_info "Using uv-managed hermes-agent venv: $HERMES_AGENT/venv"
     elif [ -n "$VIRTUAL_ENV" ] && [ -f "$VIRTUAL_ENV/bin/pip" ]; then
         PIP="$VIRTUAL_ENV/bin/pip"
         PYTHON="$VIRTUAL_ENV/bin/python3"
         print_info "Using active venv: $VIRTUAL_ENV"
+    elif [ -n "$VIRTUAL_ENV" ] && command -v uv &>/dev/null && [ -f "$VIRTUAL_ENV/bin/python3" ]; then
+        PYTHON="$VIRTUAL_ENV/bin/python3"
+        PIP="uv pip"
+        PIP_ARGS="--python $PYTHON"
+        print_info "Using uv-managed active venv: $VIRTUAL_ENV"
     else
         PIP="pip3"
         PIP_ARGS="--user"

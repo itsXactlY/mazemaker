@@ -1032,10 +1032,15 @@ class NeuralMemory:
         no longer skip the connection refresh.
         """
         cached = self._graph_nodes.get(mem_id)
+        # Defensive None-coercion: dict.get("label", "") returns None when the
+        # key exists with a None value (SQLite NULL columns), not the default.
+        # Hermes hit "'NoneType' object has no attribute 'startswith'" here in
+        # production. Coerce to empty string before calling startswith.
+        cached_label = (cached.get("label") if cached else None) or ""
         cache_hit = (
             at_time is None
             and cached is not None
-            and not cached.get("label", "").startswith("memory:")
+            and not cached_label.startswith("memory:")
         )
         if not cache_hit:
             mem = self.store.get(mem_id)

@@ -48,7 +48,7 @@ class Memory:
     1. MSSQL (via pyodbc) — when MSSQL is installed and running
     2. SQLite (via Python) — fallback when MSSQL unavailable
     
-    LSTM+kNN is auto-initialized when libneural_memory.so is available.
+    LSTM+kNN is auto-initialized when libmazemaker.so is available.
     - AccessLogger: records every recall event
     - LSTMPredictor: learns access patterns, predicts next relevant embedding
     - KNNEngine: multi-signal re-ranking (embedding + temporal + frequency + graph)
@@ -162,7 +162,7 @@ class Memory:
         self._init_lstm_knn()
     
     def _init_lstm_knn(self):
-        """Auto-initialize LSTM+kNN if libneural_memory.so is available."""
+        """Auto-initialize LSTM+kNN if libmazemaker.so is available."""
         try:
             from access_logger import AccessLogger
             from lstm_knn_bridge import LSTMPredictor, KNNEngine

@@ -1,5 +1,5 @@
 // neural/core/memory_adapter.cpp - Integration Implementation
-#include "neural/memory_adapter.h"
+#include "mazemaker/memory_adapter.h"
 #include <chrono>
 #include <iostream>
 #include <sstream>

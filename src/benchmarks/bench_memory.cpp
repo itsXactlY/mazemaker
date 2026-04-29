@@ -1,5 +1,5 @@
 // benchmarks/bench_memory.cpp - Memory System Benchmark
-#include "neural/memory_adapter.h"
+#include "mazemaker/memory_adapter.h"
 #include <chrono>
 #include <iostream>
 #include <iomanip>

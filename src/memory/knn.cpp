@@ -1,6 +1,6 @@
 // src/memory/knn.cpp - Enhanced kNN Search Engine implementation
-#include "neural/knn.h"
-#include "neural/simd.h"
+#include "mazemaker/knn.h"
+#include "mazemaker/simd.h"
 
 #include <cmath>
 #include <algorithm>

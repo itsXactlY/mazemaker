@@ -280,7 +280,7 @@ cronjob create --name neural-dream-mssql --schedule "0 */6 * * *" \
 
 ## C++ SIMD Bridge (recall <1ms)
 
-The C++ bridge (`cpp_bridge.py` → `libneural_memory.so`) provides SIMD-accelerated
+The C++ bridge (`cpp_bridge.py` → `libmazemaker.so`) provides SIMD-accelerated
 retrieval. Wire it into Mazemaker with `use_cpp=True`:
 
 ```python
@@ -291,7 +291,7 @@ m = Mazemaker(db_path=DB, use_cpp=True)
 
 ### CSearchResult Struct MUST Match C Header
 
-The Python `ctypes.Structure` MUST exactly match `NeuralMemoryResult` in `c_api.h`:
+The Python `ctypes.Structure` MUST exactly match `MazemakerResult` in `c_api.h`:
 
 ```c
 // c_api.h
@@ -303,7 +303,7 @@ typedef struct {
     char     content[4096];  // NOT 1024!
     float    similarity;
     float    salience;
-} NeuralMemoryResult;
+} MazemakerResult;
 ```
 
 ```python

@@ -2,7 +2,7 @@
 // Implements BCP-style inserts, TVP support, batch execution,
 // transactions, and streaming cursors for large result sets.
 
-#include "neural/mssql.h"
+#include "mazemaker/mssql.h"
 
 #include <cstring>
 #include <iostream>

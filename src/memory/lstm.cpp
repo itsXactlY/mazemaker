@@ -1,5 +1,5 @@
 // src/memory/lstm.cpp - LSTM Access Pattern Predictor Implementation
-#include "neural/lstm.h"
+#include "mazemaker/lstm.h"
 
 #include <algorithm>
 #include <cassert>

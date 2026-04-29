@@ -12,7 +12,7 @@ Two configurations:
 
   * baseline  — Memory()._lstm_knn_ready forced False (skips both the
     AccessLogger write AND the kNN re-rank in Memory._enhance_recall)
-  * enhanced  — left at its natural state (active iff libneural_memory.so
+  * enhanced  — left at its natural state (active iff libmazemaker.so
     + lstm_knn_bridge import successfully)
 
 We also seed the AccessLogger with a sequence of related queries before
@@ -103,7 +103,7 @@ class LSTMKnnBenchmark:
         }
 
         if not cpp_loaded:
-            print("  [warning] libneural_memory.so not loaded — LSTM+kNN inactive.")
+            print("  [warning] libmazemaker.so not loaded — LSTM+kNN inactive.")
             print("            Reporting baseline only; lift cannot be measured.")
             results["baseline"] = _measure(mem, self.queries, self.k)
             results["enhanced"] = None

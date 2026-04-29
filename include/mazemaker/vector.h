@@ -1,7 +1,7 @@
 // include/neural/vector.h - Vector types using actual SIMD API
 #pragma once
 
-#include "neural/simd.h"
+#include "mazemaker/simd.h"
 #include <vector>
 #include <cstdint>
 #include <cstdlib>

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 cpp_bridge.py - ctypes wrapper for the C++ Mazemaker library
-Provides Pythonic interface to libneural_memory.so
+Provides Pythonic interface to libmazemaker.so
 """
 
 import ctypes
@@ -15,10 +15,10 @@ from typing import Optional
 
 def _find_lib() -> str:
     candidates = [
-        Path(__file__).parent.parent / "build" / "libneural_memory.so",
-        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libneural_memory.so",
-        Path("/usr/local/lib/libneural_memory.so"),
-        Path("/usr/lib/libneural_memory.so"),
+        Path(__file__).parent.parent / "build" / "libmazemaker.so",
+        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libmazemaker.so",
+        Path("/usr/local/lib/libmazemaker.so"),
+        Path("/usr/lib/libmazemaker.so"),
     ]
     for p in candidates:
         if p.exists():
@@ -28,7 +28,7 @@ def _find_lib() -> str:
     if lib:
         return lib
     raise FileNotFoundError(
-        "libneural_memory.so not found. Build first:\n"
+        "libmazemaker.so not found. Build first:\n"
         "  cd ~/projects/mazemaker-adapter/build && cmake --build . -j$(nproc)"
     )
 
@@ -37,7 +37,7 @@ def _find_lib() -> str:
 # ============================================================================
 
 class CSearchResult(ctypes.Structure):
-    """Must match NeuralMemoryResult in c_api.h exactly."""
+    """Must match MazemakerResult in c_api.h exactly."""
     _fields_ = [
         ("id", ctypes.c_uint64),
         ("embedding", ctypes.POINTER(ctypes.c_float)),  # float* — caller must NOT free
@@ -49,7 +49,7 @@ class CSearchResult(ctypes.Structure):
     ]
 
 class CStats(ctypes.Structure):
-    """Must match NeuralMemoryStats in c_api.h exactly."""
+    """Must match MazemakerStats in c_api.h exactly."""
     _fields_ = [
         ("episodic_count", ctypes.c_size_t),
         ("semantic_count", ctypes.c_size_t),
@@ -74,12 +74,12 @@ class CStats(ctypes.Structure):
 # C++ Bridge
 # ============================================================================
 
-class NeuralMemoryCpp:
+class MazemakerCpp:
     """
     Pythonic wrapper for the C++ Mazemaker library.
     
     Usage:
-        mem = NeuralMemoryCpp()
+        mem = MazemakerCpp()
         mem.initialize(dim=1024)
         id = mem.store([0.1, 0.2, ...], "label", "content")
         results = mem.retrieve([0.1, 0.2, ...], k=10)
@@ -98,109 +98,109 @@ class NeuralMemoryCpp:
     def _setup_functions(self):
         lib = self._lib
         
-        # void* neural_memory_create_dim(int dim)
-        lib.neural_memory_create_dim.argtypes = [ctypes.c_int]
-        lib.neural_memory_create_dim.restype = ctypes.c_void_p
+        # void* mazemaker_create_dim(int dim)
+        lib.mazemaker_create_dim.argtypes = [ctypes.c_int]
+        lib.mazemaker_create_dim.restype = ctypes.c_void_p
         
-        # void* neural_memory_create(void)
-        lib.neural_memory_create.argtypes = []
-        lib.neural_memory_create.restype = ctypes.c_void_p
+        # void* mazemaker_create(void)
+        lib.mazemaker_create.argtypes = []
+        lib.mazemaker_create.restype = ctypes.c_void_p
         
-        # void neural_memory_destroy(void* handle)
-        lib.neural_memory_destroy.argtypes = [ctypes.c_void_p]
-        lib.neural_memory_destroy.restype = None
+        # void mazemaker_destroy(void* handle)
+        lib.mazemaker_destroy.argtypes = [ctypes.c_void_p]
+        lib.mazemaker_destroy.restype = None
         
-        # uint64_t neural_memory_store(void* handle, const float* vec, int dim,
+        # uint64_t mazemaker_store(void* handle, const float* vec, int dim,
         #                               const char* label, const char* content)
-        lib.neural_memory_store.argtypes = [
+        lib.mazemaker_store.argtypes = [
             ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_int,
             ctypes.c_char_p, ctypes.c_char_p
         ]
-        lib.neural_memory_store.restype = ctypes.c_uint64
+        lib.mazemaker_store.restype = ctypes.c_uint64
         
-        # int neural_memory_retrieve_full(void* handle, const float* query, int dim,
-        #                                  int k, NeuralMemoryResult* results)
-        lib.neural_memory_retrieve_full.argtypes = [
+        # int mazemaker_retrieve_full(void* handle, const float* query, int dim,
+        #                                  int k, MazemakerResult* results)
+        lib.mazemaker_retrieve_full.argtypes = [
             ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_int,
             ctypes.c_int, ctypes.POINTER(CSearchResult)
         ]
-        lib.neural_memory_retrieve_full.restype = ctypes.c_int
+        lib.mazemaker_retrieve_full.restype = ctypes.c_int
         
-        # int neural_memory_search(void* handle, const char* query, int k,
-        #                           NeuralMemoryResult* results)
-        lib.neural_memory_search.argtypes = [
+        # int mazemaker_search(void* handle, const char* query, int k,
+        #                           MazemakerResult* results)
+        lib.mazemaker_search.argtypes = [
             ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int,
             ctypes.POINTER(CSearchResult)
         ]
-        lib.neural_memory_search.restype = ctypes.c_int
+        lib.mazemaker_search.restype = ctypes.c_int
         
-        # size_t neural_memory_consolidate(void* handle)
-        lib.neural_memory_consolidate.argtypes = [ctypes.c_void_p]
-        lib.neural_memory_consolidate.restype = ctypes.c_size_t
+        # size_t mazemaker_consolidate(void* handle)
+        lib.mazemaker_consolidate.argtypes = [ctypes.c_void_p]
+        lib.mazemaker_consolidate.restype = ctypes.c_size_t
         
-        # void neural_memory_stats(void* handle, NeuralMemoryStats* stats)
-        lib.neural_memory_stats.argtypes = [ctypes.c_void_p, ctypes.POINTER(CStats)]
-        lib.neural_memory_stats.restype = None
+        # void mazemaker_stats_c(void* handle, MazemakerStats* stats)
+        lib.mazemaker_stats_c.argtypes = [ctypes.c_void_p, ctypes.POINTER(CStats)]
+        lib.mazemaker_stats_c.restype = None
         
-        # int neural_memory_think(void* handle, uint64_t start_id, int depth,
+        # int mazemaker_think_c(void* handle, uint64_t start_id, int depth,
         #                          uint64_t* ids, float* activations, int max_results)
-        lib.neural_memory_think.argtypes = [
+        lib.mazemaker_think_c.argtypes = [
             ctypes.c_void_p, ctypes.c_uint64, ctypes.c_int,
             ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_float), ctypes.c_int
         ]
-        lib.neural_memory_think.restype = ctypes.c_int
+        lib.mazemaker_think_c.restype = ctypes.c_int
 
         # --- MSSQL Graph Edge Operations ---
 
-        # uint64_t neural_memory_store_mssql(handle, vec, dim, label, content)
-        lib.neural_memory_store_mssql.argtypes = [
+        # uint64_t mazemaker_store_mssql(handle, vec, dim, label, content)
+        lib.mazemaker_store_mssql.argtypes = [
             ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_int,
             ctypes.c_char_p, ctypes.c_char_p
         ]
-        lib.neural_memory_store_mssql.restype = ctypes.c_uint64
+        lib.mazemaker_store_mssql.restype = ctypes.c_uint64
 
-        # int neural_memory_add_edge(handle, from_id, to_id, weight, edge_type)
-        lib.neural_memory_add_edge.argtypes = [
+        # int mazemaker_add_edge(handle, from_id, to_id, weight, edge_type)
+        lib.mazemaker_add_edge.argtypes = [
             ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint64,
             ctypes.c_float, ctypes.c_char_p
         ]
-        lib.neural_memory_add_edge.restype = ctypes.c_int
+        lib.mazemaker_add_edge.restype = ctypes.c_int
 
-        # int neural_memory_batch_strengthen_edges(handle, from_ids, to_ids, count, delta)
-        lib.neural_memory_batch_strengthen_edges.argtypes = [
+        # int mazemaker_batch_strengthen_edges(handle, from_ids, to_ids, count, delta)
+        lib.mazemaker_batch_strengthen_edges.argtypes = [
             ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64),
             ctypes.POINTER(ctypes.c_uint64), ctypes.c_int, ctypes.c_float
         ]
-        lib.neural_memory_batch_strengthen_edges.restype = ctypes.c_int
+        lib.mazemaker_batch_strengthen_edges.restype = ctypes.c_int
 
-        # int neural_memory_bulk_weaken_prune(handle, delta, threshold)
-        lib.neural_memory_bulk_weaken_prune.argtypes = [
+        # int mazemaker_bulk_weaken_prune(handle, delta, threshold)
+        lib.mazemaker_bulk_weaken_prune.argtypes = [
             ctypes.c_void_p, ctypes.c_float, ctypes.c_float
         ]
-        lib.neural_memory_bulk_weaken_prune.restype = ctypes.c_int
+        lib.mazemaker_bulk_weaken_prune.restype = ctypes.c_int
 
-        # int neural_memory_get_edges(handle, node_id, edge_ids, weights, max_edges)
-        lib.neural_memory_get_edges.argtypes = [
+        # int mazemaker_get_edges(handle, node_id, edge_ids, weights, max_edges)
+        lib.mazemaker_get_edges.argtypes = [
             ctypes.c_void_p, ctypes.c_uint64,
             ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_float),
             ctypes.c_int
         ]
-        lib.neural_memory_get_edges.restype = ctypes.c_int
+        lib.mazemaker_get_edges.restype = ctypes.c_int
 
-        # int64_t neural_memory_count_edges(handle)
-        lib.neural_memory_count_edges.argtypes = [ctypes.c_void_p]
-        lib.neural_memory_count_edges.restype = ctypes.c_int64
+        # int64_t mazemaker_count_edges(handle)
+        lib.mazemaker_count_edges.argtypes = [ctypes.c_void_p]
+        lib.mazemaker_count_edges.restype = ctypes.c_int64
     
     def initialize(self, dim: int = 1024, hopfield_capacity: int = 1024,
                    episodic_capacity: int = 10000) -> bool:
         """Initialize the memory system."""
-        self._handle = self._lib.neural_memory_create_dim(dim)
+        self._handle = self._lib.mazemaker_create_dim(dim)
         return self._handle is not None
     
     def shutdown(self):
         """Shutdown and free resources."""
         if self._handle:
-            self._lib.neural_memory_destroy(self._handle)
+            self._lib.mazemaker_destroy(self._handle)
             self._handle = None
     
     def store(self, embedding: list[float], label: str = "", content: str = "") -> int:
@@ -211,7 +211,7 @@ class NeuralMemoryCpp:
         label_bytes = label.encode('utf-8') if label else None
         content_bytes = content.encode('utf-8') if content else None
         
-        return self._lib.neural_memory_store(
+        return self._lib.mazemaker_store(
             self._handle, arr, len(embedding), label_bytes, content_bytes
         )
     
@@ -222,7 +222,7 @@ class NeuralMemoryCpp:
         arr = (ctypes.c_float * len(query))(*query)
         results = (CSearchResult * k)()
         
-        count = self._lib.neural_memory_retrieve_full(
+        count = self._lib.mazemaker_retrieve_full(
             self._handle, arr, len(query), k, results
         )
         
@@ -243,7 +243,7 @@ class NeuralMemoryCpp:
         assert self._handle, "Not initialized."
         
         results = (CSearchResult * k)()
-        count = self._lib.neural_memory_search(
+        count = self._lib.mazemaker_search(
             self._handle, query_text.encode('utf-8'), k, results
         )
         
@@ -265,7 +265,7 @@ class NeuralMemoryCpp:
         ids = (ctypes.c_uint64 * max_results)()
         activations = (ctypes.c_float * max_results)()
         
-        count = self._lib.neural_memory_think(
+        count = self._lib.mazemaker_think_c(
             self._handle, start_id, depth, ids, activations, max_results
         )
         
@@ -281,14 +281,14 @@ class NeuralMemoryCpp:
     def consolidate(self) -> int:
         """Run memory consolidation. Returns count of consolidated memories."""
         assert self._handle, "Not initialized."
-        return self._lib.neural_memory_consolidate(self._handle)
+        return self._lib.mazemaker_consolidate(self._handle)
     
     def get_stats(self) -> dict:
         """Get system statistics."""
         assert self._handle, "Not initialized."
         
         stats = CStats()
-        self._lib.neural_memory_stats(self._handle, ctypes.byref(stats))
+        self._lib.mazemaker_stats_c(self._handle, ctypes.byref(stats))
         
         return {
             'episodic_count': stats.episodic_count,
@@ -317,14 +317,14 @@ class NeuralMemoryCpp:
         arr = (ctypes.c_float * len(embedding))(*embedding)
         label_b = label.encode('utf-8') if label else None
         content_b = content.encode('utf-8') if content else None
-        return self._lib.neural_memory_store_mssql(
+        return self._lib.mazemaker_store_mssql(
             self._handle, arr, len(embedding), label_b, content_b
         )
 
     def add_edge(self, from_id: int, to_id: int, weight: float, edge_type: str = "similar") -> bool:
         """Add edge to GraphEdges in MSSQL."""
         assert self._handle, "Not initialized."
-        return bool(self._lib.neural_memory_add_edge(
+        return bool(self._lib.mazemaker_add_edge(
             self._handle, from_id, to_id, weight, edge_type.encode('utf-8')
         ))
 
@@ -343,7 +343,7 @@ class NeuralMemoryCpp:
         n = len(edges)
         from_arr = (ctypes.c_uint64 * n)(*([e[0] for e in edges]))
         to_arr = (ctypes.c_uint64 * n)(*([e[1] for e in edges]))
-        return self._lib.neural_memory_batch_strengthen_edges(
+        return self._lib.mazemaker_batch_strengthen_edges(
             self._handle, from_arr, to_arr, n, delta
         )
 
@@ -354,7 +354,7 @@ class NeuralMemoryCpp:
         Returns number of edges pruned.
         """
         assert self._handle, "Not initialized."
-        return self._lib.neural_memory_bulk_weaken_prune(self._handle, delta, threshold)
+        return self._lib.mazemaker_bulk_weaken_prune(self._handle, delta, threshold)
 
     def get_edges(self, node_id: int, max_edges: int = 100) -> list[dict]:
         """Get all edges for a node from MSSQL GraphEdges."""
@@ -362,7 +362,7 @@ class NeuralMemoryCpp:
         edge_ids = (ctypes.c_uint64 * (max_edges * 2))()
         weights = (ctypes.c_float * max_edges)()
 
-        count = self._lib.neural_memory_get_edges(
+        count = self._lib.mazemaker_get_edges(
             self._handle, node_id, edge_ids, weights, max_edges
         )
 
@@ -378,7 +378,7 @@ class NeuralMemoryCpp:
     def count_edges(self) -> int:
         """Count edges in MSSQL GraphEdges table."""
         assert self._handle, "Not initialized."
-        return self._lib.neural_memory_count_edges(self._handle)
+        return self._lib.mazemaker_count_edges(self._handle)
     
     def __enter__(self):
         self.initialize()
@@ -394,7 +394,7 @@ class NeuralMemoryCpp:
 
 if __name__ == "__main__":
     try:
-        mem = NeuralMemoryCpp()
+        mem = MazemakerCpp()
         mem.initialize(dim=1024)
         print(f"Initialized C++ adapter")
 

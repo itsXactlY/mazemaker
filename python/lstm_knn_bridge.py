@@ -23,10 +23,10 @@ from typing import Optional
 
 def _find_lib() -> str:
     candidates = [
-        Path(__file__).parent.parent / "build" / "libneural_memory.so",
-        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libneural_memory.so",
-        Path("/usr/local/lib/libneural_memory.so"),
-        Path("/usr/lib/libneural_memory.so"),
+        Path(__file__).parent.parent / "build" / "libmazemaker.so",
+        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libmazemaker.so",
+        Path("/usr/local/lib/libmazemaker.so"),
+        Path("/usr/lib/libmazemaker.so"),
     ]
     for p in candidates:
         if p.exists():
@@ -35,7 +35,7 @@ def _find_lib() -> str:
     if lib:
         return lib
     raise FileNotFoundError(
-        "libneural_memory.so not found. Build first:\n"
+        "libmazemaker.so not found. Build first:\n"
         "  cd ~/projects/mazemaker-adapter/build && cmake --build . -j$(nproc)"
     )
 

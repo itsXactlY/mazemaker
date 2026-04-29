@@ -97,35 +97,35 @@ if(USE_MSSQL AND ODBC_FOUND)
     )
 endif()
 
-add_library(neural_memory SHARED ${NEURAL_SOURCES})
-target_compile_options(neural_memory PRIVATE ${OPT_FLAGS} ${WARN_FLAGS})
-target_link_libraries(neural_memory PRIVATE
+add_library(mazemaker SHARED ${NEURAL_SOURCES})
+target_compile_options(mazemaker PRIVATE ${OPT_FLAGS} ${WARN_FLAGS})
+target_link_libraries(mazemaker PRIVATE
     $<$<BOOL:${USE_MSSQL}>:${ODBC_LIBRARIES}>
     $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
     pthread stdc++
 )
-set_target_properties(neural_memory PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION 1)
+set_target_properties(mazemaker PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION 1)
 
 add_executable(bench_vector_ops src/benchmarks/bench_vector_ops.cpp)
 target_compile_options(bench_vector_ops PRIVATE ${OPT_FLAGS})
-target_link_libraries(bench_vector_ops PRIVATE neural_memory)
+target_link_libraries(bench_vector_ops PRIVATE mazemaker)
 
 add_executable(bench_memory src/benchmarks/bench_memory.cpp)
 target_compile_options(bench_memory PRIVATE ${OPT_FLAGS})
-target_link_libraries(bench_memory PRIVATE neural_memory)
+target_link_libraries(bench_memory PRIVATE mazemaker)
 
-add_executable(neural_memory_demo src/main.cpp)
-target_compile_options(neural_memory_demo PRIVATE ${OPT_FLAGS} ${WARN_FLAGS})
-target_link_libraries(neural_memory_demo PRIVATE neural_memory)
+add_executable(mazemaker_demo src/main.cpp)
+target_compile_options(mazemaker_demo PRIVATE ${OPT_FLAGS} ${WARN_FLAGS})
+target_link_libraries(mazemaker_demo PRIVATE mazemaker)
 
 enable_testing()
 foreach(t test_vector_ops test_hopfield test_graph)
     add_executable(${t} tests/${t}.cpp)
     target_compile_options(${t} PRIVATE ${OPT_FLAGS} -g)
-    target_link_libraries(${t} PRIVATE neural_memory)
+    target_link_libraries(${t} PRIVATE mazemaker)
     add_test(NAME ${t} COMMAND ${t})
 endforeach()
 
-install(TARGETS neural_memory LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
+install(TARGETS mazemaker LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
 install(DIRECTORY include/neural DESTINATION include)
-install(TARGETS neural_memory_demo bench_vector_ops bench_memory RUNTIME DESTINATION bin)
+install(TARGETS mazemaker_demo bench_vector_ops bench_memory RUNTIME DESTINATION bin)

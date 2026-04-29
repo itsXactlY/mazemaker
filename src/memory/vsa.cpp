@@ -1,6 +1,6 @@
 // src/memory/vsa.cpp - Vector Symbolic Architecture (VSA)
 // Enables compositional representations through binding, bundling, permutation
-#include "neural/simd.h"
+#include "mazemaker/simd.h"
 #include <vector>
 #include <cmath>
 #include <algorithm>

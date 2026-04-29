@@ -397,8 +397,8 @@ def test_bridges():
 
     # C++ Bridge
     try:
-        from cpp_bridge import NeuralMemoryCpp
-        R.ok("cpp/import", "NeuralMemoryCpp available")
+        from cpp_bridge import MazemakerCpp
+        R.ok("cpp/import", "MazemakerCpp available")
     except Exception as e:
         R.warn("cpp/import", f"not available: {e}")
 

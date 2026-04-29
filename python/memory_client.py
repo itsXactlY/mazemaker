@@ -24,15 +24,15 @@ from typing import Any, Optional
 
 def _find_lib():
     candidates = [
-        Path(__file__).parent.parent / "build" / "libneural_memory.so",
-        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libneural_memory.so",
-        Path("/usr/local/lib/libneural_memory.so"),
-        Path("/usr/lib/libneural_memory.so"),
+        Path(__file__).parent.parent / "build" / "libmazemaker.so",
+        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libmazemaker.so",
+        Path("/usr/local/lib/libmazemaker.so"),
+        Path("/usr/lib/libmazemaker.so"),
     ]
     for p in candidates:
         if p.exists():
             return str(p)
-    raise FileNotFoundError("libneural_memory.so not found. Build first: cd build && cmake --build .")
+    raise FileNotFoundError("libmazemaker.so not found. Build first: cd build && cmake --build .")
 
 
 # ============================================================================
@@ -841,8 +841,8 @@ class Mazemaker:
         self._cpp_id_map: dict[int, int] = {}
         if use_cpp:
             try:
-                from cpp_bridge import NeuralMemoryCpp
-                self._cpp = NeuralMemoryCpp()
+                from cpp_bridge import MazemakerCpp
+                self._cpp = MazemakerCpp()
                 self._cpp.initialize(dim=self.dim)
             except Exception as e:
                 import logging

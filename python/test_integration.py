@@ -135,13 +135,13 @@ def t9():
 @_testcase("C++ library symbols")
 def t10():
     import subprocess
-    lib = os.path.expanduser("~/projects/mazemaker-adapter/build/libneural_memory.so")
+    lib = os.path.expanduser("~/projects/mazemaker-adapter/build/libmazemaker.so")
     if not os.path.exists(lib):
         return  # skip
     r = subprocess.run(["nm", "-D", lib], capture_output=True, text=True)
-    assert "neural_memory_create" in r.stdout
-    assert "neural_memory_store" in r.stdout
-    assert "neural_memory_retrieve_full" in r.stdout
+    assert "mazemaker_create" in r.stdout
+    assert "mazemaker_store" in r.stdout
+    assert "mazemaker_retrieve_full" in r.stdout
 
 if __name__ == "__main__":
     print("=" * 50)

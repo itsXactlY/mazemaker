@@ -1,6 +1,6 @@
 // tests/test_vector_ops.cpp - Basic vector ops tests
-#include "neural/simd.h"
-#include "neural/vector.h"
+#include "mazemaker/simd.h"
+#include "mazemaker/vector.h"
 #include <cassert>
 #include <cmath>
 #include <iostream>

@@ -1,5 +1,5 @@
 // src/memory/hopfield.cpp - Modern Hopfield Network (Transformer Attention)
-#include "neural/hopfield.h"
+#include "mazemaker/hopfield.h"
 #include <cmath>
 #include <algorithm>
 #include <numeric>

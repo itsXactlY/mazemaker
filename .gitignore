@@ -21,3 +21,6 @@ sqlite-shm
 sqlite
 CLAUDE.md
 tools/dashboard/.lib_cache/
+
+# Claude Code per-user local overrides (this file is gitignored on purpose)
+.claude/settings.local.json

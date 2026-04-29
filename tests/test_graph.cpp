@@ -1,5 +1,5 @@
 // tests/test_graph.cpp - Knowledge graph tests
-#include "neural/graph.h"
+#include "mazemaker/graph.h"
 #include <cassert>
 #include <iostream>
 

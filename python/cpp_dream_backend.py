@@ -2,7 +2,7 @@
 CppDreamBackend — Dream backend that uses C++ bridge for MSSQL operations.
 
 All graph operations (strengthen, weaken, prune, spreading activation)
-go through the C++ libneural_memory.so → ODBC → MSSQL.
+go through the C++ libmazemaker.so → ODBC → MSSQL.
 
 SQLite fallback is handled by SQLiteDreamBackend in dream_engine.py.
 """
@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 # Import the C++ bridge
 sys.path.insert(0, str(Path(__file__).parent))
-from cpp_bridge import NeuralMemoryCpp
+from cpp_bridge import MazemakerCpp
 
 from dream_engine import DreamBackend
 
@@ -35,7 +35,7 @@ class CppDreamBackend(DreamBackend):
     def __init__(self, dim: int = 1024):
         import sqlite3
 
-        self._cpp = NeuralMemoryCpp()
+        self._cpp = MazemakerCpp()
         self._cpp.initialize(dim=dim)
         self._dim = dim
         logger.info("CppDreamBackend initialized (dim=%d)", dim)

@@ -1,7 +1,7 @@
 // include/neural/lstm.h - LSTM Access Pattern Predictor for Neural Memory
 #pragma once
 
-#include "neural/simd.h"
+#include "mazemaker/simd.h"
 
 #include <cstddef>
 #include <cstdint>

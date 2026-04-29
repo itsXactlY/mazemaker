@@ -3,7 +3,7 @@
 // 1. Runtime CPU feature detection (cached, thread-safe via std::call_once)
 // 2. Build-time standard / ISA banner
 
-#include "neural/simd.h"
+#include "mazemaker/simd.h"
 
 #ifdef _OPENMP
 #include <omp.h>

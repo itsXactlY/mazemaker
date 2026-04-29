@@ -2,7 +2,7 @@
 // Implements: ODBC connection pooling, health checks, circuit breaker,
 // idle timeout, max lifetime eviction.
 
-#include "neural/mssql.h"
+#include "mazemaker/mssql.h"
 
 #include <algorithm>
 #include <cstring>

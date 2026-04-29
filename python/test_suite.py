@@ -410,20 +410,20 @@ def test_28():
 @_testcase("cpp: library symbols exist", tags=["cpp"])
 def test_29():
     import subprocess
-    lib = os.path.expanduser("~/projects/mazemaker-adapter/build/libneural_memory.so")
+    lib = os.path.expanduser("~/projects/mazemaker-adapter/build/libmazemaker.so")
     if not os.path.exists(lib):
         raise SkipTest("C++ library not built")
     r = subprocess.run(["nm", "-D", lib], capture_output=True, text=True)
-    for sym in ["neural_memory_create", "neural_memory_store", "neural_memory_retrieve_full"]:
+    for sym in ["mazemaker_create", "mazemaker_store", "mazemaker_retrieve_full"]:
         assert sym in r.stdout, f"Missing symbol: {sym}"
 
 @_testcase("cpp: bridge loads", tags=["cpp"])
 def test_30():
     try:
-        from cpp_bridge import NeuralMemoryCpp
+        from cpp_bridge import MazemakerCpp
     except FileNotFoundError:
         raise SkipTest("C++ library not found")
-    m = NeuralMemoryCpp()
+    m = MazemakerCpp()
     assert m is not None
 
 # ============================================================================

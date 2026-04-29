@@ -822,8 +822,8 @@ class MasterDataset:
             "factual": FactualGenerator(seed=self.seed + 1),
             "temporal": TemporalGenerator(seed=self.seed + 2, count=temporal),
             "conversational": ConversationalGenerator(seed=self.seed + 3),
-            "graph": GraphGenerator(seed=self.seed + 4, count=graph),
-            "adversarial": AdversarialGenerator(seed=self.seed + 5, count=adversarial),
+            "graph": GraphGenerator(seed=self.seed + 4),
+            "adversarial": AdversarialGenerator(seed=self.seed + 5),
         }
         for name, gen in generators.items():
             count = locals()[name]

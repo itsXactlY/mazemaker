@@ -10,7 +10,7 @@ we address here:
     measurable on this dataset, salience is null-or-slightly-harmful.
     Production code should consider trimming or reweighting them."
 
-The new `retrieval_mode="lean"` in NeuralMemory is the engineering
+The new `retrieval_mode="lean"` in Mazemaker is the engineering
 response: it zeroes the channels that channel_ablation proved are
 dead weight (bm25, temporal, salience), keeping only the channels
 that contributed meaningfully (semantic, entity, ppr).
@@ -41,7 +41,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from neural_memory import Memory
+from mazemaker import Memory
 
 
 def _measure(mem: Memory, queries: List[Dict[str, Any]], k: int = 5) -> Dict[str, Any]:

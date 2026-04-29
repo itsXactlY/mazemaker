@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-demo.py - Neural Memory Adapter End-to-End Demo
+demo.py - Mazemaker Adapter End-to-End Demo
 Shows storing memories, retrieval, spreading activation, and knowledge graph.
 """
 
@@ -8,7 +8,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 import time
 
 def print_header(text):
@@ -26,14 +26,14 @@ def print_result(i, r):
         print(f"     Content: {r['content'][:80]}")
 
 def main():
-    print_header("Neural Memory Adapter - Live Demo")
+    print_header("Mazemaker Adapter - Live Demo")
     
     # Use fresh DB for demo
     db_path = os.path.expanduser("~/.neural_memory/demo.db")
     if os.path.exists(db_path):
         os.remove(db_path)
     
-    mem = NeuralMemory(db_path=db_path)
+    mem = Mazemaker(db_path=db_path)
     print(f"\nBackend: {mem.embedder.backend.__class__.__name__} ({mem.dim}d)")
     
     # ========================================================================
@@ -49,7 +49,7 @@ def main():
         ("Work", "I'm working on BTQuant, a quantitative trading platform"),
         ("Work", "BTQuant uses Microsoft SQL Server for data storage"),
         ("Work", "The trading system connects to Interactive Brokers via JRR"),
-        ("Tech", "I'm building a neural memory adapter in C++ with AVX2 SIMD"),
+        ("Tech", "I'm building a mazemaker adapter in C++ with AVX2 SIMD"),
         ("Tech", "The memory system uses Modern Hopfield Networks"),
         ("Tech", "Hopfield Networks are mathematically equivalent to transformer attention"),
         ("Tech", "I use HotSpine for real-time market data streaming"),
@@ -91,7 +91,7 @@ def main():
         "What kind of pet does Max have?",
         "What is BTQuant?",
         "Where does Max want to live?",
-        "Tell me about the neural memory project",
+        "Tell me about the mazemaker project",
         "What musical instrument does Max play?",
     ]
     
@@ -152,7 +152,7 @@ def main():
     print("  (The system found relationships across different topics)\n")
     
     # Show connections for a few interesting nodes
-    for query in ["neural memory", "Chihuahuas", "house rent"]:
+    for query in ["mazemaker", "Chihuahuas", "house rent"]:
         results = mem.recall(query, k=1)
         if results:
             mid = results[0]['id']

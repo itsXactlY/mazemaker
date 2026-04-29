@@ -18,11 +18,11 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 
 def run_bfs(
-    nm: NeuralMemory,
+    nm: Mazemaker,
     start_ids: List[int],
     depth: int = 3,
 ) -> Dict[str, Any]:
@@ -58,7 +58,7 @@ def run_bfs(
 
 
 def run_ppr(
-    nm: NeuralMemory,
+    nm: Mazemaker,
     start_ids: List[int],
     alpha: float = 0.85,
     iterations: int = 50,
@@ -66,7 +66,7 @@ def run_ppr(
 ) -> Dict[str, Any]:
     """Run Personalized PageRank from starting nodes."""
     try:
-        # NeuralMemory.think() implements PPR-like spreading activation
+        # Mazemaker.think() implements PPR-like spreading activation
         t0 = time.perf_counter()
         results = []
         for sid in start_ids[:5]:  # Limit PPR scope
@@ -97,7 +97,7 @@ def run_ppr(
 
 
 def run_think_spreading(
-    nm: NeuralMemory,
+    nm: Mazemaker,
     start_ids: List[int],
     depth: int = 3,
     decay: float = 0.85,
@@ -146,7 +146,7 @@ class GraphBenchmark:
 
     def setup(self) -> Dict[str, Any]:
         print(f"  [setup] Storing {len(self.memories)} memories...")
-        self.nm = NeuralMemory(db_path=self.db_path, embedding_backend="auto")
+        self.nm = Mazemaker(db_path=self.db_path, embedding_backend="auto")
         for m in self.memories:
             self.nm.remember(m["text"], label=m["label"], auto_connect=True)
         print(f"  [setup] Done")

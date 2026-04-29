@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-import_hindsight.py - Import Hindsight Cloud data into Neural Memory
+import_hindsight.py - Import Hindsight Cloud data into Mazemaker
 
 Connects to Hindsight Cloud API, exports all banks/memories/mental models,
-and imports them into Neural Memory with proper embeddings.
+and imports them into Mazemaker with proper embeddings.
 
 Usage:
     python import_hindsight.py --api-key YOUR_KEY [--base-url https://api.hindsight.vectorize.io]
@@ -26,9 +26,9 @@ from typing import Any, Dict, List, Optional
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
-# Neural Memory imports
+# Mazemaker imports
 sys.path.insert(0, str(Path(__file__).parent))
-from neural_memory import Memory
+from mazemaker import Memory
 
 DB_PATH = Path.home() / ".neural_memory" / "memory.db"
 
@@ -239,12 +239,12 @@ def export_all(client: HindsightClient, output_dir: Path,
 
 
 # ---------------------------------------------------------------------------
-# Import into Neural Memory
+# Import into Mazemaker
 # ---------------------------------------------------------------------------
 
 def import_bank(mem: Memory, bank_dir: Path, bank_id: str, bank_name: str,
                 batch_size: int = 256) -> Dict[str, int]:
-    """Import a single bank's data into Neural Memory."""
+    """Import a single bank's data into Mazemaker."""
     import sqlite3
 
     print(f"\n{'='*60}")
@@ -429,7 +429,7 @@ def _import_bank_body(mem, bank_dir, bank_id, bank_name, batch_size, conn, count
 
 
 def import_all(mem: Memory, export_dir: Path, batch_size: int = 256) -> None:
-    """Import all exported banks into Neural Memory."""
+    """Import all exported banks into Mazemaker."""
     summary_file = export_dir / "export_summary.json"
     if not summary_file.exists():
         print(f"ERROR: No export summary found at {summary_file}")
@@ -539,7 +539,7 @@ def build_connections(threshold: float = 0.15, sample_size: int = 5000):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Import Hindsight Cloud data into Neural Memory",
+        description="Import Hindsight Cloud data into Mazemaker",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -594,13 +594,13 @@ Examples:
 
     if not args.export_only:
         mem = Memory()
-        print("Neural Memory initialized")
+        print("Mazemaker initialized")
         import_all(mem, export_dir, args.batch_size)
 
         if not args.no_connections:
             build_connections(args.threshold)
 
-    print("\nDone! Run 'neural_remember' or check ~/.neural_memory/memory.db")
+    print("\nDone! Run 'mazemaker_remember' or check ~/.neural_memory/memory.db")
 
 
 if __name__ == "__main__":

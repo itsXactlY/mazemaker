@@ -26,13 +26,13 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 
 class AgentWorkflow:
     """Simulates a single agent session with realistic tool usage."""
 
-    def __init__(self, nm: NeuralMemory, session_id: int, seed: int = 42):
+    def __init__(self, nm: Mazemaker, session_id: int, seed: int = 42):
         self.nm = nm
         self.session_id = session_id
         self.rng = random.Random(seed + session_id)
@@ -157,7 +157,7 @@ class AgentWorkflow:
     def _random_query(self) -> str:
         queries = [
             "memory indexing performance",
-            "debugging neural memory",
+            "debugging mazemaker",
             "benchmark results",
             "config settings",
             "API integration issues",
@@ -191,7 +191,7 @@ class AgenticBenchmark:
 
         # Setup: pre-populate with some memories
         print(f"  [setup] Pre-populating with {min(1000, len(self.memories))} memories...")
-        nm = NeuralMemory(db_path=self.db_path, embedding_backend="auto")
+        nm = Mazemaker(db_path=self.db_path, embedding_backend="auto")
         for m in self.memories[:1000]:
             nm.remember(m["text"], label=m["label"], auto_connect=True)
         print(f"  [setup] Done")

@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 # Add the project's python/ to sys.path so we can import memory_client
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory  # noqa: E402
+from memory_client import Mazemaker  # noqa: E402
 
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
@@ -65,8 +65,8 @@ QA_FACTS: List[tuple] = [
      "When should HNSW activate automatically?", "corpus is large"),
     ("The weekly rollup should write a WEEKLY.md brief after Insight.",
      "What file does the weekly rollup write?", "weekly.md"),
-    ("The primary neural memory database file is named memory.db.",
-     "What is the primary neural memory database file named?", "memory.db"),
+    ("The primary mazemaker database file is named memory.db.",
+     "What is the primary mazemaker database file named?", "memory.db"),
     ("Ola's on-call shift starts every Tuesday at 09:00 CET.",
      "When does Ola's on-call shift start?", "tuesday"),
     ("The fallback embedding backend is sentence-transformers when FastEmbed is missing.",
@@ -171,7 +171,7 @@ class QABenchmark:
         self.top_k = top_k
         self.model = model
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.nm: Optional[NeuralMemory] = None
+        self.nm: Optional[Mazemaker] = None
         self._needle_to_db_id: Dict[str, int] = {}
 
     # ── Setup ────────────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ class QABenchmark:
         print(f"  [setup] Storing {len(QA_FACTS)} QA facts + "
               f"{len(self.distractor_memories)} distractors in {self.db_path}")
         t0 = time.perf_counter()
-        self.nm = NeuralMemory(
+        self.nm = Mazemaker(
             db_path=self.db_path,
             embedding_backend="auto",
             retrieval_mode="semantic",

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sync_bridge.py - Hot/Cold Sync Bridge for Neural Memory
+sync_bridge.py - Hot/Cold Sync Bridge for Mazemaker
 
 Architecture:
   SQLite (hot store)  ──one-way sync──→  MSSQL (cold store)
@@ -179,7 +179,7 @@ class SyncBridge:
         try:
             conn_str = (
                 "DRIVER={ODBC Driver 18 for SQL Server};"
-                "SERVER=localhost;DATABASE=NeuralMemory;"
+                "SERVER=localhost;DATABASE=Mazemaker;"
                 f"UID=SA;PWD={pw};TrustServerCertificate=yes;"
             )
             self._mssql_conn = pyodbc.connect(conn_str, autocommit=True)
@@ -600,7 +600,7 @@ class SyncBridge:
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Neural Memory Sync Bridge (SQLite → MSSQL)")
+    parser = argparse.ArgumentParser(description="Mazemaker Sync Bridge (SQLite → MSSQL)")
     parser.add_argument("--mode", choices=["continuous", "batch", "incremental"],
                         default="incremental", help="Sync mode")
     parser.add_argument("--interval", type=int, default=DEFAULT_INTERVAL,

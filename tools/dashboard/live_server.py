@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-live_server.py — FastAPI WebSocket server for Neural Memory Live Dashboard.
+live_server.py — FastAPI WebSocket server for Mazemaker Live Dashboard.
 
 Auto-detects MSSQL (primary) vs SQLite (fallback). Reads config from
 ~/.hermes/config.yaml for MSSQL credentials.
@@ -106,7 +106,7 @@ def load_mssql_config() -> dict | None:
             return None
         return {
             "server":   mssql.get("server",   "127.0.0.1"),
-            "database": mssql.get("database", "NeuralMemory"),
+            "database": mssql.get("database", "Mazemaker"),
             "username": mssql.get("username", "SA"),
             "password": mssql["password"],
             "driver":   mssql.get("driver",   "{ODBC Driver 18 for SQL Server}"),
@@ -626,7 +626,7 @@ async def lifespan(app: FastAPI):
     _DB_EXECUTOR.shutdown(wait=False)
 
 
-app = FastAPI(title="Neural Memory Live Dashboard", lifespan=lifespan)
+app = FastAPI(title="Mazemaker Live Dashboard", lifespan=lifespan)
 
 
 @app.get("/")
@@ -731,7 +731,7 @@ async def websocket_terminal(ws: WebSocket):
 def main():
     global current_data, current_hash, reload_fn, _poll_interval
 
-    parser = argparse.ArgumentParser(description="Neural Memory Live Dashboard Server")
+    parser = argparse.ArgumentParser(description="Mazemaker Live Dashboard Server")
     parser.add_argument("--db",             default=None,  help="Force SQLite path")
     parser.add_argument("--port",           type=int,      default=8443)
     parser.add_argument("--host",           default="0.0.0.0")
@@ -766,7 +766,7 @@ def main():
                 "-pkeyopt", "ec_paramgen_curve:prime256v1",
                 "-keyout", key_file, "-out", cert_file,
                 "-days", "3650", "-nodes",
-                "-subj", "/CN=neural-memory-dashboard/O=NeuralMemory/C=DE",
+                "-subj", "/CN=mazemaker-dashboard/O=Mazemaker/C=DE",
                 "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:0.0.0.0",
             ], capture_output=True, check=True)
         ssl_kwargs = {"ssl_certfile": cert_file, "ssl_keyfile": key_file}
@@ -776,7 +776,7 @@ def main():
     s = current_data["stats"]
 
     print(f"\n{'═' * 64}")
-    print(f"  ◈  Neural Memory — LIVE Dashboard  [{s['source']}]")
+    print(f"  ◈  Mazemaker — LIVE Dashboard  [{s['source']}]")
     print(f"  ◈  Dashboard : {proto}://localhost:{args.port}/")
     print(f"  ◈  Terminal  : {ws_proto}://localhost:{args.port}/ws/terminal")
     print(f"  ◈  Metrics   : {proto}://localhost:{args.port}/api/metrics")

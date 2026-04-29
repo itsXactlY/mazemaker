@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 
 def wal_size_mb(db_path: str) -> float:
@@ -100,7 +100,7 @@ class ScalabilityBenchmark:
             with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
                 tier_db = f.name
 
-            nm = NeuralMemory(db_path=tier_db, embedding_backend="auto")
+            nm = Mazemaker(db_path=tier_db, embedding_backend="auto")
 
             # How many memories from our pool?
             pool = self.memories * ((tier // max(len(self.memories), 1)) + 1)

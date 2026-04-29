@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sync_sqlite_to_mssql.py - Sync Neural Memory from SQLite to MSSQL.
+sync_sqlite_to_mssql.py - Sync Mazemaker from SQLite to MSSQL.
 
 One-way sync: SQLite (hot store, source of truth) → MSSQL (cold store, backup).
 
@@ -73,7 +73,7 @@ def save_sync_state(state: dict):
 
 
 def get_mssql(password=None):
-    """Return a pyodbc connection to local MSSQL NeuralMemory database."""
+    """Return a pyodbc connection to local MSSQL Mazemaker database."""
     try:
         import pyodbc
     except ImportError:
@@ -96,7 +96,7 @@ def get_mssql(password=None):
 
     conn_str = (
         "DRIVER={ODBC Driver 18 for SQL Server};"
-        "SERVER=localhost;DATABASE=NeuralMemory;"
+        "SERVER=localhost;DATABASE=Mazemaker;"
         f"UID=SA;PWD={pw};TrustServerCertificate=yes;"
     )
     return pyodbc.connect(conn_str, autocommit=True)
@@ -328,7 +328,7 @@ def verify(sqlite_db, mssql_conn):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Sync Neural Memory SQLite → MSSQL")
+    parser = argparse.ArgumentParser(description="Sync Mazemaker SQLite → MSSQL")
     parser.add_argument("--db", default=DEFAULT_SQLITE, help="SQLite database path")
     parser.add_argument("--incremental", action="store_true", help="Only sync new rows")
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing")
@@ -338,7 +338,7 @@ def main():
     parser.add_argument("--password", default=None, help="MSSQL SA password")
     args = parser.parse_args()
 
-    print("=== Neural Memory SQLite → MSSQL Sync ===\n")
+    print("=== Mazemaker SQLite → MSSQL Sync ===\n")
     if args.dry_run:
         print("  [DRY RUN MODE] No changes will be made.\n")
 

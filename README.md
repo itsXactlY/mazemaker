@@ -1,4 +1,4 @@
-# Neural Memory Adapter for Hermes Agents and any MCP-compatible system
+# Mazemaker Adapter for Hermes Agents and any MCP-compatible system
 
 > **Give your AI a memory that actually sticks.**
 > One install, and your assistant remembers across sessions — not just what you said, but how the pieces fit together.
@@ -29,7 +29,7 @@ That's it. The rest of this README goes deeper the further you scroll.
 ## Get it running
 
 ```bash
-cd ~/projects/neural-memory-adapter
+cd ~/projects/mazemaker-adapter
 bash install.sh          # auto-detect hermes-agent
 bash install.sh /path    # explicit path
 ```
@@ -48,7 +48,7 @@ That's the beginner path. If anything goes wrong, the [Production Lessons](#prod
 
 **Live Dashboard — Knowledge Graph**
 
-[![Dashboard](assets/neural_memory.png)](https://raw.githubusercontent.com/itsXactlY/neural-memory/refs/heads/master/assets/neural_memory.png)
+[![Dashboard](assets/neural_memory.png)](https://raw.githubusercontent.com/itsXactlY/mazemaker/refs/heads/master/assets/neural_memory.png)
 
 ---
 
@@ -185,7 +185,7 @@ Auto-detects CUDA. Falls back to Python/numpy if no GPU.
 
 ```mermaid
 flowchart TD
-    subgraph Store["neural_remember"]
+    subgraph Store["mazemaker_remember"]
         A[User content] --> B[FastEmbed encode]
         B --> C[1024d vector]
         C --> D[SQLite INSERT]
@@ -193,7 +193,7 @@ flowchart TD
         E --> F[Create connections]
     end
 
-    subgraph Recall["neural_recall"]
+    subgraph Recall["mazemaker_recall"]
         G[User query] --> H[FastEmbed encode]
         H --> I{CUDA available?}
         I -->|Yes| J[GPU torch.matmul]
@@ -202,13 +202,13 @@ flowchart TD
         K --> L
     end
 
-    subgraph Think["neural_think"]
+    subgraph Think["mazemaker_think"]
         M[Source memory] --> N[BFS on connections]
         N --> O[Apply decay factor]
         O --> P[Ranked activation]
     end
 
-    subgraph Dream["neural_dream"]
+    subgraph Dream["mazemaker_dream"]
         Q[Idle trigger] --> R[NREM replay]
         R --> S[REM bridge discovery]
         S --> T[Insight communities]
@@ -222,7 +222,7 @@ flowchart TD
 - **Embeddings cache**: `~/.neural_memory/models/` (auto-downloaded, ~2.2 GB)
 - **GPU cache**: `~/.neural_memory/gpu_cache/` (embeddings.npy + metadata.pkl)
 - **Access logs**: `~/.neural_memory/access_logs/` (JSON Lines)
-- **MSSQL (optional)**: 127.0.0.1/NeuralMemory — multi-agent mirror
+- **MSSQL (optional)**: 127.0.0.1/Mazemaker — multi-agent mirror
 
 ### SQLite Schema
 
@@ -288,7 +288,7 @@ memory:
       memory_threshold: 50             # dream after N new memories
       mssql:                           # optional — only if using MSSQL
         server: 127.0.0.1
-        database: NeuralMemory
+        database: Mazemaker
         username: SA
         password: 'your_password'
         driver: '{ODBC Driver 18 for SQL Server}'
@@ -376,7 +376,7 @@ flowchart LR
 ### Smoke Test (Quick)
 
 ```bash
-cd ~/projects/neural-memory-adapter/python
+cd ~/projects/mazemaker-adapter/python
 python3 demo.py
 ```
 
@@ -388,18 +388,18 @@ cd ~/.hermes/hermes-agent/plugins/memory/neural
 python3 test_suite.py
 
 # Upside-Down Test Suite — edge cases, corruption, concurrency, SQL injection
-cd ~/projects/neural-memory-adapter
+cd ~/projects/mazemaker-adapter
 python3 tests/test_upside_down.py
 ```
 
 ### Clean Smoke Test (Any Machine)
 
 ```bash
-cd ~/projects/neural-memory-adapter
+cd ~/projects/mazemaker-adapter
 python3 -c "
 import sys; sys.path.insert(0, 'python')
-from neural_memory import NeuralMemory
-nm = NeuralMemory(db_path='/tmp/test.db', embedding_backend='cpu', use_cpp=False)
+from mazemaker import Mazemaker
+nm = Mazemaker(db_path='/tmp/test.db', embedding_backend='cpu', use_cpp=False)
 mid = nm.remember('test memory', label='smoke')
 results = nm.recall('test')
 assert len(results) > 0, 'recall failed'
@@ -409,13 +409,13 @@ print(f'SMOKE TEST PASS: {len(results)} results')
 
 ### Verified: Clean VM — Debian 12 (2026-04-21)
 
-Tested on a fresh Debian 12 QEMU/KVM VM — hermes-agent + neural memory only, no jack-in-a-box.
+Tested on a fresh Debian 12 QEMU/KVM VM — hermes-agent + mazemaker only, no jack-in-a-box.
 
 | Property | Value |
 |----------|-------|
 | VM | Debian 12, 4 GB RAM, KVM enabled |
 | hermes-agent | git clone (itsXactlY fork) |
-| neural-memory | git clone + FastEmbed ONNX |
+| mazemaker | git clone + FastEmbed ONNX |
 | Embedding | intfloat/multilingual-e5-large (1024d) |
 | C++ bridge | Not built (Python fallback) |
 
@@ -423,7 +423,7 @@ Tested on a fresh Debian 12 QEMU/KVM VM — hermes-agent + neural memory only, n
 
 | # | Test | Result |
 |---|------|--------|
-| 1 | NeuralMemory standalone (remember/recall/graph) | PASS |
+| 1 | Mazemaker standalone (remember/recall/graph) | PASS |
 | 2 | Memory Provider (FastEmbed 1024d) | PASS |
 | 3 | NeuralMemoryProvider.__init__ | PASS |
 | 4 | is_available() | PASS |
@@ -452,14 +452,14 @@ Tested on a fresh Debian 12 QEMU/KVM VM — hermes-agent + neural memory only, n
 ## File Structure
 
 ```
-neural-memory-adapter/
+mazemaker-adapter/
 ├── install.sh                    # Installer
 ├── hermes-plugin/                # Plugin (deployed to hermes-agent)
 │   ├── __init__.py               # MemoryProvider + tools
 │   ├── config.py                 # Config loader
 │   ├── plugin.yaml               # Plugin metadata
 │   ├── neural_memory.py          # Unified Memory class
-│   ├── memory_client.py          # Main client (NeuralMemory, SQLiteStore)
+│   ├── memory_client.py          # Main client (Mazemaker, SQLiteStore)
 │   ├── embed_provider.py         # Embedding backends (FastEmbed, st, tfidf, hash)
 │   ├── gpu_recall.py             # CUDA cosine similarity engine
 │   ├── dream_engine.py           # Dream engine (NREM/REM/Insight)

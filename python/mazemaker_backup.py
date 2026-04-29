@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-neural_memory_backup.py - Backup and recovery for Neural Memory database.
+mazemaker_backup.py - Backup and recovery for Mazemaker database.
 Protects against corruption from snapshot updates, concurrent access, etc.
 """
 import os, sqlite3, time, glob, shutil
@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 class NeuralMemoryBackup:
-    """Backup and recovery system for Neural Memory database."""
+    """Backup and recovery system for Mazemaker database."""
     
     def __init__(self, db_path=None):
         self.db_path = db_path or str(Path.home() / ".neural_memory" / "memory.db")

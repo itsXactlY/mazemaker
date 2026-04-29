@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-embed_provider.py - Text Embedding for Neural Memory Adapter
+embed_provider.py - Text Embedding for Mazemaker Adapter
 
 SHARED MODE (default): First process starts a UNIX socket server holding
 the model. All other processes connect as clients. ONE model instance

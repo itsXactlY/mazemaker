@@ -1,5 +1,5 @@
 """
-dataset_real — Real-text corpus generator for the neural-memory benchmark.
+dataset_real — Real-text corpus generator for the mazemaker benchmark.
 
 Why this exists: the v3+v4 ParaphraseGenerator produced template-derived
 synthetic memories. Codex's v5 verdict accepted the benchmark as proof
@@ -133,7 +133,7 @@ def _chunk_text(text: str) -> List[str]:
 _ANCHOR_PATTERNS = [
     # Snake_case multiword identifiers (e.g. dream_engine, memory_client)
     (re.compile(r"\b([a-z][a-z0-9]+_[a-z0-9_]+)\b"), "snake"),
-    # CamelCase class names (e.g. NeuralMemory, DreamEngine, AccessLogger)
+    # CamelCase class names (e.g. Mazemaker, DreamEngine, AccessLogger)
     (re.compile(r"\b([A-Z][a-z]+(?:[A-Z][a-z0-9]+){1,})\b"), "camel"),
     # Dotted file paths (e.g. memory_client.py, dream_engine.py)
     (re.compile(r"\b([a-z][a-z0-9_]+\.py)\b"), "py_file"),

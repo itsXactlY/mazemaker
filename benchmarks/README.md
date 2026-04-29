@@ -1,8 +1,8 @@
 # Neural-Memory Benchmark
 
-A self-contained, peer-review-grade benchmark for the **neural-memory-adapter** semantic-memory plugin.
+A self-contained, peer-review-grade benchmark for the **mazemaker-adapter** semantic-memory plugin.
 
-The headline claim of neural-memory is that it does things a generic vector store cannot — graph reasoning, dream-driven consolidation, conflict supersession, and graceful cross-session continuity. This benchmark **proves that claim with synthetic AND real-text adversarial data**, with **eight rounds of GPT-5.5 audit** driving the design from "no, this is just lexical retrieval" to **"unconditional yes — no residual caveat"**.
+The headline claim of mazemaker is that it does things a generic vector store cannot — graph reasoning, dream-driven consolidation, conflict supersession, and graceful cross-session continuity. This benchmark **proves that claim with synthetic AND real-text adversarial data**, with **eight rounds of GPT-5.5 audit** driving the design from "no, this is just lexical retrieval" to **"unconditional yes — no residual caveat"**.
 
 ---
 
@@ -38,22 +38,22 @@ Each round, codex was asked to read the actual source — not summaries — and 
 | **v7** ([prompt](audit/codex-v7-prompt.md), [verdict](audit/codex-v7-verdict-2026-04-28.md)) | **qualified-yes-with-1-caveat** | Real-text n=200 follow-up: lean BEATS skynet by +0.18 R@5 on real prose; only "dream lift on real text remains weak (+0.04)" stays as named caveat |
 | **v8** ([prompt](audit/codex-v8-prompt.md), [verdict](audit/codex-v8-verdict-2026-04-28.md)) | **unconditional-yes** | Dream lift caveat closed: at n=75 premises / 600 distractors / k=5, dream lift jumps to **+0.4267**. The +0.04 was a sample-size artifact, same shape as the v6→v7 lean reversal. **No residual caveat.** |
 
-> *"yes. I would upgrade the v4 qualified-y to yes for this executed benchmark. A peer reviewer should accept that this run demonstrates neural-memory-adapter doing something a vanilla vector store cannot: explicit edge-following recovers hidden chain targets, shuffled edges collapse most of that gain, and dream-derived facts appear only after the dream phase under strict pre/post controls."*  — codex v5 verdict, 2026-04-28
+> *"yes. I would upgrade the v4 qualified-y to yes for this executed benchmark. A peer reviewer should accept that this run demonstrates mazemaker-adapter doing something a vanilla vector store cannot: explicit edge-following recovers hidden chain targets, shuffled edges collapse most of that gain, and dream-derived facts appear only after the dream phase under strict pre/post controls."*  — codex v5 verdict, 2026-04-28
 
 ---
 
 ## Why earlier benchmarks failed (and why this one doesn't)
 
-The original suite measured **anchor-key retrieval**: queries shared a unique token with their target memory. Every embedding model trivially solves that — the rare token is an orthogonal direction in vector space. Raw cosine got R@5 = 1.00, neural-memory got 0.46, and the conclusion was *"the fancy machinery hurts more than it helps"*.
+The original suite measured **anchor-key retrieval**: queries shared a unique token with their target memory. Every embedding model trivially solves that — the rare token is an orthogonal direction in vector space. Raw cosine got R@5 = 1.00, mazemaker got 0.46, and the conclusion was *"the fancy machinery hurts more than it helps"*.
 
-That conclusion was wrong because **the task wasn't the right task**. We were measuring what every vector DB does well, not what neural-memory specifically claims to do.
+That conclusion was wrong because **the task wasn't the right task**. We were measuring what every vector DB does well, not what mazemaker specifically claims to do.
 
 The v3+v4 redesign added five suites that **structurally cannot be solved by token overlap alone**:
 
 - `graph_reasoning` — query mentions A; answer is on C; only the explicit A→B→C edge chain reaches it
 - `dream_derived_fact` — split premise pairs (P1 has token X, P2 has token Y); pre-dream no single memory has both; only the dream engine's Insight phase can synthesize
 - `continuity_controls` — concept-mode queries that **never mention the anchor**; near-distractors at every noise tier carry the query's vocabulary on a fresh unrelated entity
-- `channel_ablation` — zero-out one skynet channel at a time; defaults read from the live `NeuralMemory` instance to prevent confounded ablations
+- `channel_ablation` — zero-out one skynet channel at a time; defaults read from the live `Mazemaker` instance to prevent confounded ablations
 - `conflict_quality` — supersession measured against a `detect_conflicts=False` control arm
 
 ---
@@ -95,7 +95,7 @@ dream cycle elapsed                :                              0.43 s
 
 ### Channel ablation — what skynet's mix actually pays for
 
-Defaults resolved live from the running `NeuralMemory` instance:
+Defaults resolved live from the running `Mazemaker` instance:
 `{semantic: 1.0, bm25: 0.9, entity: 1.0, temporal: 0.35, ppr: 0.55, salience: 0.25}`.
 
 | Channel zero'd | R@5 | MRR | ΔR | ΔMRR |
@@ -168,7 +168,7 @@ semantic: R@5 = 0.4200   MRR = 0.2213   p50 =  32.4 ms
 skynet  : R@5 = 0.9000   MRR = 0.7667   p50 = 339.9 ms     ← 200x latency, recovers most recall
 ```
 
-The continuity-controls test above is the concept-mode follow-up that removes this advantage and shows neural-memory's actual contribution.
+The continuity-controls test above is the concept-mode follow-up that removes this advantage and shows mazemaker's actual contribution.
 
 ---
 
@@ -211,7 +211,7 @@ Each suite writes one JSON to `benchmarks/results/<output_dir>/results/<suite>_r
 | `graph_reasoning` | A→B→C explicit-edge chains + shuffled-edge negative control | the only suite that vanilla cosine **cannot** solve |
 | `dream_derived_fact` | conjunction queries, strict `derived_fact_hit_rate` metric | pre-dream is structurally 0; post-dream lift is dream-only |
 | `continuity_controls` | concept-mode queries + near-distractors + raw + recency baselines | designed-adversarial; raw cosine MUST drop with noise |
-| `channel_ablation` | zero one skynet channel; defaults live-resolved from `NeuralMemory` | clean per-channel attribution; surfaces dead-weight channels |
+| `channel_ablation` | zero one skynet channel; defaults live-resolved from `Mazemaker` | clean per-channel attribution; surfaces dead-weight channels |
 | `hnsw_exactness` | HNSW vs exact at 1k/10k; `use_cpp/rerank` off; activation asserted | the only HNSW recall-loss measurement that flags non-activation |
 
 Plus the legacy v1 suites (`retrieval`, `dream`, `gpu`, `scalability`, `graph`, `concurrent`, `conflict`, `mssql`, `agentic`, `qa`) — all still wired and runnable, but the v4 suites above are what produced the codex `yes` verdict.
@@ -224,7 +224,7 @@ Plus the legacy v1 suites (`retrieval`, `dream`, `gpu`, `scalability`, `graph`, 
 - **Cross-instance anchor collisions**: 0 across 6,250 minted anchors (was 8 before the `_GLOBAL_ANCHORS` registry).
 - **Negative controls**: every "the system did something" claim is paired with a control that should fail — shuffled edges (graph), `detect_conflicts=False` (conflict), pre-dream zero (dream), recency-only (continuity).
 - **Activation assertions**: HNSW must actually activate (`nm._hnsw_index is not None` after probe) — sub-threshold tiers are flagged, not silently reported as overlap=1.0.
-- **Defaults from source**: `channel_ablation` reads `_channel_weights` from the live `NeuralMemory` instance — a future change to defaults can't silently confound the ablation.
+- **Defaults from source**: `channel_ablation` reads `_channel_weights` from the live `Mazemaker` instance — a future change to defaults can't silently confound the ablation.
 - **Hot-path guard**: refuses to run against the production `~/.neural_memory/memory.db` unless `NEURAL_BENCH_ALLOW_HOTPATH=1` is set.
 
 ---
@@ -238,7 +238,7 @@ After eight audit rounds: **no remaining caveats** in codex's verdict.
 | **Synthetic data only** | ✅ closed | `dataset_real.RealTextGenerator` ships chunks from the project's own .md/.py prose; v7+ runs at n=200 |
 | **Latency is real** | ✅ closed | `retrieval_mode="lean"` delivers 4.12× p50 speedup on synthetic at -0.02 recall — and BEATS skynet by +0.18 R@5 on real prose. Engineering knob, not a benchmark issue. |
 | **Weak channels** | ✅ closed | Real-text channel_ablation at n=200: temporal AND salience are *actively harmful* (Δrecall = +0.075 / +0.090 when removed). `lean` codifies the right channel mix; `trim` is a conservative middle-ground. |
-| **`score_floor` mis-calibration** | ✅ closed | `score_percentile` kwarg added on `NeuralMemory.recall` AND plumbed through `Memory.recall`. Calibrated [0,1] alternative; legacy `score_floor` kept for back-compat. |
+| **`score_floor` mis-calibration** | ✅ closed | `score_percentile` kwarg added on `Mazemaker.recall` AND plumbed through `Memory.recall`. Calibrated [0,1] alternative; legacy `score_floor` kept for back-compat. |
 | **Dream lift on real text** *(v7 only)* | ✅ closed | At n=75 premises / 600 distractors / k=5, dream lift jumps to +0.4267. The +0.04 at v7 was a sample-size artifact. |
 
 The benchmark prefers honest reporting to flattery. If a future change regresses any of the metrics above, the suites will surface it — that's what the negative controls (shuffled edges, supersession=False, pre-dream zero, recency baseline) are for.

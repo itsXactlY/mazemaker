@@ -46,13 +46,13 @@ def batch_matmul_throughput(
 ) -> Dict[str, Any]:
     """Measure embedding + matmul throughput at different batch sizes."""
     import tempfile
-    from memory_client import NeuralMemory
+    from memory_client import Mazemaker
 
     # Use a fresh tempfile DB per call so concurrent runs don't collide and the
     # real hot-path DB is never touched.
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         bench_db = f.name
-    nm = NeuralMemory(db_path=bench_db, embedding_backend=backend)
+    nm = Mazemaker(db_path=bench_db, embedding_backend=backend)
 
     # Pre-load all embeddings
     print("    Pre-loading embeddings...")
@@ -90,14 +90,14 @@ def gpu_vs_cpu_comparison(
     memories: List[Dict],
 ) -> Dict[str, Any]:
     """Compare GPU vs CPU recall performance."""
-    from memory_client import NeuralMemory
+    from memory_client import Mazemaker
 
     results = {}
 
     for backend in ["cpu", "cuda"]:
         print(f"\n  [GPU vs CPU] Testing {backend}...")
         try:
-            nm = NeuralMemory(db_path=db_path, embedding_backend=backend)
+            nm = Mazemaker(db_path=db_path, embedding_backend=backend)
         except RuntimeError as e:
             print(f"    Skipping {backend}: {e}")
             results[backend] = {"error": str(e)}

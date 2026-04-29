@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-neural_memory.py - THE Unified Neural Memory API
+neural_memory.py - THE Unified Mazemaker API
 One import to rule them all.
 
 Architecture:
-  C++ MSSQL (primary) ─── GraphNodes/GraphEdges/NeuralMemory tables
+  C++ MSSQL (primary) ─── GraphNodes/GraphEdges/Mazemaker tables
   C++ SQLite (fallback) ── memory.db local cache
   Python ──────────────── Dream engine, embedding, orchestration
 
 Usage:
-    from neural_memory import Memory
+    from mazemaker import Memory
     
     mem = Memory()  # Auto-detects MSSQL vs SQLite
     mem.remember("The user has a dog named Lou")
@@ -30,7 +30,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent))
 
 from embed_provider import EmbeddingProvider
-from memory_client import NeuralMemory, SQLiteStore
+from memory_client import Mazemaker, SQLiteStore
 
 # Try MSSQL, fall back to SQLite
 try:
@@ -42,7 +42,7 @@ except ImportError:
 
 class Memory:
     """
-    Unified Neural Memory interface with LSTM+kNN enhancement.
+    Unified Mazemaker interface with LSTM+kNN enhancement.
     
     Backend priority:
     1. MSSQL (via pyodbc) — when MSSQL is installed and running
@@ -103,8 +103,8 @@ class Memory:
                 use_mssql = False
 
         # SQLite always needed for semantic recall (MSSQLStore has no recall method)
-        from memory_client import NeuralMemory
-        self._sqlite_memory = NeuralMemory(
+        from memory_client import Mazemaker
+        self._sqlite_memory = Mazemaker(
             db_path=self._db_path,
             embedding_backend=embedding_backend,
             use_cpp=use_cpp,
@@ -126,7 +126,7 @@ class Memory:
             recall_score_percentile=recall_score_percentile,
         )
         # Cache the configured defaults so Memory.recall() can pass an
-        # explicit override per-call. NeuralMemory.recall() falls back to
+        # explicit override per-call. Mazemaker.recall() falls back to
         # its own stored defaults when these are None.
         self._mmr_lambda_default = float(mmr_lambda or 0.0)
         self._recall_score_floor_default = float(recall_score_floor or 0.0)
@@ -494,7 +494,7 @@ class Memory:
         # returns nothing because it queries MSSQL with the SQLite id.
         #
         # We must mirror what SQLite ACTUALLY wrote, not what we passed in:
-        # NeuralMemory.remember may have run conflict-fusion and rewritten
+        # Mazemaker.remember may have run conflict-fusion and rewritten
         # the row's content as \"[CANONICAL] new\\n[PREVIOUSLY] old\". Passing
         # the bare `text` would diverge the mirror from SQLite's
         # post-fusion content. Read the canonical row back and mirror that.
@@ -776,7 +776,7 @@ class Memory:
         # Periodic cross-process drift check — opportunistic, throttled,
         # fail-open. Detects rows another process appended to the shared
         # SQLite (mcp_local, SaaS server, sync_bridge) and backfills MSSQL
-        # if configured. The HNSW drift check inside NeuralMemory.recall
+        # if configured. The HNSW drift check inside Mazemaker.recall
         # handles the in-memory index side; this handles MSSQL replication.
         self._check_mssql_drift()
         """Semantic search with LSTM+kNN enhancement. Always uses SQLite for recall (MSSQLStore has no recall).
@@ -791,7 +791,7 @@ class Memory:
         regardless of the underlying scale. score_floor remains exposed for
         backwards compatibility but operates on the badly-scaled raw
         relevance (~[0, 0.05]) — codex 2026-04-28 v5 audit caught this. See
-        memory_client.NeuralMemory.recall for the full implementation.
+        memory_client.Mazemaker.recall for the full implementation.
         """
         embedding = self._embedder.embed(query)
 

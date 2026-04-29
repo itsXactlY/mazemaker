@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-"""Neural Memory plugin - MemoryProvider for Neural Memory Adapter.
+"""Mazemaker plugin - MemoryProvider for Mazemaker Adapter.
 
 Provides semantic memory storage with embedding-based recall, knowledge graph
-connections, and spreading activation via the neural-memory-adapter Python
+connections, and spreading activation via the mazemaker-adapter Python
 client (memory_client.py + embed_provider.py).
 
 Config (in ~/.hermes/config.yaml):
@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 # Tool schemas
 # ---------------------------------------------------------------------------
 
-NEURAL_REMEMBER_SCHEMA = {
-    "name": "neural_remember",
+MAZEMAKER_REMEMBER_SCHEMA = {
+    "name": "mazemaker_remember",
     "description": (
-        "Store a memory in the neural memory system. "
+        "Store a memory in the mazemaker system. "
         "Memories are embedded and auto-connected to similar memories. "
         "Use this for facts, user preferences, decisions, and important context."
     ),
@@ -54,10 +54,10 @@ NEURAL_REMEMBER_SCHEMA = {
     },
 }
 
-NEURAL_RECALL_SCHEMA = {
-    "name": "neural_recall",
+MAZEMAKER_RECALL_SCHEMA = {
+    "name": "mazemaker_recall",
     "description": (
-        "Search neural memory using semantic similarity. "
+        "Search mazemaker using semantic similarity. "
         "Returns memories ranked by relevance with connection info. "
         "Use this to recall past conversations, facts, or user preferences."
     ),
@@ -77,8 +77,8 @@ NEURAL_RECALL_SCHEMA = {
     },
 }
 
-NEURAL_THINK_SCHEMA = {
-    "name": "neural_think",
+MAZEMAKER_THINK_SCHEMA = {
+    "name": "mazemaker_think",
     "description": (
         "Spreading activation from a memory — explore connected ideas. "
         "Returns memories activated by traversing the knowledge graph from a starting point. "
@@ -100,8 +100,8 @@ NEURAL_THINK_SCHEMA = {
     },
 }
 
-NEURAL_GRAPH_SCHEMA = {
-    "name": "neural_graph",
+MAZEMAKER_GRAPH_SCHEMA = {
+    "name": "mazemaker_graph",
     "description": (
         "Get knowledge graph statistics and top connections. "
         "Use to understand the structure of stored memories."
@@ -110,10 +110,10 @@ NEURAL_GRAPH_SCHEMA = {
 }
 
 ALL_TOOL_SCHEMAS = [
-    NEURAL_REMEMBER_SCHEMA,
-    NEURAL_RECALL_SCHEMA,
-    NEURAL_THINK_SCHEMA,
-    NEURAL_GRAPH_SCHEMA,
+    MAZEMAKER_REMEMBER_SCHEMA,
+    MAZEMAKER_RECALL_SCHEMA,
+    MAZEMAKER_THINK_SCHEMA,
+    MAZEMAKER_GRAPH_SCHEMA,
 ]
 
 
@@ -125,7 +125,7 @@ class NeuralMemoryProvider(MemoryProvider):
     """Neural memory with semantic search, knowledge graph, and spreading activation."""
 
     def __init__(self):
-        self._memory: Optional[Any] = None  # NeuralMemory instance
+        self._memory: Optional[Any] = None  # Mazemaker instance
         self._config: Optional[dict] = None
         self._session_id: str = ""
         self._lock = threading.Lock()
@@ -140,13 +140,13 @@ class NeuralMemoryProvider(MemoryProvider):
         return "neural"
 
     def is_available(self) -> bool:
-        """Check if neural memory dependencies are installed."""
+        """Check if mazemaker dependencies are installed."""
         try:
             import sys
             from pathlib import Path
 
             # Add project python dir to path
-            project_py = str(Path.home() / "projects" / "neural-memory-adapter" / "python")
+            project_py = str(Path.home() / "projects" / "mazemaker-adapter" / "python")
             if project_py not in sys.path:
                 sys.path.insert(0, project_py)
 
@@ -156,7 +156,7 @@ class NeuralMemoryProvider(MemoryProvider):
                 sys.path.insert(0, plugin_dir)
 
             # Actually try importing
-            from neural_memory import Memory
+            from mazemaker import Memory
             return True
         except Exception as e:
             import logging
@@ -164,14 +164,14 @@ class NeuralMemoryProvider(MemoryProvider):
             return False
 
     def initialize(self, session_id: str, **kwargs) -> None:
-        """Initialize neural memory for a session."""
+        """Initialize mazemaker for a session."""
         try:
             import sys
             import os
             from pathlib import Path
 
             # Ensure paths are on sys.path
-            project_py = str(Path.home() / "projects" / "neural-memory-adapter" / "python")
+            project_py = str(Path.home() / "projects" / "mazemaker-adapter" / "python")
             if project_py not in sys.path:
                 sys.path.insert(0, project_py)
             plugin_dir = str(Path(__file__).parent)
@@ -197,7 +197,7 @@ class NeuralMemoryProvider(MemoryProvider):
                     os.environ[key] = str(val)
 
             # Use Memory class (auto-detects MSSQL vs SQLite)
-            from neural_memory import Memory
+            from mazemaker import Memory
             self._memory = Memory(
                 db_path=self._config["db_path"],
                 embedding_backend=self._config["embedding_backend"],
@@ -327,14 +327,14 @@ class NeuralMemoryProvider(MemoryProvider):
 
         if total == 0:
             return (
-                "# Neural Memory\n"
+                "# Mazemaker\n"
                 "Active. Empty memory store — proactively store facts the user would expect "
                 "you to remember using neural_remember.\n"
                 "Use neural_recall to search memories semantically.\n"
                 "Use neural_think to explore connected ideas via spreading activation."
             )
         return (
-            f"# Neural Memory\n"
+            f"# Mazemaker\n"
             f"Active. {total} memories, {connections} connections.\n"
             f"Use neural_remember to store new memories.\n"
             f"Use neural_recall to search semantically.\n"
@@ -350,7 +350,7 @@ class NeuralMemoryProvider(MemoryProvider):
             self._prefetch_result = ""
         if not result:
             return ""
-        return f"## Neural Memory Context\n{result}"
+        return f"## Mazemaker Context\n{result}"
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         """Fire a background recall for the next turn."""
@@ -372,7 +372,7 @@ class NeuralMemoryProvider(MemoryProvider):
                     # Skip meta/debug/angry content
                     content_lower = content.lower()
                     if any(skip in content_lower for skip in (
-                        "neural memory", "tool_result", "test_suite", "mssql",
+                        "mazemaker", "tool_result", "test_suite", "mssql",
                         "config.yaml", "odbc", "embedding", "connection string",
                         "scheiße", "dreck", "huren", "verfickt",
                         "system note", "memory-context",
@@ -406,10 +406,10 @@ class NeuralMemoryProvider(MemoryProvider):
         "as mentioned in my",
         "according to my memory",
         "i recall from",
-        "neural memory",
-        "neural_recall",
-        "neural_remember",
-        "does neural memory work",
+        "mazemaker",
+        "mazemaker_recall",
+        "mazemaker_remember",
+        "does mazemaker work",
         "tool_result",
         "test_suite",
         "config.yaml",
@@ -467,13 +467,13 @@ class NeuralMemoryProvider(MemoryProvider):
         return ALL_TOOL_SCHEMAS
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
-        if tool_name == "neural_remember":
+        if tool_name == "mazemaker_remember":
             return self._handle_remember(args)
-        elif tool_name == "neural_recall":
+        elif tool_name == "mazemaker_recall":
             return self._handle_recall(args)
-        elif tool_name == "neural_think":
+        elif tool_name == "mazemaker_think":
             return self._handle_think(args)
-        elif tool_name == "neural_graph":
+        elif tool_name == "mazemaker_graph":
             return self._handle_graph(args)
         return tool_error(f"Unknown tool: {tool_name}")
 
@@ -514,7 +514,7 @@ class NeuralMemoryProvider(MemoryProvider):
             logger.debug("Neural on_session_end failed: %s", e)
 
     def on_memory_write(self, action: str, target: str, content: str) -> None:
-        """Mirror built-in memory writes to neural memory. Skips garbage."""
+        """Mirror built-in memory writes to mazemaker. Skips garbage."""
         if action == "add" and self._memory and content:
             if self._is_garbage(content):
                 return
@@ -595,7 +595,7 @@ class NeuralMemoryProvider(MemoryProvider):
 # ---------------------------------------------------------------------------
 
 def register(ctx) -> None:
-    """Register the neural memory provider with the plugin system."""
+    """Register the mazemaker provider with the plugin system."""
     provider = NeuralMemoryProvider()
     ctx.register_memory_provider(provider)
     

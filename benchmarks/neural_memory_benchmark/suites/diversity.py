@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 
 def _topic_of(label: str) -> str:
@@ -57,10 +57,10 @@ class DiversityBenchmark:
         self.k = k
         self.output_dir = output_dir or Path.home() / ".neural_memory_benchmark" / "results"
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.nm: Optional[NeuralMemory] = None
+        self.nm: Optional[Mazemaker] = None
 
     def setup(self) -> None:
-        self.nm = NeuralMemory(
+        self.nm = Mazemaker(
             db_path=self.db_path,
             embedding_backend="auto",
             retrieval_mode="semantic",

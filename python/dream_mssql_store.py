@@ -9,7 +9,7 @@ Credentials resolution order:
   1. Environment variables: MSSQL_SERVER, MSSQL_DATABASE, MSSQL_USERNAME, MSSQL_PASSWORD
   2. .env file in project or ~/.hermes/.env
   3. Config dict (from config.yaml)
-  4. Defaults (localhost, NeuralMemory, SA)
+  4. Defaults (localhost, Mazemaker, SA)
 """
 
 from __future__ import annotations
@@ -131,7 +131,7 @@ class DreamMSSQLStore:
         # Fix IPv6 localhost issue — MSSQL only listens on IPv4
         if server == 'localhost':
             server = '127.0.0.1'
-        database = database or _env('MSSQL_DATABASE', 'NeuralMemory')
+        database = database or _env('MSSQL_DATABASE', 'Mazemaker')
         username = username or _env('MSSQL_USERNAME', 'SA')
         password = password or _env('MSSQL_PASSWORD', '')
         driver = driver or _env('MSSQL_DRIVER', '{ODBC Driver 18 for SQL Server}')

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build Cython extension for Neural Memory hot paths.
+Build Cython extension for Mazemaker hot paths.
 
 Usage:
     python setup_fast.py build_ext --inplace
@@ -39,7 +39,7 @@ if __name__ == "__main__" or setup is not None:
     ]
 
     setup(
-        name="neural-memory-fast-ops",
+        name="mazemaker-fast-ops",
         ext_modules=cythonize(
             extensions,
             compiler_directives={

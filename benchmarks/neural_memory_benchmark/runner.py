@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Neural Memory Benchmark — CLI Runner
+Mazemaker Benchmark — CLI Runner
 ====================================
 Entry point for running the full benchmark suite.
 
 Usage (run as module from project root):
-    cd ~/projects/neural-memory-adapter
+    cd ~/projects/mazemaker-adapter
     python3 -m benchmarks.neural_memory_benchmark.runner --dry-run
     python3 -m benchmarks.neural_memory_benchmark.runner --suite retrieval
     python3 -m benchmarks.neural_memory_benchmark.runner --list
@@ -24,7 +24,7 @@ from pathlib import Path
 THIS_FILE = Path(__file__).resolve()
 BENCH_ROOT = THIS_FILE.parent          # neural_memory_benchmark/
 BENCHMARKS_DIR = BENCH_ROOT.parent     # benchmarks/
-SRC_ROOT = BENCHMARKS_DIR.parent / "python"  # python/ (neural-memory-adapter root)
+SRC_ROOT = BENCHMARKS_DIR.parent / "python"  # python/ (mazemaker-adapter root)
 PROJECT_ROOT = BENCHMARKS_DIR.parent   # project root
 
 # Build sys.path: BENCH_ROOT must end up FIRST so its own modules (config.py,

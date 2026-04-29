@@ -1,5 +1,5 @@
 """
-dataset_v2 — Paraphrase ground-truth generator for the Neural Memory benchmark.
+dataset_v2 — Paraphrase ground-truth generator for the Mazemaker benchmark.
 
 Why this exists: dataset.QueryGenerator builds queries by sampling 5 random
 words from the source memory text. That is lexical leakage — recall@k is

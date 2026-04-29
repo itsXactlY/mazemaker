@@ -21,7 +21,7 @@ What actually happened.
 - OS: 
 - Python: 
 - C++ compiler: 
-- Neural Memory Adapter version:
+- Mazemaker Adapter version:
 
 ## Stack Trace
 ```

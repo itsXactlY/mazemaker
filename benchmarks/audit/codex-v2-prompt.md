@@ -1,9 +1,9 @@
 # Codex / GPT-5.5 audit task
 
-Repo: `/home/alca/projects/neural-memory-adapter` (branch `V3.1`)
+Repo: `/home/alca/projects/mazemaker-adapter` (branch `V3.1`)
 Subject of audit: `benchmarks/neural_memory_benchmark/`
 
-This is a benchmark suite for a *semantic memory* system (neural-memory-adapter, a Hermes Agent plugin). The system claims to differ from a generic vector DB via:
+This is a benchmark suite for a *semantic memory* system (mazemaker-adapter, a Hermes Agent plugin). The system claims to differ from a generic vector DB via:
 
 - knowledge graph + spreading activation (BFS / PPR `think()`)
 - HNSW ANN + multi-channel retrieval (semantic / hybrid / advanced / skynet)
@@ -15,7 +15,7 @@ This is a benchmark suite for a *semantic memory* system (neural-memory-adapter,
 
 The benchmark was just rewritten to add five v2 suites alongside the existing nine:
 
-- `suites/baseline.py` — raw cosine baseline (numpy) vs neural-memory `semantic` and `skynet`. Same embedder both sides so the comparison is retrieval-only.
+- `suites/baseline.py` — raw cosine baseline (numpy) vs mazemaker `semantic` and `skynet`. Same embedder both sides so the comparison is retrieval-only.
 - `suites/diversity.py` — MMR × score_floor sweep on a paraphrase ground-truth set.
 - `suites/lstm_knn.py` — on/off ablation of the C++ LSTM+kNN re-ranker.
 - `suites/continuity.py` — store target facts in "session 1", add up to 5000 distractor noise memories, query in "session N". Reports recall drop curve.
@@ -35,7 +35,7 @@ Audit the benchmark for whether it truly showcases the system's unique features 
 
 2. **Suite coverage of the unique features.** For each claimed differentiator (graph / dream / MMR / LSTM+kNN / conflict / continuity), is there a suite that actually exercises it end-to-end and produces a metric that would shift if the feature were removed? Identify gaps.
 
-3. **Comparison fairness.** The baseline is raw cosine using the SAME embedder. Is that a fair-enough fight, or does anything tip the scales toward neural-memory beyond the retrieval algorithm itself? Look for: incidental advantages from the C++ side, hidden caching that benefits one side, asymmetric warm-up.
+3. **Comparison fairness.** The baseline is raw cosine using the SAME embedder. Is that a fair-enough fight, or does anything tip the scales toward mazemaker beyond the retrieval algorithm itself? Look for: incidental advantages from the C++ side, hidden caching that benefits one side, asymmetric warm-up.
 
 4. **Smoke-test results so far.** Sample run output:
    - baseline: raw R@5=1.0 / MRR=1.0 vs semantic R@5=0.46 / MRR=0.28 vs skynet R@5=0.86 / MRR=0.70

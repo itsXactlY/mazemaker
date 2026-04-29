@@ -7,7 +7,7 @@ which channels are pulling weight and which might be hurting. This
 suite runs skynet with one channel zero-weighted at a time and
 attributes the contribution to each.
 
-It uses NeuralMemory's `channel_weights` parameter (Memory exposes it
+It uses Mazemaker's `channel_weights` parameter (Memory exposes it
 as a constructor knob). For each channel C, we set channel_weights[C]
 = 0 (effectively disabling C) and rebuild a Memory instance — same
 data, same queries, same embedding model. Delta from skynet-with-all
@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from neural_memory import Memory
+from mazemaker import Memory
 
 
 CHANNELS = ["semantic", "bm25", "entity", "temporal", "ppr", "salience"]
@@ -88,7 +88,7 @@ class ChannelAblationBenchmark:
     def run(self) -> Dict[str, Any]:
         print("\n=== Channel Ablation Benchmark ===")
         # Default skynet (all channels at their natural weights).
-        # IMPORTANT: pass channel_weights=None so NeuralMemory uses its own
+        # IMPORTANT: pass channel_weights=None so Mazemaker uses its own
         # built-in defaults — that's what production callers do, and the
         # ablation arms must be measured against the same baseline.
         baseline_mem = self._build(channel_weights=None)
@@ -96,18 +96,18 @@ class ChannelAblationBenchmark:
         print(f"  all channels   : R@{self.k}={baseline['recall_at_k']}  MRR={baseline['mrr']}")
 
         # Resolve the actual default weight dict from the live instance
-        # rather than guessing. NeuralMemory.__init__ assigns these to
+        # rather than guessing. Mazemaker.__init__ assigns these to
         # self._channel_weights (memory_client.py around L765); reading
         # them post-construction guarantees we match the source of truth
-        # regardless of future changes. Memory wraps NeuralMemory as
+        # regardless of future changes. Memory wraps Mazemaker as
         # self._sqlite_memory.
         try:
             default_weights = dict(baseline_mem._sqlite_memory._channel_weights)
         except AttributeError as e:
             raise RuntimeError(
-                "channel_ablation: cannot read NeuralMemory._channel_weights "
+                "channel_ablation: cannot read Mazemaker._channel_weights "
                 "from the live Memory instance — internal layout has shifted. "
-                "Update this suite to match memory_client.NeuralMemory."
+                "Update this suite to match memory_client.Mazemaker."
             ) from e
 
         # Sanity check: every channel we ablate must exist in the resolved
@@ -118,12 +118,12 @@ class ChannelAblationBenchmark:
         if missing:
             raise RuntimeError(
                 f"channel_ablation: CHANNELS contains keys not present in "
-                f"NeuralMemory defaults: {missing}. "
+                f"Mazemaker defaults: {missing}. "
                 f"Resolved defaults: {default_weights}"
             )
         extra = [k for k in default_weights if k not in CHANNELS]
         if extra:
-            print(f"  [warn] NeuralMemory has extra channels not ablated: {extra}")
+            print(f"  [warn] Mazemaker has extra channels not ablated: {extra}")
 
         print(f"  [resolved defaults] {default_weights}")
 

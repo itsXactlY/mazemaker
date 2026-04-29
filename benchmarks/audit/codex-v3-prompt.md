@@ -2,7 +2,7 @@
 
 You audited this benchmark already (see `/tmp/codex-audit-result.md`). The v3 round acted on every concrete item you listed. Verify the fixes landed and that the new suites do what they claim, then give a short y/n verdict on whether the benchmark is now truly unique.
 
-Repo: `/home/alca/projects/neural-memory-adapter`
+Repo: `/home/alca/projects/mazemaker-adapter`
 
 ## What the v3 round changed
 
@@ -11,13 +11,13 @@ Repo: `/home/alca/projects/neural-memory-adapter`
    * `_GLOBAL_ANCHORS` registry + lock added so cross-instance anchor uniqueness is now actually enforced. Verify continuity-suite generators no longer collide.
 
 2. `suites/lstm_knn.py`
-   * Now imports `Memory` from `neural_memory.py` (the wrapper that owns `_lstm_knn_ready`), not `NeuralMemory` from `memory_client.py`. Adds a 3x warmup pass to seed the AccessLogger.
+   * Now imports `Memory` from `neural_memory.py` (the wrapper that owns `_lstm_knn_ready`), not `Mazemaker` from `memory_client.py`. Adds a 3x warmup pass to seed the AccessLogger.
 
 3. `suites/conflict_quality.py`
    * Adds a `detect_conflicts=False` control arm. Reports `supersession_lift` = winner_rate(with) − winner_rate(control).
 
 4. `suites/baseline.py`
-   * Pre-warms the shared embedder for both raw cosine and neural-memory before timing.
+   * Pre-warms the shared embedder for both raw cosine and mazemaker before timing.
 
 5. New v3 suites — read each and verify it does what its docstring claims:
    * `suites/graph_reasoning.py`: A→B→C chains, query about A, answer on C. Compares raw cosine, semantic, skynet, recall_multihop, think(). Negative control = shuffled chain edges.
@@ -46,7 +46,7 @@ Repo: `/home/alca/projects/neural-memory-adapter`
     - with_supersession: winner@1=0.17, loser>winner=0.20
     - supersession_lift: +0.17 winner@1, +0.43 loser_drop. Without supersession, the stale fact ALWAYS outranks the new one.
 
-* **continuity_controls** — neural-memory vs raw cosine vs recency:
+* **continuity_controls** — mazemaker vs raw cosine vs recency:
     - tier 0:    nm=0.46, raw=1.00, recency=0.10
     - tier 200:  nm=0.76, raw=1.00, recency=0.00
     - tier 1200: nm=0.82, raw=1.00, recency=0.00
@@ -63,7 +63,7 @@ A short final assessment (max 500 words). Sections:
 
 `## New blocks` — anything still preventing this benchmark from being publishable as proof of the system's unique features. Include any *new* leakage / fairness issues introduced by the v3 changes.
 
-`## Verdict` — y/n with one paragraph. The criterion: would a peer reviewer accept "this benchmark proves neural-memory-adapter does something a vanilla vector store can't"?
+`## Verdict` — y/n with one paragraph. The criterion: would a peer reviewer accept "this benchmark proves mazemaker-adapter does something a vanilla vector store can't"?
 
 Read at minimum:
 - `benchmarks/neural_memory_benchmark/dataset_v2.py`

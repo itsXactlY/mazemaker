@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LongMemEval-style benchmark harness for Neural Memory.
+"""LongMemEval-style benchmark harness for Mazemaker.
 
 Default mode is a deterministic synthetic smoke corpus so CI can run without
 network/data downloads. Pass --dataset path/to.jsonl for real LongMemEval-like
@@ -28,7 +28,7 @@ PY_DIR = ROOT / "python"
 if str(PY_DIR) not in sys.path:
     sys.path.insert(0, str(PY_DIR))
 
-from memory_client import NeuralMemory  # noqa: E402
+from memory_client import Mazemaker  # noqa: E402
 
 
 def synthetic_records() -> list[dict[str, Any]]:
@@ -106,7 +106,7 @@ def reciprocal_rank(results: list[dict[str, Any]], answer: str) -> float:
 def run(records: list[dict[str, Any]], args) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="nm-lme-") as td:
         db = str(Path(td) / "bench.db")
-        nm = NeuralMemory(
+        nm = Mazemaker(
             db_path=db,
             embedding_backend=args.backend,
             use_cpp=False,
@@ -156,7 +156,7 @@ def run(records: list[dict[str, Any]], args) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Benchmark Neural Memory on LongMemEval-like data")
+    parser = argparse.ArgumentParser(description="Benchmark Mazemaker on LongMemEval-like data")
     parser.add_argument("--dataset", help="JSON/JSONL dataset path. Omit for synthetic smoke corpus")
     parser.add_argument("--backend", default="hash", help="Embedding backend (hash for fast smoke, auto for real run)")
     parser.add_argument("--hybrid", action="store_true", help="Use hybrid retrieval channels")

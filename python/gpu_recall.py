@@ -1,4 +1,4 @@
-"""GPU-accelerated vector recall for neural memory.
+"""GPU-accelerated vector recall for mazemaker.
 
 Loads pre-computed embeddings onto GPU for sub-millisecond cosine similarity search.
 Much faster than Python loop or C++ Hopfield network.
@@ -23,7 +23,7 @@ _METADATA_PATH = _CACHE_DIR / "metadata.pkl"
 
 
 class GpuRecallEngine:
-    """GPU-accelerated cosine similarity search over neural memory embeddings."""
+    """GPU-accelerated cosine similarity search over mazemaker embeddings."""
 
     def __init__(self):
         self._device = None

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Skynet feature regression tests for Neural Memory.
+"""Skynet feature regression tests for Mazemaker.
 
 These tests cover the Phase C/D capabilities that make memory less like a
 flat vector store and more like an autonomous recall system:
@@ -59,11 +59,11 @@ def cleanup(path):
 
 @testcase("hybrid recall: BM25/entity/temporal channels surface lexical exact hits")
 def test_hybrid_recall_channels():
-    from memory_client import NeuralMemory
+    from memory_client import Mazemaker
 
     db = temp_db()
     try:
-        mem = NeuralMemory(
+        mem = Mazemaker(
             db_path=db,
             embedding_backend="hash",
             use_cpp=False,
@@ -122,11 +122,11 @@ def test_bitemporal_typed_edges():
 
 @testcase("PPR think: principled graph activation available beside BFS")
 def test_ppr_think_engine():
-    from memory_client import NeuralMemory
+    from memory_client import Mazemaker
 
     db = temp_db()
     try:
-        mem = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False, think_engine="ppr")
+        mem = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False, think_engine="ppr")
         a = mem.remember("alpha root", "a", auto_connect=False)
         b = mem.remember("beta neighbor", "b", auto_connect=False)
         c = mem.remember("gamma neighbor", "c", auto_connect=False)
@@ -148,11 +148,11 @@ def test_ppr_think_engine():
 
 @testcase("conflict fusion: same-label updates create canonical content and revision history")
 def test_conflict_fusion_revision_history():
-    from memory_client import NeuralMemory
+    from memory_client import Mazemaker
 
     db = temp_db()
     try:
-        mem = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        mem = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
         first = mem.remember("The deployment target is staging.", "deploy-target", detect_conflicts=True, auto_connect=False)
         second = mem.remember("The deployment target is production.", "deploy-target", detect_conflicts=True, auto_connect=False)
         assert second == first, "same-label conflict should update canonical memory, not create duplicate"
@@ -169,11 +169,11 @@ def test_conflict_fusion_revision_history():
 @testcase("dream insights: Louvain splits bridged cliques and synthesizes derived memory")
 def test_dream_louvain_and_derived_memory():
     from dream_engine import DreamEngine, SQLiteDreamBackend
-    from memory_client import NeuralMemory
+    from memory_client import Mazemaker
 
     db = temp_db()
     try:
-        mem = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        mem = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
         ids = []
         for text in [
             "alpha cluster red apple", "alpha cluster red berry", "alpha cluster red cherry",
@@ -208,7 +208,7 @@ def test_dream_louvain_and_derived_memory():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("  Neural Memory Skynet Feature Tests")
+    print("  Mazemaker Skynet Feature Tests")
     print("=" * 60)
     tests = [
         test_hybrid_recall_channels,

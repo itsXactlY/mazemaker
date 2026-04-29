@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ingest PULSE --emit for-memory JSON into Neural Memory.
+"""Ingest PULSE --emit for-memory JSON into Mazemaker.
 
 Deterministic, idempotent, and cron-safe:
 - exact dedup by stable label/dedup_key
@@ -20,7 +20,7 @@ THIS_DIR = Path(__file__).resolve().parent
 if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
-from neural_memory import Memory  # noqa: E402
+from mazemaker import Memory  # noqa: E402
 
 
 def _slug(value: str) -> str:
@@ -163,9 +163,9 @@ def ingest(payload: dict[str, Any], *, db_path: str | None = None, threshold: fl
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Ingest PULSE for-memory JSON into Neural Memory")
+    parser = argparse.ArgumentParser(description="Ingest PULSE for-memory JSON into Mazemaker")
     parser.add_argument("input", nargs="?", help="JSON file. Defaults to stdin.")
-    parser.add_argument("--db", dest="db_path", help="Neural Memory SQLite DB path")
+    parser.add_argument("--db", dest="db_path", help="Mazemaker SQLite DB path")
     parser.add_argument("--threshold", type=float, default=0.72, help="Pulse-only cosine dedup threshold (0 disables)")
     parser.add_argument("--auto-connect", action="store_true", help="Enable full auto-connect scan for new memories")
     parser.add_argument("--dry-run", action="store_true", help="Parse and dedup without writing")

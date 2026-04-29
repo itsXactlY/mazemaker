@@ -29,7 +29,7 @@ Final verdict — under 200 words. Two sections:
 
 `## v7 caveat status` — closed / partial / open with line-cited evidence from `benchmarks/results/run-2026-04-28-v8-dream-scaled/results/dream_derived_fact_results.json`.
 
-`## Final verdict` — **unconditional-yes / qualified-yes-with-N-caveats / no**. The bar: would a peer reviewer accept this benchmark + the production code's documented options as evidence that neural-memory-adapter does graph-grounded retrieval, dream-driven synthesis, and conflict supersession beyond what a vector store can?
+`## Final verdict` — **unconditional-yes / qualified-yes-with-N-caveats / no**. The bar: would a peer reviewer accept this benchmark + the production code's documented options as evidence that mazemaker-adapter does graph-grounded retrieval, dream-driven synthesis, and conflict supersession beyond what a vector store can?
 
 If the verdict is unconditional-yes, say so plainly. If you're keeping a residual caveat, name it specifically.
 

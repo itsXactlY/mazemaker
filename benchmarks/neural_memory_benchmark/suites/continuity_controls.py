@@ -4,7 +4,7 @@ Continuity Controls Benchmark
 Codex audit 2026-04-28 v2 flagged that the previous version of this suite was
 still anchor-based retrieval: each query mentioned the unique coined anchor
 token from its target ("Who runs zriev38?"), so raw cosine got 1.0 / 0.98 /
-0.9 / 0.7 vs neural-memory 0.76 — we were measuring rare-token overlap, not
+0.9 / 0.7 vs mazemaker 0.76 — we were measuring rare-token overlap, not
 cross-session memory.
 
 Rewrite: queries now ask about the *concept* the target memory was about
@@ -16,7 +16,7 @@ distractor above the original target.
 
 Three retrievers, same data, same noise schedule:
 
-  1. neural-memory-adapter (Memory.recall) — graph + salience + dream
+  1. mazemaker-adapter (Memory.recall) — graph + salience + dream
   2. raw cosine (numpy, same embedder) — pure embedding nearest-neighbour
   3. recency baseline — return tail; targets are the OLDEST item, so this
      should collapse to ~0 immediately. Sanity floor.
@@ -48,7 +48,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from neural_memory import Memory
+from mazemaker import Memory
 from embed_provider import EmbeddingProvider
 
 try:
@@ -285,7 +285,7 @@ class ContinuityControlsBenchmark:
                 "Expected: raw_cosine_drop_first_to_last > 0 (distractors lure raw "
                 "cosine away from the target). recency_curve should hover near 0 "
                 "since targets are the OLDEST items. nm_vs_raw_lift_at_max_noise > 0 "
-                "would indicate neural-memory uses graph/salience to hold the "
+                "would indicate mazemaker uses graph/salience to hold the "
                 "original target above semantically-closer distractors. <= 0 is an "
                 "honest negative result on this adversarial task."
             ),

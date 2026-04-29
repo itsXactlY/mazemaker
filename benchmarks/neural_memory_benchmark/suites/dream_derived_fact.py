@@ -14,7 +14,7 @@ Construction:
     only exists if the dream engine derives a cluster memory for X
     spanning P1 and P2.
   * Pre-dream query for the conjunction: "List both attributes of X."
-    Direct cosine + neural-memory recall both struggle because the
+    Direct cosine + mazemaker recall both struggle because the
     answer is split across two records.
   * Run DreamEngine.dream_now(). If REM/Insight materialise a
     derived:cluster memory for X (or strengthen the P1<->P2 edge so
@@ -35,7 +35,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 from dream_engine import DreamEngine
 
 try:
@@ -161,7 +161,7 @@ def _derived_cluster_in_topk(results: List[Dict[str, Any]]) -> bool:
     return False
 
 
-def _measure(nm: NeuralMemory, queries: List[Dict[str, Any]], k: int = 5,
+def _measure(nm: Mazemaker, queries: List[Dict[str, Any]], k: int = 5,
              k_strict: int = 3) -> Dict[str, Any]:
     multihop_both = 0
     semantic_both = 0
@@ -242,7 +242,7 @@ class DreamDerivedFactBenchmark:
         print(f"  Built {self.n_premises} premise-pairs ({len(memories)} memories, "
               f"{len(queries)} conjunction queries)")
 
-        nm = NeuralMemory(
+        nm = Mazemaker(
             db_path=self.db_path,
             embedding_backend="auto",
             retrieval_mode="semantic",

@@ -24,7 +24,7 @@ from typing import Optional
 def _find_lib() -> str:
     candidates = [
         Path(__file__).parent.parent / "build" / "libneural_memory.so",
-        Path.home() / "projects" / "neural-memory-adapter" / "build" / "libneural_memory.so",
+        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libneural_memory.so",
         Path("/usr/local/lib/libneural_memory.so"),
         Path("/usr/lib/libneural_memory.so"),
     ]
@@ -36,7 +36,7 @@ def _find_lib() -> str:
         return lib
     raise FileNotFoundError(
         "libneural_memory.so not found. Build first:\n"
-        "  cd ~/projects/neural-memory-adapter/build && cmake --build . -j$(nproc)"
+        "  cd ~/projects/mazemaker-adapter/build && cmake --build . -j$(nproc)"
     )
 
 

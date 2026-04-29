@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 
 def check_mssql_available() -> bool:
@@ -110,7 +110,7 @@ class MSSQLBenchmark:
 
         # Store memories in SQLite first
         print(f"  [setup] Storing {len(self.memories[:self.total_records])} memories...")
-        nm = NeuralMemory(db_path=self.db_path, embedding_backend="auto")
+        nm = Mazemaker(db_path=self.db_path, embedding_backend="auto")
         for m in self.memories[:self.total_records]:
             nm.remember(m["text"], label=m["label"], auto_connect=False)
         print(f"  [setup] Done")

@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 try:
     from dataset_v2 import generate_continuity_pairs, ParaphraseGenerator
@@ -67,7 +67,7 @@ class ContinuityBenchmark:
         # has a globally unique anchor so we can check recall by anchor match.
         targets = generate_continuity_pairs(seed=self.seed, count=self.target_facts)
 
-        nm = NeuralMemory(db_path=self.db_path, embedding_backend="auto")
+        nm = Mazemaker(db_path=self.db_path, embedding_backend="auto")
 
         # Session 1: store all target facts.
         print(f"  [session 1] storing {len(targets)} target facts...")

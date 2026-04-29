@@ -41,7 +41,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 from dream_engine import DreamEngine, SQLiteDreamBackend
 
 
@@ -51,7 +51,7 @@ from dream_engine import DreamEngine, SQLiteDreamBackend
 
 def _graph_snapshot(db_path: str) -> Dict[str, int]:
     """Snapshot the connection graph directly from SQLite, not via
-    NeuralMemory.graph() — that method has a different schema and was the
+    Mazemaker.graph() — that method has a different schema and was the
     source of the prior `0` baselines."""
     out: Dict[str, int] = {
         "memories": 0,
@@ -86,7 +86,7 @@ def _graph_snapshot(db_path: str) -> Dict[str, int]:
     return out
 
 
-def _recall_quality(nm: NeuralMemory, queries: List[Dict[str, Any]], k: int = 5) -> Dict[str, float]:
+def _recall_quality(nm: Mazemaker, queries: List[Dict[str, Any]], k: int = 5) -> Dict[str, float]:
     """Recall@k + MRR on the paraphrase query set.
 
     queries must carry `ground_truth_ids` (list[str]) and the dataset id
@@ -139,14 +139,14 @@ class DreamBenchmark:
         self.output_dir = output_dir or Path.home() / ".neural_memory_benchmark" / "results"
         self.phases = phases or ["nrem", "rem", "insight"]
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.nm: Optional[NeuralMemory] = None
+        self.nm: Optional[Mazemaker] = None
         self.engine: Optional[DreamEngine] = None
 
     # -- setup ----------------------------------------------------------------
 
     def setup(self) -> Dict[str, Any]:
         print(f"  [setup] storing {len(self.memories)} memories...")
-        self.nm = NeuralMemory(
+        self.nm = Mazemaker(
             db_path=self.db_path,
             embedding_backend="auto",
             retrieval_mode="semantic",
@@ -158,7 +158,7 @@ class DreamBenchmark:
             if i % 500 == 0:
                 print(f"    {i}/{len(self.memories)}")
 
-        # DreamEngine wraps the same SQLite store the NeuralMemory just wrote to.
+        # DreamEngine wraps the same SQLite store the Mazemaker just wrote to.
         self.engine = DreamEngine.sqlite(
             self.db_path,
             neural_memory=self.nm,

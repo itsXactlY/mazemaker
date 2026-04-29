@@ -1,4 +1,4 @@
-"""Configuration for Neural Memory plugin.
+"""Configuration for Mazemaker plugin.
 
 Defaults:
   DB path:               ~/.neural_memory/memory.db
@@ -46,7 +46,7 @@ DEFAULT_ARCHIVE_RAW_TURNS = False
 
 
 def get_config() -> Dict[str, Any]:
-    """Read neural memory config from ~/.hermes/config.yaml.
+    """Read mazemaker config from ~/.hermes/config.yaml.
 
     Falls back to defaults if the file doesn't exist or the section is missing.
     """

@@ -1,12 +1,12 @@
 ---
 name: neural-dream-engine
 category: devops
-description: Autonomous background memory consolidation for Neural Memory — NREM/REM/Insight phases
+description: Autonomous background memory consolidation for Mazemaker — NREM/REM/Insight phases
 ---
 
 # Neural Dream Engine
 
-Autonomous background memory consolidation for the Neural Memory plugin.
+Autonomous background memory consolidation for the Mazemaker plugin.
 Inspired by biological sleep: NREM → REM → Insight phases.
 
 ## Architecture
@@ -82,13 +82,13 @@ memory:
       memory_threshold: 50
       mssql:
         server: localhost      # Optional: override MSSQL_SERVER env
-        database: NeuralMemory # Optional: override MSSQL_DATABASE env
+        database: Mazemaker # Optional: override MSSQL_DATABASE env
 ```
 
 Credentials go in `~/.hermes/.env` — NEVER hardcode passwords:
 ```
 MSSQL_SERVER=localhost
-MSSQL_DATABASE=NeuralMemory
+MSSQL_DATABASE=Mazemaker
 MSSQL_USERNAME=SA
 MSSQL_PASSWORD=your_password
 MSSQL_DRIVER={ODBC Driver 18 for SQL Server}

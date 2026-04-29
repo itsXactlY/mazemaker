@@ -6,7 +6,7 @@ Implements three phases inspired by biological sleep:
   3. Insight — Abstraction & community detection
 
 Runs as a background daemon during idle periods. Stores results
-in the same SQLite DB as the main neural memory, extended with
+in the same SQLite DB as the main mazemaker, extended with
 dream-specific tables.
 
 MSSQL support: if mssql_store is configured, dreams run against
@@ -186,7 +186,7 @@ class DreamBackend:
 # ---------------------------------------------------------------------------
 
 class SQLiteDreamBackend(DreamBackend):
-    """Dream backend using the existing neural memory SQLite DB."""
+    """Dream backend using the existing mazemaker SQLite DB."""
 
     def __init__(self, db_path: str):
         self._db_path = db_path
@@ -210,7 +210,7 @@ class SQLiteDreamBackend(DreamBackend):
         conn = sqlite3.connect(self._db_path)
         try:
             conn.executescript(_DREAM_SCHEMA)
-            # Existing neural-memory DBs may predate typed/bi-temporal edges.
+            # Existing mazemaker DBs may predate typed/bi-temporal edges.
             has_connections = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='connections'"
             ).fetchone()
@@ -666,7 +666,7 @@ class SQLiteDreamBackend(DreamBackend):
 # ---------------------------------------------------------------------------
 
 class DreamEngine:
-    """Autonomous background consolidation for neural memory.
+    """Autonomous background consolidation for mazemaker.
 
     Three phases:
       NREM  — Replay recent memories, strengthen active, prune dead
@@ -683,7 +683,7 @@ class DreamEngine:
         max_memories_per_cycle: int = 100,
     ):
         self._backend = backend
-        self._memory = neural_memory        # NeuralMemory instance for think/recall
+        self._memory = neural_memory        # Mazemaker instance for think/recall
         self._idle_threshold = idle_threshold
         self._memory_threshold = memory_threshold
         self._max_memories = max_memories_per_cycle

@@ -34,7 +34,7 @@ lift.semantic_both_tokens_legacy    = -0.28   ← legacy metric flagged inflated
 
 ### channel_ablation
 ```
-all channels resolved defaults (read from live NeuralMemory):
+all channels resolved defaults (read from live Mazemaker):
   {semantic:1.0, bm25:0.9, entity:1.0, temporal:0.35, ppr:0.55, salience:0.25}
 all channels: R@5=0.90  MRR=0.8483
 no_semantic : R@5=0.88  MRR=0.8067   Δrecall=-0.0200  Δmrr=-0.0416
@@ -102,4 +102,4 @@ Output a final report under 400 words with sections:
 
 `## Anything inconsistent` — does any number contradict another? E.g. `single_doc_both_tokens_rate=0.0` post-dream while `derived_fact_hit_rate_multihop=0.32` — is that surprising? What does that imply about how the dream engine surfaces derived facts?
 
-`## Final verdict` — **yes / qualified-y / no**, one paragraph. The bar: would a peer reviewer reading this benchmark accept it as proof neural-memory-adapter does something a vanilla vector store cannot?
+`## Final verdict` — **yes / qualified-y / no**, one paragraph. The bar: would a peer reviewer reading this benchmark accept it as proof mazemaker-adapter does something a vanilla vector store cannot?

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-import_honcho.py - Import Honcho Export into Neural Memory
+import_honcho.py - Import Honcho Export into Mazemaker
 Uses the exact neural_memory.Memory API. No message_embeddings (9524d != 1024d).
 """
 
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from neural_memory import Memory
+from mazemaker import Memory
 
 EXPORT_DIR = Path(os.environ.get("HONCHO_EXPORT_DIR", Path.home() / "honcho_export"))
 DB_PATH = Path.home() / ".neural_memory" / "memory.db"
@@ -228,7 +228,7 @@ def import_collections(mem: Memory):
 
 def main():
     print("=" * 60)
-    print("Honcho Export -> Neural Memory Import")
+    print("Honcho Export -> Mazemaker Import")
     print("=" * 60)
     
     t_total = time.time()

@@ -11,10 +11,10 @@
 
 - `graph_reasoning` does not prove graph reasoning. In my run, `think()` got `0.0`, multihop matched raw at `0.0667`, and shuffled edges did better at `0.1`. The suite relies on cosine `auto_connect`, not explicit A→B→C edges, so the docstring claim is not achieved.
 - `dream_derived_fact` does not isolate derived facts. It scores whether top-k collectively contain both tokens, so pre-dream multihop already scored `0.92`; post-dream semantic regressed `0.08 → 0.04`, multihop stayed flat, and only `1` derived fact appeared.
-- `continuity_controls` is useful, but it is still anchor retrieval. Raw cosine dominated: `1.0 / 0.98 / 0.9 / 0.7` vs neural-memory `0.76` at every tier in my run.
-- `channel_ablation.py` has a fairness bug: its hard-coded “default” ablation weights do not match actual `NeuralMemory` defaults for BM25/entity/temporal, so every ablation changes more than one variable.
+- `continuity_controls` is useful, but it is still anchor retrieval. Raw cosine dominated: `1.0 / 0.98 / 0.9 / 0.7` vs mazemaker `0.76` at every tier in my run.
+- `channel_ablation.py` has a fairness bug: its hard-coded “default” ablation weights do not match actual `Mazemaker` defaults for BM25/entity/temporal, so every ablation changes more than one variable.
 - `hnsw_exactness.py` may not measure exact-vs-HNSW cleanly: the “exact” arm leaves C++ retrieval enabled, and the HNSW arm does not assert that HNSW actually activated.
 
 ## Verdict
 
-No. v3 materially improves honesty and adds the right kinds of controls, especially leakage removal, global anchor uniqueness, and conflict-control attribution. But a peer reviewer would not accept this as proof that neural-memory-adapter does something a vanilla vector store cannot: raw cosine still wins continuity, graph reasoning fails its own negative control, dream recall lift is not reliable, and two new ablation/exactness suites have confounded controls.
+No. v3 materially improves honesty and adds the right kinds of controls, especially leakage removal, global anchor uniqueness, and conflict-control attribution. But a peer reviewer would not accept this as proof that mazemaker-adapter does something a vanilla vector store cannot: raw cosine still wins continuity, graph reasoning fails its own negative control, dream recall lift is not reliable, and two new ablation/exactness suites have confounded controls.

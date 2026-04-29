@@ -2,7 +2,7 @@
 """
 test_mssql_production.py — MSSQL Production Test Suite
 
-Verifies the Neural Memory MSSQL database is in production-grade state.
+Verifies the Mazemaker MSSQL database is in production-grade state.
 Tests run against the LIVE database — no mocking, no fakes.
 
 Usage:
@@ -74,7 +74,7 @@ def get_connection(config_path: str = "~/.hermes/config.yaml"):
     mssql_cfg = config.get("memory", {}).get("neural", {}).get("dream", {}).get("mssql", {})
     pw = mssql_cfg.get("password", "")
     server = mssql_cfg.get("server", "127.0.0.1")
-    database = mssql_cfg.get("database", "NeuralMemory")
+    database = mssql_cfg.get("database", "Mazemaker")
 
     if not pw:
         env_path = os.path.expanduser("~/.hermes/.env")
@@ -106,7 +106,7 @@ def test_schema_tables(conn):
     mc = conn.cursor()
     required = {"memories", "connections", "connection_history",
                 "dream_sessions", "dream_insights",
-                "GraphNodes_v2", "GraphEdges_v2", "NeuralMemory"}
+                "GraphNodes_v2", "GraphEdges_v2", "Mazemaker"}
     mc.execute("SELECT name FROM sys.tables")
     actual = {r[0] for r in mc.fetchall()}
     missing = required - actual
@@ -360,12 +360,12 @@ def test_v2_sufficient(conn):
     assert edges >= nodes, f"More nodes ({nodes}) than edges ({edges}) — disconnected graph?"
 
 
-@_testcase("integration: NeuralMemory has data", tags=["integration"])
+@_testcase("integration: Mazemaker has data", tags=["integration"])
 def test_neural_memory(conn):
     mc = conn.cursor()
-    mc.execute("SELECT COUNT(*) FROM NeuralMemory")
+    mc.execute("SELECT COUNT(*) FROM Mazemaker")
     cnt = mc.fetchone()[0]
-    assert cnt > 0, "NeuralMemory vector store is empty"
+    assert cnt > 0, "Mazemaker vector store is empty"
 
 
 @_testcase("integration: dream_sessions exists", tags=["integration"])

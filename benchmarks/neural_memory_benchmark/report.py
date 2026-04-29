@@ -1,5 +1,5 @@
 """
-Neural Memory Benchmark — Report Generator
+Mazemaker Benchmark — Report Generator
 ===========================================
 Parses benchmark results and produces human-readable + JSON reports.
 

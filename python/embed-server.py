@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Standalone Embedding Server for Neural Memory.
+Standalone Embedding Server for Mazemaker.
 
 Run as a persistent background process — survives hermes-agent restarts.
 Shares the model across all processes via UNIX socket.
@@ -29,7 +29,7 @@ from embed_provider import SharedEmbedServer, SOCKET_PATH
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Neural Memory Embedding Server')
+    parser = argparse.ArgumentParser(description='Mazemaker Embedding Server')
     parser.add_argument('--model', default=os.environ.get('EMBED_MODEL', 'BAAI/bge-m3'),
                         help='Model name (default: BAAI/bge-m3)')
     parser.add_argument('--device', default=os.environ.get('EMBED_DEVICE', None),
@@ -39,7 +39,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("Neural Memory Embed Server")
+    print("Mazemaker Embed Server")
     print("  Model:        {0}".format(args.model))
     print("  Device:       {0}".format(args.device or 'auto'))
     print("  Idle timeout: {0}s (0=disabled)".format(args.idle_timeout))

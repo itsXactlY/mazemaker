@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 
 def percentile(data: list, p: float) -> float:
@@ -44,9 +44,9 @@ def reciprocal_rank(hit_rank: int) -> float:
 
 class RetrievalBenchmark:
     """
-    Comprehensive retrieval benchmark for Neural Memory.
+    Comprehensive retrieval benchmark for Mazemaker.
 
-    Loads a dataset, stores it in Neural Memory, then queries it
+    Loads a dataset, stores it in Mazemaker, then queries it
     across all configured retrieval modes and measures quality + speed.
     """
 
@@ -72,19 +72,19 @@ class RetrievalBenchmark:
         self.neural_mem = None
         self.results = {}
         # Map synthetic dataset id (e.g. "episodic-000000-...") → integer
-        # rowid returned by NeuralMemory.remember(). Built during setup() so
+        # rowid returned by Mazemaker.remember(). Built during setup() so
         # ground-truth comparison can translate dataset ids to DB ids.
         self._id_map: Dict[str, int] = {}
 
     # ── Setup ────────────────────────────────────────────────────────────────
 
     def setup(self) -> Dict[str, Any]:
-        """Store all memories in Neural Memory. Returns store stats."""
+        """Store all memories in Mazemaker. Returns store stats."""
         print(f"  [setup] Storing {len(self.memories)} memories in {self.db_path}")
         start = time.perf_counter()
 
-        # Initialize Neural Memory
-        self.neural_mem = NeuralMemory(
+        # Initialize Mazemaker
+        self.neural_mem = Mazemaker(
             db_path=self.db_path,
             embedding_backend="auto",
             retrieval_mode="semantic",
@@ -137,7 +137,7 @@ class RetrievalBenchmark:
 
     def _benchmark_mode(self, mode: str) -> Dict[str, Any]:
         """Benchmark a single retrieval mode."""
-        # Switch mode (NeuralMemory stores it as the private _retrieval_mode;
+        # Switch mode (Mazemaker stores it as the private _retrieval_mode;
         # there is no public property setter, so we set the underlying attribute
         # directly to avoid creating a stray no-op attribute).
         self.neural_mem._retrieval_mode = mode
@@ -216,7 +216,7 @@ class RetrievalBenchmark:
     ) -> Dict[str, Any]:
         """Run a single query and evaluate against ground truth.
 
-        NeuralMemory returns integer rowids; the synthetic dataset uses
+        Mazemaker returns integer rowids; the synthetic dataset uses
         string ids (e.g. "episodic-000000-..."). Translate ground-truth
         through the id_map built in setup(). If the map is empty (e.g. a
         suite reused setup), fall back to label-based matching so the

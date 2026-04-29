@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Neural Memory Adapter — Comprehensive Test Suite
+Mazemaker Adapter — Comprehensive Test Suite
 ==================================================
 Tests every component, integration point, and edge case.
 Run: python3 tests/test_suite.py [--quick] [--verbose]
 
 Components tested:
   1. Embed Provider (bge-m3, 1024d, CUDA)
-  2. Neural Memory Client (remember, recall, think)
+  2. Mazemaker Client (remember, recall, think)
   3. Dream Engine (NREM, REM, Insight phases)
   4. Database (schema, integrity, indexes)
   5. C++ Bridge / LSTM-KNN Bridge
@@ -220,7 +220,7 @@ def test_embed_provider():
 
     # Single embed
     try:
-        vec = ep.embed("Test sentence for neural memory embedding")
+        vec = ep.embed("Test sentence for mazemaker embedding")
         if len(vec) == 1024:
             R.ok("embed/single", f"len={len(vec)}")
         else:
@@ -253,14 +253,14 @@ def test_embed_provider():
 def test_memory_client():
     print("\n[4] NEURAL MEMORY CLIENT")
     try:
-        from memory_client import NeuralMemory
+        from memory_client import Mazemaker
     except Exception as e:
         R.fail("nm/import", str(e))
         return
 
     # Initialize
     try:
-        nm = NeuralMemory()
+        nm = Mazemaker()
         R.ok("nm/init", f"{len(nm._graph_nodes)} nodes loaded")
     except Exception as e:
         R.fail("nm/init", str(e))
@@ -432,8 +432,8 @@ def test_bridges():
 def test_edge_cases():
     print("\n[7] EDGE CASES")
     try:
-        from memory_client import NeuralMemory
-        nm = NeuralMemory()
+        from memory_client import Mazemaker
+        nm = Mazemaker()
     except Exception as e:
         R.fail("edge/import", str(e))
         return
@@ -546,7 +546,7 @@ def test_no_minilm():
 # ========================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='Neural Memory Test Suite')
+    parser = argparse.ArgumentParser(description='Mazemaker Test Suite')
     parser.add_argument('--quick', action='store_true', help='Skip slow tests')
     parser.add_argument('--verbose', action='store_true', help='Extra output')
     args = parser.parse_args()

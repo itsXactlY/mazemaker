@@ -1,5 +1,5 @@
 """
-Baseline Comparison Suite — naive cosine vs neural-memory-adapter
+Baseline Comparison Suite — naive cosine vs mazemaker-adapter
 ==================================================================
 Runs the SAME queries against the SAME paraphrase corpus through:
 
@@ -8,15 +8,15 @@ Runs the SAME queries against the SAME paraphrase corpus through:
      This is the "vector-DB-with-extra-steps" line — anything we
      can't beat here, the fancy machinery isn't earning its keep.
 
-  2. neural-memory-adapter (semantic mode): the closest like-for-like.
+  2. mazemaker-adapter (semantic mode): the closest like-for-like.
 
-  3. neural-memory-adapter (skynet mode): full pipeline.
+  3. mazemaker-adapter (skynet mode): full pipeline.
 
 Reports recall@k, MRR, and per-query latency for each. The user gets
 to see whether the multi-channel fusion actually outperforms a 50-line
 numpy implementation on the same data.
 
-The baseline uses the SAME embedding model neural-memory uses (via
+The baseline uses the SAME embedding model mazemaker uses (via
 EmbeddingProvider) so the comparison isolates RETRIEVAL quality, not
 embedding quality — otherwise we'd be measuring two confounded things.
 """
@@ -33,7 +33,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 from embed_provider import EmbeddingProvider
 
 
@@ -130,7 +130,7 @@ class BaselineComparisonBenchmark:
         embedder = EmbeddingProvider(backend="auto")
 
         # Codex audit 2026-04-28 flagged that raw cosine ran first and warmed
-        # the shared embedding cache, biasing setup_s toward neural-memory.
+        # the shared embedding cache, biasing setup_s toward mazemaker.
         # Warm both sides equally before measurement: embed every memory text
         # AND every query once through the shared embedder, so cache misses
         # are paid up-front before either side reports timing.
@@ -146,8 +146,8 @@ class BaselineComparisonBenchmark:
         raw_perf = _measure(raw.recall, self.queries, self.k)
         raw_perf["setup_s"] = round(raw_setup_s, 2)
 
-        print("  [neural] building neural-memory-adapter (semantic mode)...")
-        nm = NeuralMemory(
+        print("  [neural] building mazemaker-adapter (semantic mode)...")
+        nm = Mazemaker(
             db_path=self.db_path,
             embedding_backend="auto",
             retrieval_mode="semantic",

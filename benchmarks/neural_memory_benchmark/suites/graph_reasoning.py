@@ -26,9 +26,9 @@ Each chain is constructed so that:
 
 We measure hop-distance recall:
   * Direct cosine (numpy baseline) — should fail on hop-2 chains.
-  * NeuralMemory.recall() — should also fail without traversal.
-  * NeuralMemory.recall_multihop() — should hit hop-2 via PPR/think.
-  * NeuralMemory.think() from the anchor — should reach C.
+  * Mazemaker.recall() — should also fail without traversal.
+  * Mazemaker.recall_multihop() — should hit hop-2 via PPR/think.
+  * Mazemaker.think() from the anchor — should reach C.
 
 Plus a control: queries with shuffled chain edges (graph broken) — the
 multihop pipeline should DROP back to baseline, proving the lift was
@@ -46,7 +46,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 try:
     from dataset_v2 import ParaphraseGenerator
@@ -217,7 +217,7 @@ class GraphReasoningBenchmark:
                 for i in idxs
             ]
 
-        # NeuralMemory side. Critically, auto_connect is DISABLED — auto_connect
+        # Mazemaker side. Critically, auto_connect is DISABLED — auto_connect
         # creates edges by cosine similarity of the chain texts, which both
         # (a) sometimes spuriously links A↔C directly (because they share the
         # chain's topical vocabulary), trivialising multihop, and (b) sometimes
@@ -225,7 +225,7 @@ class GraphReasoningBenchmark:
         # the suite stops actually testing graph traversal. The fix: ingest with
         # auto_connect=False, then EXPLICITLY add A→B and B→C edges (and only
         # those) so the only way from A to C is via a real graph hop.
-        nm = NeuralMemory(
+        nm = Mazemaker(
             db_path=self.db_path,
             embedding_backend="auto",
             retrieval_mode="semantic",
@@ -292,7 +292,7 @@ class GraphReasoningBenchmark:
         print(f"  raw_cosine     : R@{self.k}={results['raw_cosine']['recall_C_at_k']}  "
               f"MRR={results['raw_cosine']['mrr_C']}")
 
-        # 2. neural-memory semantic mode — also should miss without traversal.
+        # 2. mazemaker semantic mode — also should miss without traversal.
         nm._retrieval_mode = "semantic"
         results["nm_semantic"] = _measure_pipeline(
             "nm_semantic", lambda q, k=10: nm.recall(q, k=k), queries, self.k
@@ -300,7 +300,7 @@ class GraphReasoningBenchmark:
         print(f"  nm_semantic    : R@{self.k}={results['nm_semantic']['recall_C_at_k']}  "
               f"MRR={results['nm_semantic']['mrr_C']}")
 
-        # 3. neural-memory skynet — multi-channel + PPR may pull C in.
+        # 3. mazemaker skynet — multi-channel + PPR may pull C in.
         nm._retrieval_mode = "skynet"
         results["nm_skynet"] = _measure_pipeline(
             "nm_skynet", lambda q, k=10: nm.recall(q, k=k), queries, self.k

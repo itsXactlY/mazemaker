@@ -1,5 +1,5 @@
 """
-Neural Memory Benchmark — Dataset Generator
+Mazemaker Benchmark — Dataset Generator
 ============================================
 Generates synthetic but realistic memory datasets for benchmarking.
 All data is self-contained — no external downloads required.
@@ -105,7 +105,7 @@ class EpisodicGenerator(BaseGenerator):
     ]
 
     PATHS = [
-        "~/projects/neural-memory/python/", "~/projects/pulse/api/",
+        "~/projects/mazemaker/python/", "~/projects/pulse/api/",
         "~/.hermes/plugins/memory/neural/", "/tmp/build/output/",
         "~/projects/remainder-website/src/", "~/projects/haus-suche/scraper/",
     ]
@@ -234,17 +234,17 @@ class FactualGenerator(BaseGenerator):
         self.count = count
 
     ENTITIES = [
-        ("NeuralMemory", "is a", "persistent memory system for AI agents"),
-        ("NeuralMemory", "supports", "semantic, hybrid, and advanced retrieval modes"),
-        ("NeuralMemory", "uses", "BAAI/bge-m3 embeddings (1024d)"),
-        ("NeuralMemory", "has a", "Dream Engine for autonomous consolidation"),
-        ("NeuralMemory", "stores memories in", "SQLite with WAL mode"),
+        ("Mazemaker", "is a", "persistent memory system for AI agents"),
+        ("Mazemaker", "supports", "semantic, hybrid, and advanced retrieval modes"),
+        ("Mazemaker", "uses", "BAAI/bge-m3 embeddings (1024d)"),
+        ("Mazemaker", "has a", "Dream Engine for autonomous consolidation"),
+        ("Mazemaker", "stores memories in", "SQLite with WAL mode"),
         ("FastEmbed", "is", "an ONNX-based embedding library"),
         ("FastEmbed", "loads in", "under 1 second on modern hardware"),
         ("DreamEngine", "has", "three phases: NREM, REM, Insight"),
         ("DreamEngine", "runs during", "idle periods between LLM calls"),
         ("Hermes", "is built by", "Nous Research"),
-        ("Hermes", "has", "Neural Memory as a plugin"),
+        ("Hermes", "has", "Mazemaker as a plugin"),
         ("HNSW", "is a", "graph-based ANN index"),
         ("HNSW", "activates automatically when", "memory count exceeds threshold"),
         ("PPR", "stands for", "Personalized PageRank"),
@@ -398,7 +398,7 @@ class ConversationalGenerator(BaseGenerator):
         self.count = count
 
     USER_INTENTS = [
-        "debug my neural memory",
+        "debug my mazemaker",
         "run the benchmark suite",
         "check the dream engine status",
         "deploy the API to production",
@@ -478,7 +478,7 @@ class GraphGenerator(BaseGenerator):
 
     KNOWLEDGE_CLUSTERS = {
         "memory": [
-            "Neural Memory provides persistent memory for AI agents",
+            "Mazemaker provides persistent memory for AI agents",
             "Memory embeddings use BAAI/bge-m3 (1024 dimensions)",
             "FastEmbed loads embeddings in under 1 second",
             "Salience tracking assigns importance scores to memories",
@@ -491,7 +491,7 @@ class GraphGenerator(BaseGenerator):
         ],
         "infrastructure": [
             "Hermes Agent runs on Python 3.10+ with asyncio",
-            "The Neural Memory plugin lives in ~/.hermes/plugins/memory/neural/",
+            "The Mazemaker plugin lives in ~/.hermes/plugins/memory/neural/",
             "Cron jobs run autonomous tasks every hour",
             "Discord webhooks notify on system events",
             "The API server runs on port 8443 with TLS",
@@ -515,7 +515,7 @@ class GraphGenerator(BaseGenerator):
             "MemoryAgentBench tests recall accuracy across categories",
             "EvoMem is a streaming benchmark for self-evolving memory",
             "LongMemEval tests long-range understanding (32k+ context)",
-            "The Neural Memory benchmark generates synthetic datasets",
+            "The Mazemaker benchmark generates synthetic datasets",
             "Retrieval quality is measured via Recall@k and MRR",
             "Throughput is measured as embeddings/second",
             "Latency benchmarks measure p50, p95, p99 percentiles",
@@ -533,11 +533,11 @@ class GraphGenerator(BaseGenerator):
 
     # Cross-cluster connections (bridges between topics)
     CROSS_CLUSTERS = [
-        ("memory", "benchmarks", "MemoryAgentBench tests Neural Memory recall quality"),
-        ("memory", "infrastructure", "Neural Memory stores benchmark results as memories"),
+        ("memory", "benchmarks", "MemoryAgentBench tests Mazemaker recall quality"),
+        ("memory", "infrastructure", "Mazemaker stores benchmark results as memories"),
         ("benchmarks", "models", "GPU recall is benchmarked against CPU baseline"),
         ("pulse", "infrastructure", "PULSE findings are stored via the sync bridge"),
-        ("memory", "models", "BGE-M3 embeddings power Neural Memory retrieval"),
+        ("memory", "models", "BGE-M3 embeddings power Mazemaker retrieval"),
         ("pulse", "benchmarks", "PULSE search quality is measured by recall@5"),
     ]
 

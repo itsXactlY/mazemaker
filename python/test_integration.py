@@ -64,10 +64,10 @@ def t3():
 @_testcase("Memory - store/recall (hash)")
 def t4():
     sys.path.insert(0, str(Path(__file__).parent))
-    from memory_client import NeuralMemory
+    from memory_client import Mazemaker
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
-        m = NeuralMemory(db_path=db, embedding_backend="hash")
+        m = Mazemaker(db_path=db, embedding_backend="hash")
         m.remember("Dog named Lou", "Pet")
         m.remember("Trading platform BTQuant", "Work")
         r = m.recall("dog pet", k=2)
@@ -77,10 +77,10 @@ def t4():
 
 @_testcase("Memory - connections auto")
 def t5():
-    from memory_client import NeuralMemory
+    from memory_client import Mazemaker
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
-        m = NeuralMemory(db_path=db, embedding_backend="hash")
+        m = Mazemaker(db_path=db, embedding_backend="hash")
         m.remember("Dogs are great pets")
         m.remember("Dogs need walks daily")
         m.remember("Python is a programming language")
@@ -91,10 +91,10 @@ def t5():
 
 @_testcase("Memory - spreading activation")
 def t6():
-    from memory_client import NeuralMemory
+    from memory_client import Mazemaker
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
-        m = NeuralMemory(db_path=db, embedding_backend="hash")
+        m = Mazemaker(db_path=db, embedding_backend="hash")
         id1 = m.remember("Topic A about dogs")
         id2 = m.remember("Topic B about cats")
         t = m.think(id1, depth=2)
@@ -104,13 +104,13 @@ def t6():
 
 @_testcase("Memory - persistence")
 def t7():
-    from memory_client import NeuralMemory
+    from memory_client import Mazemaker
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
-        m = NeuralMemory(db_path=db, embedding_backend="hash")
+        m = Mazemaker(db_path=db, embedding_backend="hash")
         m.remember("Persistent fact about dogs")
         m.close()
-        m2 = NeuralMemory(db_path=db, embedding_backend="hash")
+        m2 = Mazemaker(db_path=db, embedding_backend="hash")
         r = m2.recall("dogs", k=1)
         assert len(r) >= 1
         m2.close()
@@ -118,7 +118,7 @@ def t7():
 
 @_testcase("Memory API - unified")
 def t8():
-    from neural_memory import Memory
+    from mazemaker import Memory
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
         with Memory(db_path=db, embedding_backend="hash", use_cpp=False) as m:
@@ -135,7 +135,7 @@ def t9():
 @_testcase("C++ library symbols")
 def t10():
     import subprocess
-    lib = os.path.expanduser("~/projects/neural-memory-adapter/build/libneural_memory.so")
+    lib = os.path.expanduser("~/projects/mazemaker-adapter/build/libneural_memory.so")
     if not os.path.exists(lib):
         return  # skip
     r = subprocess.run(["nm", "-D", lib], capture_output=True, text=True)
@@ -145,7 +145,7 @@ def t10():
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("  Neural Memory Adapter - Tests")
+    print("  Mazemaker Adapter - Tests")
     print("=" * 50)
     print()
     print(f"  {PASS} passed, {FAIL} failed")

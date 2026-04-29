@@ -6,7 +6,7 @@
 
 3. **Weak channels remain: partial.** Salience remains harmful on real text: removing it improves R@5 0.64 -> 0.66. But real text reverses the synthetic story for bm25/temporal: `no_bm25` costs -0.02 recall and `no_temporal` costs -0.08, so they are not globally dead.
 
-4. **`score_floor` mis-calibration: partial.** `score_percentile` works in `memory_client.NeuralMemory.recall`: smoke test confirmed 0.5 -> 5/10, 0.7 -> 3/10, 0.9 -> 1/10, while `score_floor=0.2` returns 0. Legacy `score_floor` remains sharp-edged, and the public `Memory.recall` facade does not expose `score_percentile`.
+4. **`score_floor` mis-calibration: partial.** `score_percentile` works in `memory_client.Mazemaker.recall`: smoke test confirmed 0.5 -> 5/10, 0.7 -> 3/10, 0.9 -> 1/10, while `score_floor=0.2` returns 0. Legacy `score_floor` remains sharp-edged, and the public `Memory.recall` facade does not expose `score_percentile`.
 
 ## New caveats v6 introduced
 

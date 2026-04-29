@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 
 class ConflictBenchmark:
@@ -35,8 +35,8 @@ class ConflictBenchmark:
         self.conflict_groups = conflict_groups
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def setup(self) -> NeuralMemory:
-        nm = NeuralMemory(db_path=self.db_path, embedding_backend="auto")
+    def setup(self) -> Mazemaker:
+        nm = Mazemaker(db_path=self.db_path, embedding_backend="auto")
         for m in self.memories:
             nm.remember(m["text"], label=m["label"], auto_connect=True)
         return nm
@@ -49,7 +49,7 @@ class ConflictBenchmark:
 
         # 1. Store conflicting memory pairs
         print("\n[1] Storing conflicting memory pairs...")
-        nm = NeuralMemory(db_path=self.db_path, embedding_backend="auto")
+        nm = Mazemaker(db_path=self.db_path, embedding_backend="auto")
 
         conflict_pairs = [
             ("FastEmbed loads in under 1 second.", "FastEmbed loads in 4-5 seconds on average."),

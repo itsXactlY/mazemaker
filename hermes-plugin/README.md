@@ -1,6 +1,6 @@
 ![Demo](https://github.com/user-attachments/assets/2d938624-cc39-4f8b-b35b-485b23e93355)
 
-# Neural Memory Plugin
+# Mazemaker Plugin
 
 Local semantic memory with knowledge graph, spreading activation, and auto-connections.
 Runs entirely offline — no API keys, no cloud.

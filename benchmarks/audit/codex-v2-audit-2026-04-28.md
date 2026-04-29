@@ -12,13 +12,13 @@ Graph/spreading activation is shallow. `graph.py` counts visited/activated nodes
 
 MMR is genuinely exercised by `diversity.py`; the entropy/recall trade-off is real. The score floor is miscalibrated: `memory_client.recall()` uses RRF-ish relevance around `0.02-0.06`, so floors `0.2+` erase valid results.
 
-LSTM+kNN is not exercised. `lstm_knn.py` imports `NeuralMemory` from `memory_client.py`, but `_lstm_knn_ready` and `_enhance_recall()` live in `python/neural_memory.py`’s `Memory` wrapper. This suite will usually report “not loaded” rather than ablate the feature. Even if fixed, IID paraphrase queries do not create a sequence pattern for LSTM to learn.
+LSTM+kNN is not exercised. `lstm_knn.py` imports `Mazemaker` from `memory_client.py`, but `_lstm_knn_ready` and `_enhance_recall()` live in `python/neural_memory.py`’s `Memory` wrapper. This suite will usually report “not loaded” rather than ablate the feature. Even if fixed, IID paraphrase queries do not create a sequence pattern for LSTM to learn.
 
 Conflict quality is much better than marker-counting: it measures whether the replacement outranks the original. But it lacks a `detect_conflicts=False` control, so rank-1 winner rate cannot be attributed cleanly to supersession versus recency/semantic similarity.
 
 Continuity measures old-fact retrieval under noise, but not an agent harness, not session-conditioned behavior, and not against raw cosine or recency baselines. The anchor-collision bug weakens it.
 
-Baseline fairness is only partly fair. It uses the same embedding provider class, but raw cosine runs first, warming the shared model and writing embedding cache entries that neural-memory can reuse. That biases setup/latency toward neural-memory. Quality is less affected, but semantic mode can also use C++/HNSW paths unless explicitly disabled, so it is not a pure “same vectors, different ranking” control.
+Baseline fairness is only partly fair. It uses the same embedding provider class, but raw cosine runs first, warming the shared model and writing embedding cache entries that mazemaker can reuse. That biases setup/latency toward mazemaker. Quality is less affected, but semantic mode can also use C++/HNSW paths unless explicitly disabled, so it is not a pure “same vectors, different ranking” control.
 
 The smoke results tell a coherent but unfavorable story: raw cosine crushes semantic memory, skynet recovers some via multi-channel retrieval but still loses to a trivial baseline, MMR trades recall for diversity, and score floors are broken for the current score scale.
 
@@ -34,7 +34,7 @@ Add `suites/lstm_sequence.py`: use `python.neural_memory.Memory`, create repeate
 
 Add `suites/dream_derived_fact.py`: seed clusters where REM/Insight should create bridges or `derived:*` facts, then query facts absent before dreaming and score whether new material improves answer retrieval.
 
-Add `suites/continuity_controls.py`: reuse a global anchor registry, then compare neural-memory against raw cosine, recency-only, and shuffled-session controls.
+Add `suites/continuity_controls.py`: reuse a global anchor registry, then compare mazemaker against raw cosine, recency-only, and shuffled-session controls.
 
 ## Verdict (truly unique? y/n + why)
 

@@ -1,5 +1,5 @@
 """
-Neural Memory Benchmark — Main Orchestrator
+Mazemaker Benchmark — Main Orchestrator
 ===========================================
 Coordinates all benchmark suites and collects results.
 
@@ -499,7 +499,7 @@ class NeuralMemoryBenchmark:
 def main():
     import argparse
     parser = argparse.ArgumentParser(
-        description="Neural Memory Benchmark Suite",
+        description="Mazemaker Benchmark Suite",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -517,7 +517,7 @@ Examples:
     parser.add_argument("--output-dir", type=Path, default=None,
                         help="Results output directory")
     parser.add_argument("--db", dest="db_path", default=None,
-                        help="Neural Memory DB path")
+                        help="Mazemaker DB path")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed")
     parser.add_argument("--dry-run", action="store_true",

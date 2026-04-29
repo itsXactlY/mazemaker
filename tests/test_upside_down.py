@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Neural Memory — Upside-Down Test Suite
+Mazemaker — Upside-Down Test Suite
 =======================================
 Tests everything that SHOULDN'T work, edge cases, boundary conditions,
 corruption recovery, and "what if the user is drunk" scenarios.
@@ -82,24 +82,24 @@ T = UpsideDown()
 def test_wrong_paths():
     print("\n[1] WRONG PATHS & MISSING FILES")
 
-    from neural_memory import NeuralMemory
+    from mazemaker import Mazemaker
 
     # Path to nowhere (should crash at SQLite open)
     T.expect_crash("path/dev-null",
-        NeuralMemory, db_path="/dev/null/nope/memory.db", embedding_backend="hash", use_cpp=False)
+        Mazemaker, db_path="/dev/null/nope/memory.db", embedding_backend="hash", use_cpp=False)
 
     # Path to read-only location (should crash at SQLite open)
     T.expect_crash("path/readonly",
-        NeuralMemory, db_path="/proc/memory.db", embedding_backend="hash", use_cpp=False)
+        Mazemaker, db_path="/proc/memory.db", embedding_backend="hash", use_cpp=False)
 
     # Empty path — SQLite creates file in CWD, graceful
     T.expect_no_crash("path/empty",
-        NeuralMemory, db_path="", embedding_backend="hash", use_cpp=False)
+        Mazemaker, db_path="", embedding_backend="hash", use_cpp=False)
 
     # Temp dir (directory, not file)
     tmpdir = tempfile.mkdtemp()
     try:
-        T.expect_crash("path/is-dir", NeuralMemory, db_path=tmpdir, embedding_backend="hash", use_cpp=False)
+        T.expect_crash("path/is-dir", Mazemaker, db_path=tmpdir, embedding_backend="hash", use_cpp=False)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -111,8 +111,8 @@ def test_garbage_remember():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         # Empty string — graceful (stores as-is or returns error)
         T.expect_no_crash("remember/empty", nm.remember, "")
@@ -178,8 +178,8 @@ def test_garbage_recall():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         # Store one real memory first
         nm.remember("real memory for testing recall edge cases", label="anchor")
@@ -222,8 +222,8 @@ def test_garbage_think():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         mid = nm.remember("anchor for think edge cases", label="think-anchor")
 
@@ -257,8 +257,8 @@ def test_empty_db():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         # Recall on empty DB
         results = T.expect_no_crash("empty/recall", nm.recall, "nothing here")
@@ -289,14 +289,14 @@ def test_concurrent():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
+        from mazemaker import Mazemaker
 
         errors = []
         results = []
 
         def writer(nm_path, thread_id, count=20):
             try:
-                nm = NeuralMemory(db_path=nm_path, embedding_backend="hash", use_cpp=False)
+                nm = Mazemaker(db_path=nm_path, embedding_backend="hash", use_cpp=False)
                 for i in range(count):
                     nm.remember(f"Thread {thread_id} memory {i}", label=f"t{thread_id}-{i}")
                 nm.close()
@@ -306,7 +306,7 @@ def test_concurrent():
 
         def reader(nm_path, thread_id, count=10):
             try:
-                nm = NeuralMemory(db_path=nm_path, embedding_backend="hash", use_cpp=False)
+                nm = Mazemaker(db_path=nm_path, embedding_backend="hash", use_cpp=False)
                 for i in range(count):
                     nm.recall(f"memory query {i}")
                 nm.close()
@@ -358,8 +358,8 @@ def test_duplicates():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         # Store same content 10 times
         ids = []
@@ -397,8 +397,8 @@ def test_rapid_fire():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         # 100 rapid remembers (detect_conflicts=False to avoid hash collision conflicts)
         start = time.time()
@@ -445,10 +445,10 @@ def test_corrupted_db():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
+        from mazemaker import Mazemaker
 
         # Create and populate
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
         nm.remember("Pre-corruption memory", label="pre-corrupt")
         nm.close()
 
@@ -458,7 +458,7 @@ def test_corrupted_db():
 
         # Try to open corrupted DB
         try:
-            nm2 = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+            nm2 = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
             T.ok("corrupt/open", "opened corrupted DB (graceful?)")
             # Try recall on corrupted
             try:
@@ -537,7 +537,7 @@ def test_memory_provider():
 
         # handle_tool_call without init — graceful (error message, not crash)
         T.expect_no_crash("mp/call-no-init", provider.handle_tool_call,
-                       "neural_remember", {"content": "test"})
+                       "mazemaker_remember", {"content": "test"})
 
         # Initialize
         T.expect_no_crash("mp/initialize", provider.initialize, "test-session")
@@ -547,7 +547,7 @@ def test_memory_provider():
         if schemas:
             T.ok("mp/schemas", f"{len(schemas)} tools")
             schema_names = {s['name'] for s in schemas}
-            expected = {'neural_remember', 'neural_recall', 'neural_think', 'neural_graph'}
+            expected = {'mazemaker_remember', 'mazemaker_recall', 'mazemaker_think', 'mazemaker_graph'}
             missing = expected - schema_names
             if missing:
                 T.fail("mp/schemas-missing", f"missing: {missing}")
@@ -561,12 +561,12 @@ def test_memory_provider():
 
         # handle_tool_call — remember
         result = T.expect_no_crash("mp/remember",
-            provider.handle_tool_call, "neural_remember",
+            provider.handle_tool_call, "mazemaker_remember",
             {"content": "Upside down test memory", "label": "ud-test"})
 
         # handle_tool_call — recall
         result = T.expect_no_crash("mp/recall",
-            provider.handle_tool_call, "neural_recall",
+            provider.handle_tool_call, "mazemaker_recall",
             {"query": "upside down", "limit": 3})
 
         # handle_tool_call — unknown tool
@@ -575,7 +575,7 @@ def test_memory_provider():
 
         # handle_tool_call — missing args
         result = T.expect_no_crash("mp/missing-args",
-            provider.handle_tool_call, "neural_remember", {})
+            provider.handle_tool_call, "mazemaker_remember", {})
 
         # prefetch
         T.expect_no_crash("mp/prefetch", provider.prefetch, "test query")
@@ -851,10 +851,10 @@ def test_memory_lifecycle():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
+        from mazemaker import Mazemaker
 
         # Phase 1: Create and populate
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
         T.ok("lifecycle/init", "created")
 
         ids = []
@@ -895,7 +895,7 @@ def test_memory_lifecycle():
         T.ok("lifecycle/close", "clean close")
 
         # Phase 7: Reopen and verify persistence
-        nm2 = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        nm2 = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
         results2 = nm2.recall("lifecycle test", k=10)
         T.ok("lifecycle/reopen-recall", f"{len(results2)} results after reopen")
 
@@ -923,8 +923,8 @@ def test_dream_engine():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         # Populate some memories for dream
         for i in range(20):
@@ -1032,8 +1032,8 @@ def test_db_schema_wal():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
         nm.remember("Schema test memory", label="schema-test", detect_conflicts=False)
         nm.close()
 
@@ -1120,17 +1120,17 @@ def test_graceful_degradation():
     assert len(vec2) == 1024
     T.ok("degrade/fallback", f"invalid backend fell back to {type(ep2.backend).__name__}")
 
-    # NeuralMemory with hash (no fastembed needed)
+    # Mazemaker with hash (no fastembed needed)
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
         mid = nm.remember("degradation test", label="degrade", detect_conflicts=False)
         results = nm.recall("degradation")
-        T.ok("degrade/neural-memory", f"works with hash backend only")
+        T.ok("degrade/mazemaker", f"works with hash backend only")
         nm.close()
     except Exception as e:
-        T.fail("degrade/neural-memory", str(e))
+        T.fail("degrade/mazemaker", str(e))
     finally:
         for ext in ['', '-wal', '-shm']:
             Path(db + ext).unlink(missing_ok=True)
@@ -1161,8 +1161,8 @@ def test_text_processing():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         # Empty label (auto-generated from content)
         mid = nm.remember("Auto label generation test", label="", detect_conflicts=False)
@@ -1215,10 +1215,10 @@ def test_multiple_dbs():
     db1 = tempfile.mktemp(suffix="_1.db")
     db2 = tempfile.mktemp(suffix="_2.db")
     try:
-        from neural_memory import NeuralMemory
+        from mazemaker import Mazemaker
 
-        nm1 = NeuralMemory(db_path=db1, embedding_backend="hash", use_cpp=False)
-        nm2 = NeuralMemory(db_path=db2, embedding_backend="hash", use_cpp=False)
+        nm1 = Mazemaker(db_path=db1, embedding_backend="hash", use_cpp=False)
+        nm2 = Mazemaker(db_path=db2, embedding_backend="hash", use_cpp=False)
 
         # Store in DB1 only
         nm1.remember("DB1 exclusive memory", label="db1-only", detect_conflicts=False)
@@ -1273,8 +1273,8 @@ def test_graph_integrity():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         # Store related memories (should auto-connect)
         nm.remember("Python programming language tutorial", label="py-1", detect_conflicts=False)
@@ -1320,8 +1320,8 @@ def test_neural_recall_deep():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
         assert nm._gpu is None, "GPU engine should NOT load with custom db_path!"
         T.ok("recall/no-gpu-leak", "GPU engine disabled with custom db_path")
 
@@ -1401,8 +1401,8 @@ def test_neural_graph_deep():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         # Empty graph
         stats = nm.graph()
@@ -1479,8 +1479,8 @@ def test_neural_think_deep():
 
     db = tempfile.mktemp(suffix=".db")
     try:
-        from neural_memory import NeuralMemory
-        nm = NeuralMemory(db_path=db, embedding_backend="hash", use_cpp=False)
+        from mazemaker import Mazemaker
+        nm = Mazemaker(db_path=db, embedding_backend="hash", use_cpp=False)
 
         # Build connected graph
         ids = []
@@ -1551,10 +1551,10 @@ def test_db_isolation():
     db1 = tempfile.mktemp(suffix="_iso1.db")
     db2 = tempfile.mktemp(suffix="_iso2.db")
     try:
-        from neural_memory import NeuralMemory
+        from mazemaker import Mazemaker
 
-        nm1 = NeuralMemory(db_path=db1, embedding_backend="hash", use_cpp=False)
-        nm2 = NeuralMemory(db_path=db2, embedding_backend="hash", use_cpp=False)
+        nm1 = Mazemaker(db_path=db1, embedding_backend="hash", use_cpp=False)
+        nm2 = Mazemaker(db_path=db2, embedding_backend="hash", use_cpp=False)
 
         # Verify NO GPU engine on either
         assert nm1._gpu is None, "nm1 has GPU engine leak!"
@@ -1615,7 +1615,7 @@ def test_db_isolation():
 
 def main():
     print("╔══════════════════════════════════════════════════╗")
-    print("║   Neural Memory — Upside-Down Test Suite         ║")
+    print("║   Mazemaker — Upside-Down Test Suite         ║")
     print("║   \"What if everything goes wrong?\"             ║")
     print("║   23 test sections, 200+ assertions              ║")
     print("╚══════════════════════════════════════════════════╝")

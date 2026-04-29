@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-"""Neural Memory plugin - MemoryProvider for Neural Memory Adapter.
+"""Mazemaker plugin - MemoryProvider for Mazemaker Adapter.
 
 Provides semantic memory storage with embedding-based recall, knowledge graph
-connections, and spreading activation via the neural-memory-adapter Python
+connections, and spreading activation via the mazemaker-adapter Python
 client (memory_client.py + embed_provider.py).
 
 Config (in ~/.hermes/config.yaml):
@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 # Tool schemas
 # ---------------------------------------------------------------------------
 
-NEURAL_REMEMBER_SCHEMA = {
-    "name": "neural_remember",
+MAZEMAKER_REMEMBER_SCHEMA = {
+    "name": "mazemaker_remember",
     "description": (
         "STORE a fact, preference, decision, or piece of context that the user "
         "will expect you to remember in future turns or sessions. Call this WHENEVER "
@@ -69,10 +69,10 @@ NEURAL_REMEMBER_SCHEMA = {
     },
 }
 
-NEURAL_RECALL_SCHEMA = {
-    "name": "neural_recall",
+MAZEMAKER_RECALL_SCHEMA = {
+    "name": "mazemaker_recall",
     "description": (
-        "SEARCH the persistent neural memory. Call this AT THE START of every turn "
+        "SEARCH the persistent mazemaker. Call this AT THE START of every turn "
         "where the user references prior context, asks 'do you remember…', mentions "
         "their preferences/setup/files/projects, or where you would otherwise be "
         "tempted to answer from your parametric weights. Returns top-k memories "
@@ -101,8 +101,8 @@ NEURAL_RECALL_SCHEMA = {
     },
 }
 
-NEURAL_THINK_SCHEMA = {
-    "name": "neural_think",
+MAZEMAKER_THINK_SCHEMA = {
+    "name": "mazemaker_think",
     "description": (
         "EXPLORE adjacent memories via spreading activation from a known memory id. "
         "After a recall hit on memory N, call this to surface the cluster around N — "
@@ -127,8 +127,8 @@ NEURAL_THINK_SCHEMA = {
     },
 }
 
-NEURAL_GRAPH_SCHEMA = {
-    "name": "neural_graph",
+MAZEMAKER_GRAPH_SCHEMA = {
+    "name": "mazemaker_graph",
     "description": (
         "META view of the memory store: total count, connection count, top edges. "
         "Call when the user asks 'what do you remember about me?', 'how much memory "
@@ -139,10 +139,10 @@ NEURAL_GRAPH_SCHEMA = {
 }
 
 ALL_TOOL_SCHEMAS = [
-    NEURAL_REMEMBER_SCHEMA,
-    NEURAL_RECALL_SCHEMA,
-    NEURAL_THINK_SCHEMA,
-    NEURAL_GRAPH_SCHEMA,
+    MAZEMAKER_REMEMBER_SCHEMA,
+    MAZEMAKER_RECALL_SCHEMA,
+    MAZEMAKER_THINK_SCHEMA,
+    MAZEMAKER_GRAPH_SCHEMA,
 ]
 
 
@@ -154,7 +154,7 @@ class NeuralMemoryProvider(MemoryProvider):
     """Neural memory with semantic search, knowledge graph, and spreading activation."""
 
     def __init__(self):
-        self._memory: Optional[Any] = None  # NeuralMemory instance
+        self._memory: Optional[Any] = None  # Mazemaker instance
         self._config: Optional[dict] = None
         self._session_id: str = ""
         self._lock = threading.Lock()
@@ -181,21 +181,21 @@ class NeuralMemoryProvider(MemoryProvider):
         return "neural"
 
     def is_available(self) -> bool:
-        """Check if neural memory dependencies are installed."""
+        """Check if mazemaker dependencies are installed."""
         try:
             import sys
             from pathlib import Path
 
             # Resolve symlinks so imports work when running from the symlink
             plugin_dir = str(Path(__file__).resolve().parent)
-            real_project_dir = str(Path(__file__).resolve().parent.parent.parent / "neural-memory-adapter" / "python")
+            real_project_dir = str(Path(__file__).resolve().parent.parent.parent / "mazemaker-adapter" / "python")
 
             for p in (plugin_dir, real_project_dir):
                 if p not in sys.path:
                     sys.path.insert(0, p)
 
             # Actually try importing
-            from neural_memory import Memory
+            from mazemaker import Memory
             return True
         except Exception as e:
             import logging
@@ -203,7 +203,7 @@ class NeuralMemoryProvider(MemoryProvider):
             return False
 
     def initialize(self, session_id: str, **kwargs) -> None:
-        """Initialize neural memory for a session."""
+        """Initialize mazemaker for a session."""
         try:
             import sys
             import os
@@ -236,7 +236,7 @@ class NeuralMemoryProvider(MemoryProvider):
                     os.environ[key] = str(val)
 
             # Use Memory class (auto-detects MSSQL vs SQLite)
-            from neural_memory import Memory
+            from mazemaker import Memory
             def _cfg_bool(value, default=False):
                 if value is None:
                     return default
@@ -305,7 +305,7 @@ class NeuralMemoryProvider(MemoryProvider):
     def update_session_id(self, session_id: str) -> None:
         """Called after session split (e.g. compression) to update the session tag.
         
-        Neural Memory uses session_id as the archive_tag for archive_compression().
+        Mazemaker uses session_id as the archive_tag for archive_compression().
         After compression creates a new session_id, this ensures subsequent
         archives and prefetches use the correct new tag.
         """
@@ -316,7 +316,7 @@ class NeuralMemoryProvider(MemoryProvider):
         """Start dream engine — MSSQL (C++) if available, SQLite fallback.
 
         Idempotent: if a prior DreamEngine is still running (e.g. caller is
-        re-initialising NeuralMemory after a session split or model switch),
+        re-initialising Mazemaker after a session split or model switch),
         stop it first.  Without this each call leaks a daemon thread plus
         its DB handle and C++ backend state.
         """
@@ -488,7 +488,7 @@ class NeuralMemoryProvider(MemoryProvider):
                 f"a real persistent brain. ALWAYS check it before answering."
             )
 
-        header = f"""# Neural Memory — MANDATORY USAGE
+        header = f"""# Mazemaker — MANDATORY USAGE
 
 {state_line}
 
@@ -563,7 +563,7 @@ memory?") call `neural_graph` to summarise.
             # On first call, return initial context if available
             if self._initial_context:
                 return (
-                    "## ⚡ Neural Memory — recent context\n"
+                    "## ⚡ Mazemaker — recent context\n"
                     f"{self._initial_context}\n\n"
                     "**You have access to neural_remember / neural_recall / "
                     "neural_think / neural_graph. USE THEM.** Do not answer "
@@ -571,7 +571,7 @@ memory?") call `neural_graph` to summarise.
                 )
             return ""
         return (
-            "## ⚡ Neural Memory — relevant memories for this turn\n"
+            "## ⚡ Mazemaker — relevant memories for this turn\n"
             f"{result}\n\n"
             "If any of the above hits feel relevant, prefer them over your "
             "parametric guess. Need more? Call `neural_recall` with a tighter "
@@ -626,10 +626,10 @@ memory?") call `neural_graph` to summarise.
         "as mentioned in my",
         "according to my memory",
         "i recall from",
-        "neural memory",
-        "neural_recall",
-        "neural_remember",
-        "does neural memory work",
+        "mazemaker",
+        "mazemaker_recall",
+        "mazemaker_remember",
+        "does mazemaker work",
         "tool_result",
         "test_suite",
         "config.yaml",
@@ -938,7 +938,7 @@ memory?") call `neural_graph` to summarise.
     # Skip list for prefetch result content — drops meta/debug recalls
     # that would feed a self-referential loop in the model's context.
     _PREFETCH_SKIP_PATTERNS = (
-        "neural memory", "tool_result", "test_suite", "mssql",
+        "mazemaker", "tool_result", "test_suite", "mssql",
         "config.yaml", "odbc", "embedding", "connection string",
         "archive:session",
     )
@@ -994,13 +994,13 @@ memory?") call `neural_graph` to summarise.
         return ALL_TOOL_SCHEMAS
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
-        if tool_name == "neural_remember":
+        if tool_name == "mazemaker_remember":
             return self._handle_remember(args)
-        elif tool_name == "neural_recall":
+        elif tool_name == "mazemaker_recall":
             return self._handle_recall(args)
-        elif tool_name == "neural_think":
+        elif tool_name == "mazemaker_think":
             return self._handle_think(args)
-        elif tool_name == "neural_graph":
+        elif tool_name == "mazemaker_graph":
             return self._handle_graph(args)
         return tool_error(f"Unknown tool: {tool_name}")
 
@@ -1103,7 +1103,7 @@ memory?") call `neural_graph` to summarise.
             logger.debug("Neural on_session_end failed: %s", e)
 
     def on_memory_write(self, action: str, target: str, content: str) -> None:
-        """Mirror built-in memory writes to neural memory. Skips garbage."""
+        """Mirror built-in memory writes to mazemaker. Skips garbage."""
         if action == "add" and self._memory and content:
             if self._is_garbage(content):
                 return
@@ -1137,7 +1137,7 @@ memory?") call `neural_graph` to summarise.
             count = result.get("archived", 0)
             if count > 0:
                 logger.info(f"Neural memory: archived {count} turns before compression")
-            return f"[{count} conversation turns archived to neural memory before compression]"
+            return f"[{count} conversation turns archived to mazemaker before compression]"
         except Exception as e:
             logger.debug(f"Archive failed: {e}")
             return ""
@@ -1361,7 +1361,7 @@ memory?") call `neural_graph` to summarise.
 # ---------------------------------------------------------------------------
 
 def register(ctx) -> None:
-    """Register the neural memory provider with the plugin system."""
+    """Register the mazemaker provider with the plugin system."""
     provider = NeuralMemoryProvider()
     ctx.register_memory_provider(provider)
     

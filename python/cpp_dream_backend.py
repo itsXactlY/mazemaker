@@ -51,7 +51,7 @@ class CppDreamBackend(DreamBackend):
                 self._mssql_conn = pyodbc.connect(
                     f"DRIVER={os.environ.get('MSSQL_DRIVER', '{ODBC Driver 18 for SQL Server}')};"
                     f"SERVER={mssql_server};"
-                    f"DATABASE={os.environ.get('MSSQL_DATABASE', 'NeuralMemory')};"
+                    f"DATABASE={os.environ.get('MSSQL_DATABASE', 'Mazemaker')};"
                     f"UID={os.environ.get('MSSQL_USERNAME', 'SA')};"
                     f"PWD={mssql_password};"
                     f"TrustServerCertificate=yes;",

@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 
 def wal_size_mb(db_path: str) -> float:
@@ -50,7 +50,7 @@ def run_concurrent_writers(
 
     def writer_task(writer_id: int):
         try:
-            nm = NeuralMemory(db_path=db_path, embedding_backend="auto")
+            nm = Mazemaker(db_path=db_path, embedding_backend="auto")
             ops = 0
             for i in range(ops_per_writer):
                 m = memories[(writer_id * ops_per_writer + i) % len(memories)]
@@ -94,7 +94,7 @@ def run_concurrent_readers(
     query_texts: List[str],
 ) -> Dict[str, Any]:
     """Run N concurrent readers querying memories."""
-    nm = NeuralMemory(db_path=db_path, embedding_backend="auto")
+    nm = Mazemaker(db_path=db_path, embedding_backend="auto")
 
     latencies = []
     errors = []
@@ -242,7 +242,7 @@ class ConcurrentBenchmark:
         # First create a DB with some data
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             prep_db = f.name
-        nm = NeuralMemory(db_path=prep_db, embedding_backend="auto")
+        nm = Mazemaker(db_path=prep_db, embedding_backend="auto")
         for m in self.memories[:2000]:
             nm.remember(m["text"], label=m["label"], auto_connect=False)
         nm.close()

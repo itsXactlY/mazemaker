@@ -1,9 +1,9 @@
 """
 LSTM+kNN Auto-Enhancement Ablation
 ===================================
-NeuralMemory (`memory_client.NeuralMemory`) is the SQL/graph store.
+Mazemaker (`memory_client.Mazemaker`) is the SQL/graph store.
 The LSTM + multi-signal kNN re-ranker (`_enhance_recall`) lives on the
-PUBLIC wrapper `neural_memory.Memory`, not on `NeuralMemory`. Codex
+PUBLIC wrapper `neural_memory.Memory`, not on `Mazemaker`. Codex
 audit 2026-04-28 caught the prior version of this suite imported the
 wrong class and never actually toggled the feature — it always
 reported "not loaded".
@@ -38,7 +38,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from neural_memory import Memory
+from mazemaker import Memory
 
 
 def _measure(mem: Memory, queries: List[Dict[str, Any]], k: int = 5) -> Dict[str, Any]:
@@ -90,7 +90,7 @@ class LSTMKnnBenchmark:
         print("\n=== LSTM+kNN Ablation Benchmark ===")
         # Use the PUBLIC Memory wrapper — that's where _lstm_knn_ready and
         # _enhance_recall actually live.  The prior suite imported
-        # NeuralMemory and looked for _lstm_knn_ready, which always returned
+        # Mazemaker and looked for _lstm_knn_ready, which always returned
         # False because that attribute doesn't exist there.
         mem = Memory(db_path=self.db_path, embedding_backend="auto")
         for m in self.memories:

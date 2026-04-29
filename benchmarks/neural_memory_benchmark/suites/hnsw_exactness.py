@@ -2,7 +2,7 @@
 HNSW Exactness Benchmark
 ========================
 HNSW is an approximate nearest-neighbor index — it trades recall for
-speed. The neural-memory-adapter activates HNSW automatically above
+speed. The mazemaker-adapter activates HNSW automatically above
 some threshold ("auto"). This suite quantifies the trade:
 
   At memory tiers 1k / 10k / 50k:
@@ -13,7 +13,7 @@ some threshold ("auto"). This suite quantifies the trade:
 Isolation flags (BOTH arms)
 ---------------------------
 To make HNSW vs exact the only changing variable, both arms construct
-``NeuralMemory`` with::
+``Mazemaker`` with::
 
     use_cpp=False    # disable the C++ bridge / kNN engine
     rerank=False     # disable cross-encoder reranker
@@ -57,7 +57,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "python"))
 
-from memory_client import NeuralMemory
+from memory_client import Mazemaker
 
 
 def _build_and_query(
@@ -66,7 +66,7 @@ def _build_and_query(
     queries: List[str],
     k: int,
 ) -> Dict[str, Any]:
-    """Build a clean NeuralMemory with HNSW/exact isolated, ingest, and query.
+    """Build a clean Mazemaker with HNSW/exact isolated, ingest, and query.
 
     Returns a dict with timings, retrieved ids, and the actual retrieval
     path taken (``retrieval_path``). On the HNSW arm, if the index never
@@ -81,7 +81,7 @@ def _build_and_query(
         # between arms is the HNSW codepath itself. Pass use_hnsw as an
         # explicit bool (NOT "auto") so the HNSW arm can't silently
         # fall back to brute force at sub-threshold tiers.
-        nm = NeuralMemory(
+        nm = Mazemaker(
             db_path=db_path,
             embedding_backend="auto",
             retrieval_mode="semantic",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""memory_client.py - Python client for Neural Memory Adapter.
+"""memory_client.py - Python client for Mazemaker Adapter.
 
 This is the hot path: SQLite persistence, optional C++/GPU/HNSW indexes,
 hybrid retrieval, typed temporal graph edges, and PPR thinking.
@@ -25,7 +25,7 @@ from typing import Any, Optional
 def _find_lib():
     candidates = [
         Path(__file__).parent.parent / "build" / "libneural_memory.so",
-        Path.home() / "projects" / "neural-memory-adapter" / "build" / "libneural_memory.so",
+        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libneural_memory.so",
         Path("/usr/local/lib/libneural_memory.so"),
         Path("/usr/lib/libneural_memory.so"),
     ]
@@ -693,11 +693,11 @@ class SQLiteStore:
 
 
 # ============================================================================
-# Neural Memory Client
+# Mazemaker Client
 # ============================================================================
 
-class NeuralMemory:
-    """Python interface to the Neural Memory system."""
+class Mazemaker:
+    """Python interface to the Mazemaker system."""
 
     def __init__(
         self,
@@ -2012,7 +2012,7 @@ class NeuralMemory:
         # shorter vector and return a meaningless partial dot product.
         if len(a) != len(b):
             return 0.0
-        if NeuralMemory._cosine_sim_fast is not None:
+        if Mazemaker._cosine_sim_fast is not None:
             import numpy as np
             if not isinstance(a, np.ndarray):
                 a = np.asarray(a, dtype=np.float64)
@@ -2021,7 +2021,7 @@ class NeuralMemory:
             # numpy/fast_ops would also fail loudly on mismatch, but the
             # explicit early return above keeps the contract uniform across
             # both code paths.
-            return float(NeuralMemory._cosine_sim_fast(a, b))
+            return float(Mazemaker._cosine_sim_fast(a, b))
         dot = sum(x * y for x, y in zip(a, b))
         na = (sum(x * x for x in a)) ** 0.5
         nb = (sum(x * x for x in b)) ** 0.5

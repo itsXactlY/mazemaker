@@ -1,5 +1,5 @@
 """
-Neural Memory Benchmark — Configuration
+Mazemaker Benchmark — Configuration
 =======================================
 All tunable knobs for the benchmark suite.
 Default values are conservative; override via CLI or env vars.
@@ -15,7 +15,7 @@ SRC_ROOT = BENCH_ROOT.parent.parent / "python"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-# ── Neural Memory imports ────────────────────────────────────────────────────
+# ── Mazemaker imports ────────────────────────────────────────────────────
 # We import lazily inside functions to avoid breaking when the module isn't
 # installed yet. Each suite handles its own import.
 
@@ -52,7 +52,7 @@ SANDBOX_DB = Path.home() / ".neural_memory_benchmark" / "sandbox.db"
 
 @dataclass
 class MemoryConfig:
-    """Neural Memory under test."""
+    """Mazemaker under test."""
     db_path: str = os.environ.get(
         "NEURAL_BENCH_DB",
         str(SANDBOX_DB),

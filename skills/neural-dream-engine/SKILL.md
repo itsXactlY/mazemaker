@@ -1,12 +1,12 @@
 ---
 name: neural-dream-engine
 category: devops
-description: Autonomous background memory consolidation for Neural Memory — NREM/REM/Insight phases
+description: Autonomous background memory consolidation for Mazemaker — NREM/REM/Insight phases
 ---
 
 # Neural Dream Engine
 
-Autonomous background memory consolidation for the Neural Memory plugin.
+Autonomous background memory consolidation for the Mazemaker plugin.
 Inspired by biological sleep: NREM → REM → Insight phases.
 
 ## Architecture
@@ -82,13 +82,13 @@ memory:
       memory_threshold: 50
       mssql:
         server: localhost      # Optional: override MSSQL_SERVER env
-        database: NeuralMemory # Optional: override MSSQL_DATABASE env
+        database: Mazemaker # Optional: override MSSQL_DATABASE env
 ```
 
 Credentials go in `~/.hermes/.env` — NEVER hardcode passwords:
 ```
 MSSQL_SERVER=localhost
-MSSQL_DATABASE=NeuralMemory
+MSSQL_DATABASE=Mazemaker
 MSSQL_USERNAME=SA
 MSSQL_PASSWORD=your_password
 MSSQL_DRIVER={ODBC Driver 18 for SQL Server}
@@ -168,7 +168,7 @@ Never hardcode. Resolution: env vars → ~/.hermes/.env → config → defaults.
 ```bash
 # ~/.hermes/.env
 MSSQL_SERVER=localhost
-MSSQL_DATABASE=NeuralMemory
+MSSQL_DATABASE=Mazemaker
 MSSQL_USERNAME=SA
 MSSQL_PASSWORD=your_password
 ```
@@ -280,18 +280,18 @@ cronjob create --name neural-dream-mssql --schedule "0 */6 * * *" \
 
 ## C++ SIMD Bridge (recall <1ms)
 
-The C++ bridge (`cpp_bridge.py` → `libneural_memory.so`) provides SIMD-accelerated
-retrieval. Wire it into NeuralMemory with `use_cpp=True`:
+The C++ bridge (`cpp_bridge.py` → `libmazemaker.so`) provides SIMD-accelerated
+retrieval. Wire it into Mazemaker with `use_cpp=True`:
 
 ```python
-m = NeuralMemory(db_path=DB, use_cpp=True)
+m = Mazemaker(db_path=DB, use_cpp=True)
 # C++ index loaded at init from all stored memories
 # recall() uses C++ retrieve(k*3) then applies temporal scoring on small set
 ```
 
 ### CSearchResult Struct MUST Match C Header
 
-The Python `ctypes.Structure` MUST exactly match `NeuralMemoryResult` in `c_api.h`:
+The Python `ctypes.Structure` MUST exactly match `MazemakerResult` in `c_api.h`:
 
 ```c
 // c_api.h
@@ -303,7 +303,7 @@ typedef struct {
     char     content[4096];  // NOT 1024!
     float    similarity;
     float    salience;
-} NeuralMemoryResult;
+} MazemakerResult;
 ```
 
 ```python
@@ -334,7 +334,7 @@ from fast_ops import cosine_similarity, batch_cosine_similarity
 
 Drop-in integration in `memory_client.py`:
 ```python
-class NeuralMemory:
+class Mazemaker:
     try:
         from fast_ops import cosine_similarity as _cosine_sim_fast
     except ImportError:
@@ -342,13 +342,13 @@ class NeuralMemory:
 
     @staticmethod
     def _cosine_similarity(a, b):
-        if NeuralMemory._cosine_sim_fast is not None:
+        if Mazemaker._cosine_sim_fast is not None:
             import numpy as np
             if not isinstance(a, np.ndarray):
                 a = np.asarray(a, dtype=np.float64)
             if not isinstance(b, np.ndarray):
                 b = np.asarray(b, dtype=np.float64)
-            return float(NeuralMemory._cosine_sim_fast(a, b))
+            return float(Mazemaker._cosine_sim_fast(a, b))
         # Python fallback
         dot = sum(x*y for x, y in zip(a, b))
         ...
@@ -396,7 +396,7 @@ Client-side: `reasoning_budget: -1` further forces content output.
 
 ## Full Stack Benchmark Harness
 
-`benchmarks/bench_neural.py` uses the complete NeuralMemory stack:
+`benchmarks/bench_neural.py` uses the complete Mazemaker stack:
 
 ```bash
 python bench_neural.py --dataset mmlu_pro --mssql    # MSSQL + C++ + Cython
@@ -405,7 +405,7 @@ python bench_neural.py --dataset mmlu_pro --no-memory  # Baseline
 python bench_neural.py --all --mssql                   # All datasets
 ```
 
-Stack: NeuralMemory(use_mssql=True, use_cpp=True, embedding_backend="sentence-transformers")
+Stack: Mazemaker(use_mssql=True, use_cpp=True, embedding_backend="sentence-transformers")
 - sentence-transformers CUDA for embeddings
 - C++ SIMD bridge for recall (<1ms)
 - Cython fast_ops for cosine_similarity (66x)
@@ -421,7 +421,7 @@ Stack: NeuralMemory(use_mssql=True, use_cpp=True, embedding_backend="sentence-tr
 def prefetch(self, query, **kwargs):
     if not result and self._initial_context:
         # DON'T consume: self._initial_context = ""
-        return f"## Neural Memory Context\n{self._initial_context}"
+        return f"## Mazemaker Context\n{self._initial_context}"
 ```
 
 Double-injection is intentional — model sees context in both places.

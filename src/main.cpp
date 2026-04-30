@@ -1,5 +1,5 @@
 // main.cpp - Neural Memory Adapter CLI Demo
-#include "neural/memory_adapter.h"
+#include "mazemaker/memory_adapter.h"
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -9,7 +9,7 @@
 using namespace neural;
 
 void print_usage() {
-    std::cout << "Usage: neural_memory_demo [mode]\n"
+    std::cout << "Usage: mazemaker_demo [mode]\n"
               << "Modes:\n"
               << "  demo        - Interactive demo\n"
               << "  benchmark   - Run benchmarks\n"

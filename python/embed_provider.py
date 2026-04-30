@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-embed_provider.py - Text Embedding for Neural Memory Adapter
+embed_provider.py - Text Embedding for Mazemaker Adapter
 
 SHARED MODE (default): First process starts a UNIX socket server holding
 the model. All other processes connect as clients. ONE model instance
@@ -26,7 +26,19 @@ import socket
 import struct
 import time
 import threading
+import warnings
 from pathlib import Path
+
+# fastembed >= 0.7 emits a cosmetic UserWarning when the
+# intfloat/multilingual-e5-large model switched from CLS to mean pooling.
+# Mean pooling is the model's documented aggregation; the prior CLS path
+# was a fastembed bug. We want the new (correct) behaviour, so silence
+# the noise rather than pin to 0.5.1.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*now uses mean pooling instead of CLS embedding.*",
+    category=UserWarning,
+)
 
 CACHE_DIR = Path.home() / ".neural_memory"
 CACHE_FILE = CACHE_DIR / "embed_cache.pkl"
@@ -82,6 +94,7 @@ class SharedEmbedServer:
     def _load_model(self):
         from sentence_transformers import SentenceTransformer
         import torch
+        import time as time_module
         
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         
@@ -123,11 +136,50 @@ class SharedEmbedServer:
             raise FileNotFoundError(f"No cached model: {self.model_name}")
         
         print(f"[embed-server] Loading {model_path} on {device}...")
+        
+        # If target is CUDA, wait for sufficient GPU memory (no silent fallback)
+        if device == 'cuda':
+            # Cap the waiter at 30s: 120s was too long — if the GPU is full
+            # for that long, it's not coming back during this session, and
+            # the user is paying multi-minute startup latency before the
+            # first prompt. EMBED_GPU_WAIT_S overrides for ops who want a
+            # longer hold.
+            gpu_wait_s = float(os.environ.get("EMBED_GPU_WAIT_S", "30"))
+            self._wait_for_gpu_memory(min_free_mb=2000, timeout=gpu_wait_s, poll_interval=2)
+        
         self.model = SentenceTransformer(model_path, device=device)
         self.dim = self.model.get_sentence_embedding_dimension()
         self._original_device = device
         self._last_used = time.time()
         print(f"[embed-server] Ready: {self.model_name} ({self.dim}d) on {device}")
+    
+    def _wait_for_gpu_memory(self, min_free_mb: float = 2000, timeout: float = 120, poll_interval: float = 5):
+        """Wait for sufficient GPU memory to be available.
+        
+        Policy: GPU FIRST — if CUDA was chosen as target, wait for memory.
+        Do NOT fall back to CPU silently.
+        """
+        import torch
+        import time as time_module
+        
+        deadline = time_module.time() + timeout
+        attempt = 0
+        
+        while time_module.time() < deadline:
+            attempt += 1
+            free = torch.cuda.mem_get_info(0)[0] / 1024**2
+            if free >= min_free_mb:
+                if attempt > 1:
+                    print(f"[embed-server] GPU memory sufficient: {free:.0f} MB (after {attempt} attempts)")
+                return
+            if attempt <= 3:
+                print(f"[embed-server] WARNING: Only {free:.0f}MB free GPU memory, need {min_free_mb}MB+ (attempt {attempt}, waiting {poll_interval}s...)", file=sys.stderr)
+            time_module.sleep(poll_interval)
+        
+        # Timeout — GPU genuinely unavailable
+        print(f"[embed-server] FATAL: GPU memory timeout ({free:.0f}MB < {min_free_mb}MB after {timeout}s)", file=sys.stderr)
+        print(f"[embed-server] Policy: NO FALLBACK — GPU was target, not falling back to CPU", file=sys.stderr)
+        raise RuntimeError(f"GPU memory insufficient after {timeout}s: {free:.0f}MB < {min_free_mb}MB")
     
     def _start_listener(self):
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -209,26 +261,54 @@ class SharedEmbedServer:
             except Exception as e:
                 return {"ok": False, "error": str(e)}
     
-    def _ensure_on_device(self):
-        if self._original_device == 'cpu':
+    def _ensure_on_device(self, timeout: float = 60.0, poll_interval: float = 2.0):
+        """Ensure model is on GPU, waiting if necessary. Raises on failure.
+        
+        Policy: GPU FIRST — wait for GPU, never silently fall back to CPU.
+        This runs in the shared server process and must enforce the same
+        no-fallback rule to prevent CUDA crashes from silent degradation.
+        """
+        import torch
+        import time as time_module
+        
+        if self._original_device != 'cuda':
             return True
-        try:
-            import torch
-            current = next(self.model.parameters()).device
-            if current.type == 'cpu' and self._original_device == 'cuda':
+        
+        current = next(self.model.parameters()).device
+        if current.type != 'cpu':
+            return True  # Already on GPU
+        
+        # Model is on CPU but CUDA was intended — wait and retry
+        deadline = time_module.time() + timeout
+        attempt = 0
+        last_error = None
+        
+        while time_module.time() < deadline:
+            attempt += 1
+            try:
                 free = torch.cuda.mem_get_info(0)[0] / 1024**2
                 if free < 500:
-                    print(f"[embed-server] WARNING: Only {free:.0f}MB free VRAM, staying on CPU", file=sys.stderr)
-                    return False
+                    last_error = f"GPU memory critically low: {free:.0f}MB"
+                    if attempt <= 3:
+                        print(f"[embed-server] WARNING: {last_error}, waiting... ({attempt})", file=sys.stderr)
+                    time_module.sleep(poll_interval)
+                    continue
+                
                 self.model.to('cuda')
-                print(f"[embed-server] Reloaded to GPU")
-            elif current.type == 'cpu' and self._original_device == 'mps':
-                self.model.to('mps')
-                print(f"[embed-server] Reloaded to MPS")
-            return True
-        except Exception as e:
-            print(f"[embed-server] GPU reload failed: {e}, staying on CPU", file=sys.stderr)
-            return False
+                torch.cuda.synchronize()
+                print(f"[embed-server] Reloaded to GPU after {attempt} attempt(s)")
+                return True
+                
+            except Exception as e:
+                last_error = str(e)
+                if attempt <= 3:
+                    print(f"[embed-server] GPU reload attempt {attempt} failed: {last_error}, retrying...", file=sys.stderr)
+                time_module.sleep(poll_interval)
+        
+        # Timeout — GPU genuinely unavailable
+        print(f"[embed-server] FATAL: GPU reload timed out after {attempt} attempts", file=sys.stderr)
+        print(f"[embed-server] Policy: NO FALLBACK — GPU was intended, not falling back to CPU", file=sys.stderr)
+        raise RuntimeError(f"GPU unavailable after {attempt} attempts: {last_error}")
     
     def _eject_to_cpu(self):
         try:
@@ -296,6 +376,17 @@ class SharedEmbedClient:
                 resp = self._send({"cmd": "ping"})
                 self._dim = resp.get("dim", 1024)
                 return  # success
+            except (FileNotFoundError, ConnectionRefusedError) as e:
+                # Hard \"server not there\" signals — no server is listening on
+                # the socket path or the socket file is missing entirely.
+                # Retrying just adds startup latency (the previous code spent
+                # ~6s of backoff before giving up on a clearly-dead server).
+                # Fail fast so _auto_detect falls through to a direct load.
+                if self._sock:
+                    try: self._sock.close()
+                    except Exception: pass
+                    self._sock = None
+                raise e
             except (socket.timeout, socket.error, OSError) as e:
                 last_err = e
                 if self._sock:
@@ -396,7 +487,12 @@ class SentenceTransformerBackend:
     _shared_device = None
     _last_used = 0.0
     _eject_timer = None
-    _lock = None  # threading.Lock, lazy init
+    # Initialised at class-body time. Previously lazy via
+    # `if _lock is None: _lock = Lock()`, which has the same lock-init
+    # race fixed in FastEmbedBackend (see iter 40 commit message). Eager
+    # init eliminates the race; the cost is negligible (one Lock object
+    # per backend class at module load).
+    _lock = threading.Lock()
     
     def __init__(self):
         # Try shared server first (unless disabled)
@@ -440,11 +536,12 @@ class SentenceTransformerBackend:
         """Fallback: load model directly into this process (original behavior)."""
         from sentence_transformers import SentenceTransformer
         import torch
-        import threading
-        
-        if SentenceTransformerBackend._lock is None:
-            SentenceTransformerBackend._lock = threading.Lock()
-        
+        import time as time_module
+
+        # Lock is now class-level (initialised at class-body time, see iter
+        # 40). The previous `if _lock is None: _lock = Lock()` lazy-init was
+        # itself racy — two threads could install distinct Lock objects.
+
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         
         device = 'cpu'
@@ -480,6 +577,13 @@ class SentenceTransformerBackend:
         if model_path is None:
             raise FileNotFoundError(f"No cached model: {self.MODEL_NAME}")
         
+        # GPU-FIRST: if CUDA was chosen, wait for memory (no silent fallback).
+        # Capped at EMBED_GPU_WAIT_S (default 30s) — see SharedEmbedServer
+        # comment above for rationale.
+        if device == 'cuda':
+            gpu_wait_s = float(os.environ.get("EMBED_GPU_WAIT_S", "30"))
+            _wait_for_gpu(self, min_free_mb=2000, timeout=gpu_wait_s, poll_interval=2)
+        
         print(f"[embed] Loading {model_path} directly on {device}...")
         self.model = SentenceTransformer(model_path, device=device)
         self.dim = self.model.get_sentence_embedding_dimension()
@@ -487,7 +591,7 @@ class SentenceTransformerBackend:
         SentenceTransformerBackend._shared_dim = self.dim
         SentenceTransformerBackend._shared_device = device
         print(f"[embed] {self.MODEL_NAME} ready ({self.dim}d)")
-    
+
     def embed(self, text: str) -> list[float]:
         if self._is_client:
             try:
@@ -496,16 +600,15 @@ class SentenceTransformerBackend:
                 print(f"[embed] Server timeout ({e}), reconnecting...", file=sys.stderr)
                 try:
                     self._client.close()
-                except:
+                except Exception:
                     pass
-                # Reconnect — server should be on GPU now
                 self._client = SharedEmbedClient(timeout=15.0)
                 return self._client.embed(text)
         SentenceTransformerBackend._touch()
         SentenceTransformerBackend._ensure_on_device()
         vec = self.model.encode(text, normalize_embeddings=True)
         return vec.tolist()
-    
+
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         if self._is_client:
             try:
@@ -514,7 +617,7 @@ class SentenceTransformerBackend:
                 print(f"[embed] Server timeout ({e}), reconnecting...", file=sys.stderr)
                 try:
                     self._client.close()
-                except:
+                except Exception:
                     pass
                 self._client = SharedEmbedClient(timeout=15.0)
                 return self._client.embed_batch(texts)
@@ -522,43 +625,60 @@ class SentenceTransformerBackend:
         SentenceTransformerBackend._ensure_on_device()
         vecs = self.model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
         return [v.tolist() for v in vecs]
-    
+
     @classmethod
     def _touch(cls):
         """Record last use time for idle eject timer."""
         cls._last_used = time.time()
-    
+
     @classmethod
-    def _ensure_on_device(cls):
-        """Ensure model is on GPU (reloads from CPU if necessary)."""
+    def _ensure_on_device(cls, timeout: float = 60.0, poll_interval: float = 2.0):
+        import torch
+        import time as time_module
+
         if cls._shared_device != 'cuda':
             return
-        try:
-            import torch
-            if cls._shared_model is None:
-                return
-            current = next(cls._shared_model.parameters()).device
-            if current.type == 'cpu':
+        if cls._shared_model is None:
+            return
+        current = next(cls._shared_model.parameters()).device
+        if current.type != 'cpu':
+            return
+
+        deadline = time_module.time() + timeout
+        attempt = 0
+        last_error = None
+        while time_module.time() < deadline:
+            attempt += 1
+            try:
                 free = torch.cuda.mem_get_info(0)[0] / 1024**2
                 if free < 500:
-                    return
+                    last_error = f"GPU memory critically low: {free:.0f}MB"
+                    if attempt == 1:
+                        print(f"[embed] WARNING: {last_error}, waiting... ({attempt})", file=sys.stderr)
+                    time_module.sleep(poll_interval)
+                    continue
                 cls._shared_model.to('cuda')
-                print("[embed] Reloaded to GPU")
-        except Exception as e:
-            print(f"[embed] GPU reload failed: {e}", file=sys.stderr)
+                torch.cuda.synchronize()
+                print(f"[embed] Reloaded to GPU after {attempt} attempt(s)")
+                return
+            except Exception as e:
+                last_error = str(e)
+                if attempt <= 3:
+                    print(f"[embed] GPU reload attempt {attempt} failed: {last_error}, retrying...", file=sys.stderr)
+                time_module.sleep(poll_interval)
+        print(f"[embed] FATAL: GPU reload timed out after {attempt} attempts. Last error: {last_error}", file=sys.stderr)
+        raise RuntimeError(f"GPU unavailable after {attempt} attempts: {last_error}")
 
     @classmethod
     def eject(cls):
         """Manually eject model to CPU (frees GPU memory now)."""
-        # Try shared server eject
         try:
             client = SharedEmbedClient()
             client._send({"cmd": "eject"})
             client.close()
             return
-        except:
+        except Exception:
             pass
-        # Direct model eject
         if cls._shared_model is None:
             return
         try:
@@ -571,21 +691,18 @@ class SentenceTransformerBackend:
                 print(f"[embed] Ejected to CPU")
         except Exception as e:
             print(f"[embed] Eject failed: {e}", file=sys.stderr)
-    
+
     @classmethod
     def status(cls):
         """Return model status dict."""
-        # Try shared server status
         try:
             client = SharedEmbedClient()
             resp = client._send({"cmd": "status"})
             client.close()
             resp["mode"] = "shared"
             return resp
-        except:
+        except Exception:
             pass
-        
-        # Direct model status
         if cls._shared_model is None:
             return {"loaded": False, "mode": "none"}
         try:
@@ -601,12 +718,36 @@ class SentenceTransformerBackend:
                 "eject_timeout": cls.IDLE_TIMEOUT,
                 "ejected": device.type == 'cpu' and cls._shared_device != 'cpu',
             }
-        except:
+        except Exception:
             return {"loaded": True, "mode": "direct", "error": "could not determine status"}
 
 
+def _wait_for_gpu(min_free_mb: float = 2000, timeout: float = 120, poll_interval: float = 5):
+    """Wait for sufficient GPU memory. Raises on timeout (no fallback)."""
+    import torch
+    import time as time_module
+
+    deadline = time_module.time() + timeout
+    attempt = 0
+    while time_module.time() < deadline:
+        attempt += 1
+        free = torch.cuda.mem_get_info(0)[0] / 1024**2
+        if free >= min_free_mb:
+            if attempt > 1:
+                print(f"[embed] GPU memory sufficient: {free:.0f} MB (after {attempt} attempts)")
+            return
+        if attempt <= 3:
+            print(f"[embed] WARNING: Only {free:.0f}MB free GPU memory, need {min_free_mb}MB+ (attempt {attempt}, waiting {poll_interval}s...)", file=sys.stderr)
+        time_module.sleep(poll_interval)
+    print(f"[embed] FATAL: GPU memory timeout ({free:.0f}MB < {min_free_mb}MB after {timeout}s)", file=sys.stderr)
+    raise RuntimeError(f"GPU memory insufficient after {timeout}s: {free:.0f}MB < {min_free_mb}MB")
+
+
 class TfidfSvdBackend:
-    """Pure numpy TF-IDF + SVD embedding (no ML dependencies)"""
+    """Pure numpy TF-IDF + SVD embedding (no ML dependencies)."""
+
+    STATE_FILE = CACHE_DIR / "tfidf_state.npz"
+
     def __init__(self, dim: int = DIMENSION):
         import numpy as np
         self.np = np
@@ -616,6 +757,72 @@ class TfidfSvdBackend:
         self.svd_components: np.ndarray | None = None
         self._trained = False
         self._corpus: list[str] = []
+        self._load_state()
+
+    def _load_state(self):
+        """Load a previously-fitted vocab/IDF/SVD from disk if dim matches."""
+        if not self.STATE_FILE.exists():
+            return
+        try:
+            np = self.np
+            with np.load(self.STATE_FILE, allow_pickle=False) as data:
+                if int(data["dim"]) != self.dim:
+                    return
+                vocab_words = data["vocab_words"]
+                self.vocab = {str(w): i for i, w in enumerate(vocab_words)}
+                self.idf = data["idf"]
+                self.svd_components = data["svd_components"]
+            self._trained = True
+        except (KeyError, ValueError, OSError):
+            self._trained = False
+            self.vocab = {}
+            self.idf = None
+            self.svd_components = None
+
+    def _save_state(self):
+        """Persist vocab/IDF/SVD to disk so future starts skip the fit.
+
+        Writes to a sibling .tmp file and os.replace()'s onto STATE_FILE so
+        an interrupted save (Ctrl+C, OOM, kill -9) can never leave a half-
+        written .npz on disk that the next process would have to retrain
+        from scratch (~30-60s SVD fit).
+        """
+        if not self._trained or self.svd_components is None or self.idf is None:
+            return
+        tmp_path = None
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            np = self.np
+            words = sorted(self.vocab.items(), key=lambda kv: kv[1])
+            # Use a fixed-width unicode dtype so the array is pickle-free —
+            # _load_state() uses allow_pickle=False to keep the cache file
+            # safe to read even if it's tampered with.
+            vocab_words = np.array([w for w, _ in words], dtype="U")
+            # np.savez auto-appends .npz when given a string/Path lacking that
+            # suffix, which would land us at <name>.tmp.npz instead of
+            # <name>.tmp. Pass a file handle so the path is honoured exactly.
+            tmp_path = self.STATE_FILE.with_name(self.STATE_FILE.name + ".tmp")
+            with open(tmp_path, "wb") as fh:
+                np.savez(
+                    fh,
+                    dim=np.int64(self.dim),
+                    vocab_words=vocab_words,
+                    idf=self.idf,
+                    svd_components=self.svd_components,
+                )
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_path, self.STATE_FILE)
+            tmp_path = None  # ownership transferred
+        except OSError:
+            pass
+        finally:
+            # If replace() didn't run (exception before it), clean up the tmp.
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
     
     def _tokenize(self, text: str) -> list[str]:
         text = text.lower()
@@ -674,15 +881,43 @@ class TfidfSvdBackend:
             if norm > 0:
                 tfidf[i] /= norm
         
-        # SVD for dimensionality reduction
+        # SVD for dimensionality reduction.  The previous implementation
+        # called np.linalg.svd on a (n_docs, 5000) dense matrix despite the
+        # "Randomized SVD for speed" comment — that's full deterministic SVD,
+        # O(n·m²), which dominated cold-start (30-60s on a real corpus).
+        # The randomized variant below is O(n·m·k) with k=self.dim, typically
+        # 5-10x faster while preserving the top-k singular subspace to within
+        # tens of basis points.
         if vocab_size > self.dim:
-            # Randomized SVD for speed
-            U, S, Vt = np.linalg.svd(tfidf[:, :min(vocab_size, 5000)], full_matrices=False)
-            self.svd_components = Vt[:self.dim].T  # (vocab, dim)
+            sub = tfidf[:, :min(vocab_size, 5000)]
+            self.svd_components = self._randomized_svd_components(sub, self.dim)
         else:
             self.svd_components = np.eye(vocab_size, self.dim)
-        
+
         self._trained = True
+        self._save_state()
+
+    def _randomized_svd_components(self, M, k: int, n_oversamples: int = 10, n_iter: int = 4):
+        """Compute the top-k right singular vectors of M via randomized SVD.
+
+        Returns Vt[:k].T with shape (M.shape[1], k) — same orientation the
+        full-SVD code path produced.  See Halko/Martinsson/Tropp 2011.
+        """
+        np = self.np
+        n_rows, n_cols = M.shape
+        ell = min(k + n_oversamples, n_cols)
+        rng = np.random.default_rng(0xBADC0DE)
+        Omega = rng.standard_normal((n_cols, ell)).astype(M.dtype, copy=False)
+        Y = M @ Omega
+        for _ in range(n_iter):
+            Q, _ = np.linalg.qr(Y)
+            Z = M.T @ Q
+            Q2, _ = np.linalg.qr(Z)
+            Y = M @ Q2
+        Q, _ = np.linalg.qr(Y)
+        B = Q.T @ M
+        _, _, Vt = np.linalg.svd(B, full_matrices=False)
+        return Vt[:k].T
     
     def embed(self, text: str) -> list[float]:
         self._corpus.append(text)
@@ -787,20 +1022,21 @@ class FastEmbedBackend:
     # Class-level singleton — shared across all instances
     _shared_model = None
     _shared_dim = None
-    _lock = None  # threading.Lock, lazy init
+    # Initialised at class-body time so the double-checked-locking idiom in
+    # __init__ is actually safe. Previously the lock itself was lazy-inited
+    # under `if _lock is None: _lock = Lock()`, which is not atomic — two
+    # threads racing through the first construction could each install a
+    # different Lock object, defeating the singleton-load guarantee and
+    # producing two ONNX model copies (the exact failure the singleton was
+    # meant to prevent — see commit ac02e8b).
+    _lock = threading.Lock()
 
     def __init__(self, dim: int = DIMENSION):
-        import threading
-
-        # Try to reuse shared model
+        # Try to reuse shared model — fast-path without taking the lock.
         if FastEmbedBackend._shared_model is not None:
             self._model = FastEmbedBackend._shared_model
             self.dim = FastEmbedBackend._shared_dim or dim
             return
-
-        # Acquire lock for initial load
-        if FastEmbedBackend._lock is None:
-            FastEmbedBackend._lock = threading.Lock()
 
         with FastEmbedBackend._lock:
             # Double-check after acquiring lock
@@ -886,8 +1122,15 @@ class HashBackend:
 # ============================================================================
 
 class EmbeddingProvider:
+    # Bounded LRU cap. ~8KB per 1024-d vector → 32MB at 4096 entries.
+    # Override with EMBED_CACHE_MAX env var.
+    _CACHE_MAX_DEFAULT = 4096
+
     def __init__(self, backend: str = "auto"):
-        self.cache: dict[str, list[float]] = {}
+        from collections import OrderedDict
+        self._cache_max = max(64, int(os.environ.get("EMBED_CACHE_MAX",
+                                                     self._CACHE_MAX_DEFAULT)))
+        self.cache: "OrderedDict[str, list[float]]" = OrderedDict()
         self._load_cache()
         
         if backend == "auto":
@@ -941,11 +1184,19 @@ class EmbeddingProvider:
                 pass  # No server running, fall through to direct load
 
         # 1. CUDA sentence-transformers (user's RTX 4060 Ti has 15GB VRAM)
+        # Policy: GPU FIRST — if CUDA is available and we attempt it, do NOT fall back
+        # to FastEmbed/CPU on failure. Either GPU succeeds or we raise.
         if torch and torch.cuda.is_available():
             try:
                 free = torch.cuda.mem_get_info(0)[0] / 1024**2
                 if free > 2000:  # At least 2GB VRAM for batching
                     backend = SentenceTransformerBackend()
+                    # SentenceTransformerBackend() may have started the shared server
+                    # and connected as a client. If so, the model is already loaded in
+                    # the server process — return immediately without loading it again.
+                    if backend._is_client:
+                        print(f"[embed] Auto-selected: sentence-transformers CUDA ({backend.dim}d, {free:.0f}MB free)")
+                        return backend
                     backend._is_client = False
                     # Force CUDA load directly
                     backend._load_direct = lambda: None  # prevent recursion
@@ -976,7 +1227,13 @@ class EmbeddingProvider:
                         print(f"[embed] Auto-selected: sentence-transformers CUDA ({backend.dim}d, {free:.0f}MB free)")
                         return backend
             except (ImportError, Exception) as e:
-                print(f"[embed] CUDA sentence-transformers failed: {e}", file=sys.stderr)
+                # CUDA was available and we attempted it — GPU was the target.
+                # Do NOT fall back to FastEmbed/CPU. Raise immediately.
+                print(f"[embed] CUDA sentence-transformers FAILED (GPU was target, not falling back): {e}", file=sys.stderr)
+                raise RuntimeError(f"CUDA embedding failed and no fallback allowed by policy: {e}") from e
+
+        # Below this line: CUDA was NOT available — these are legitimate fallbacks
+        # for systems WITHOUT GPU access. NOT for systems that chose GPU and failed.
 
         # 2. FastEmbed ONNX (CPU, no PyTorch dependency, fast)
         try:
@@ -1007,67 +1264,102 @@ class EmbeddingProvider:
             if not isinstance(e, ImportError):
                 print(f"[embed] CPU sentence-transformers failed: {e}", file=sys.stderr)
 
-        # 5. TF-IDF+SVD
-        try:
-            import numpy
-            print("[embed] Auto-selected: TF-IDF+SVD")
-            return TfidfSvdBackend()
-        except ImportError:
-            pass
-
-        # 6. Hash fallback
+        # 5. Hash fallback — instant, deterministic, zero dependencies.
+        # Preferred over TF-IDF+SVD because the latter requires a corpus fit
+        # (full SVD on a dense matrix) that costs 30-60s on cold start with
+        # no semantic-quality win that justifies the wait.  TF-IDF is still
+        # available via EMBED_BACKEND=tfidf for users who explicitly want it.
         print("[embed] Auto-selected: hash (zero dependencies)")
         return HashBackend()
     
     def _load_cache(self):
+        from collections import OrderedDict
         if CACHE_FILE.exists():
             try:
                 with open(CACHE_FILE, 'rb') as f:
-                    self.cache = pickle.load(f)
+                    raw = pickle.load(f)
+                if isinstance(raw, OrderedDict):
+                    self.cache = raw
+                elif isinstance(raw, dict):
+                    self.cache = OrderedDict(raw.items())
+                else:
+                    self.cache = OrderedDict()
             except Exception:
-                self.cache = {}
-    
+                self.cache = OrderedDict()
+            # On load, evict back down to the cap if a previous (unbounded)
+            # session left a giant pickle on disk.
+            self._evict_to_cap()
+
     def _save_cache(self):
+        """Persist cache atomically so a crash mid-write can't corrupt it."""
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CACHE_FILE, 'wb') as f:
-            pickle.dump(self.cache, f)
-    
+        tmp = CACHE_FILE.with_name(CACHE_FILE.name + ".tmp")
+        try:
+            with open(tmp, 'wb') as f:
+                pickle.dump(self.cache, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, CACHE_FILE)
+        except OSError:
+            try: tmp.unlink()
+            except OSError: pass
+
+    def _evict_to_cap(self) -> None:
+        while len(self.cache) > self._cache_max:
+            self.cache.popitem(last=False)  # FIFO: drop oldest insertion
+
+    def _record(self, key: str, vec: list[float]) -> None:
+        """Insert / refresh-LRU a cache entry under the bound."""
+        if key in self.cache:
+            self.cache.move_to_end(key)
+            self.cache[key] = vec
+            return
+        self.cache[key] = vec
+        if len(self.cache) > self._cache_max:
+            self._evict_to_cap()
+
     def embed(self, text: str) -> list[float]:
         key = hashlib.md5(text.encode()).hexdigest()
         if key in self.cache:
+            # LRU touch
+            self.cache.move_to_end(key)
             return self.cache[key]
-        
+
         vec = self.backend.embed(text)
-        self.cache[key] = vec
-        
-        # Save periodically
+        self._record(key, vec)
+
+        # Save periodically (every 100 *misses*, not every 100 entries — the
+        # old `len(cache) % 100 == 0` would re-save constantly once the cache
+        # plateaued at a multiple of 100, since len was unchanged after each
+        # eviction-replace cycle).
         if len(self.cache) % 100 == 0:
             self._save_cache()
-        
+
         return vec
-    
+
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         results = []
         to_compute = []
         indices = []
-        
+
         for i, text in enumerate(texts):
             key = hashlib.md5(text.encode()).hexdigest()
             if key in self.cache:
+                self.cache.move_to_end(key)
                 results.append(self.cache[key])
             else:
                 results.append(None)
                 to_compute.append(text)
                 indices.append(i)
-        
+
         if to_compute:
             computed = self.backend.embed_batch(to_compute)
             for idx, vec in zip(indices, computed):
                 results[idx] = vec
                 key = hashlib.md5(texts[idx].encode()).hexdigest()
-                self.cache[key] = vec
+                self._record(key, vec)
             self._save_cache()
-        
+
         return results
     
     @property

@@ -1,6 +1,6 @@
 name: neural
 version: 1.0.0
-description: "Neural Memory — local semantic memory with knowledge graph, spreading activation, and auto-connections. Runs entirely offline."
+description: "Mazemaker — local semantic memory with knowledge graph, spreading activation, and auto-connections. Runs entirely offline."
 requires_env: []
 hooks:
   - on_session_end

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-"""Neural Memory plugin - MemoryProvider for Neural Memory Adapter.
+"""Mazemaker plugin - MemoryProvider for Mazemaker Adapter.
 
 Provides semantic memory storage with embedding-based recall, knowledge graph
-connections, and spreading activation via the neural-memory-adapter Python
+connections, and spreading activation via the mazemaker-adapter Python
 client (memory_client.py + embed_provider.py).
 
 Config (in ~/.hermes/config.yaml):
@@ -16,9 +16,11 @@ Config (in ~/.hermes/config.yaml):
       max_episodic: 50000
 """
 
+import hashlib
 import json
 import logging
 import queue
+import re
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -32,42 +34,63 @@ logger = logging.getLogger(__name__)
 # Tool schemas
 # ---------------------------------------------------------------------------
 
-NEURAL_REMEMBER_SCHEMA = {
-    "name": "neural_remember",
+MAZEMAKER_REMEMBER_SCHEMA = {
+    "name": "mazemaker_remember",
     "description": (
-        "Store a memory in the neural memory system. "
-        "Memories are embedded and auto-connected to similar memories. "
-        "Use this for facts, user preferences, decisions, and important context."
+        "STORE a fact, preference, decision, or piece of context that the user "
+        "will expect you to remember in future turns or sessions. Call this WHENEVER "
+        "the user states a durable fact about themselves, their setup, their "
+        "preferences, or makes a decision. Examples: 'I prefer fish shell' → call "
+        "this; 'we decided to use FastEmbed' → call this; 'the bug was at line 870' "
+        "→ call this. Auto-embeds and auto-connects to similar memories. Storing "
+        "is cheap — err on the side of more, with a stable label."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "content": {
                 "type": "string",
-                "description": "The memory content to store.",
+                "description": (
+                    "The DURABLE fact to remember. One sentence ideally. NOT the "
+                    "whole conversation, NOT your reasoning — just the fact the "
+                    "user wants you to recall later."
+                ),
             },
             "label": {
                 "type": "string",
-                "description": "Short label for the memory (optional, auto-generated from content if omitted).",
+                "description": (
+                    "Stable topic slug like 'pref:shell', 'decision:embedding', "
+                    "'bug:dream-engine', 'fact:user-name'. Reusing labels lets "
+                    "future writes update or fuse with the existing memory."
+                ),
             },
         },
         "required": ["content"],
     },
 }
 
-NEURAL_RECALL_SCHEMA = {
-    "name": "neural_recall",
+MAZEMAKER_RECALL_SCHEMA = {
+    "name": "mazemaker_recall",
     "description": (
-        "Search neural memory using semantic similarity. "
-        "Returns memories ranked by relevance with connection info. "
-        "Use this to recall past conversations, facts, or user preferences."
+        "SEARCH the persistent mazemaker. Call this AT THE START of every turn "
+        "where the user references prior context, asks 'do you remember…', mentions "
+        "their preferences/setup/files/projects, or where you would otherwise be "
+        "tempted to answer from your parametric weights. Returns top-k memories "
+        "ranked by semantic+graph relevance — these are facts you've stored across "
+        "sessions, more reliable than your training data for anything user-specific. "
+        "Cheap to call; missing a recall when one was warranted is the #1 way to "
+        "look stupid."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "What to search for.",
+                "description": (
+                    "Search phrase. Use the user's key entities + topic. "
+                    "E.g. 'shell preference', 'fastembed model choice', "
+                    "'dream engine bug'. Concrete is better than abstract."
+                ),
             },
             "limit": {
                 "type": "integer",
@@ -78,43 +101,48 @@ NEURAL_RECALL_SCHEMA = {
     },
 }
 
-NEURAL_THINK_SCHEMA = {
-    "name": "neural_think",
+MAZEMAKER_THINK_SCHEMA = {
+    "name": "mazemaker_think",
     "description": (
-        "Spreading activation from a memory — explore connected ideas. "
-        "Returns memories activated by traversing the knowledge graph from a starting point. "
-        "Use to find related context that isn't directly similar."
+        "EXPLORE adjacent memories via spreading activation from a known memory id. "
+        "After a recall hit on memory N, call this to surface the cluster around N — "
+        "it's how you find context the user didn't explicitly query for. Use when "
+        "an answer needs background, when you want to remember the broader picture, "
+        "or when the user asks 'what else…'/'related…'. Returns activated memories "
+        "ranked by graph proximity * decay."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "memory_id": {
                 "type": "integer",
-                "description": "Starting memory ID.",
+                "description": "Starting memory ID (typically from a recent neural_recall hit).",
             },
             "depth": {
                 "type": "integer",
-                "description": "Activation depth (default: 3).",
+                "description": "Hop depth — 2-3 for tight clusters, 5+ for broader exploration. Default 3.",
             },
         },
         "required": ["memory_id"],
     },
 }
 
-NEURAL_GRAPH_SCHEMA = {
-    "name": "neural_graph",
+MAZEMAKER_GRAPH_SCHEMA = {
+    "name": "mazemaker_graph",
     "description": (
-        "Get knowledge graph statistics and top connections. "
-        "Use to understand the structure of stored memories."
+        "META view of the memory store: total count, connection count, top edges. "
+        "Call when the user asks 'what do you remember about me?', 'how much memory "
+        "do you have?', 'show me the structure'. Cheap aggregate — don't use as a "
+        "substitute for neural_recall on specific topics."
     ),
     "parameters": {"type": "object", "properties": {}, "required": []},
 }
 
 ALL_TOOL_SCHEMAS = [
-    NEURAL_REMEMBER_SCHEMA,
-    NEURAL_RECALL_SCHEMA,
-    NEURAL_THINK_SCHEMA,
-    NEURAL_GRAPH_SCHEMA,
+    MAZEMAKER_REMEMBER_SCHEMA,
+    MAZEMAKER_RECALL_SCHEMA,
+    MAZEMAKER_THINK_SCHEMA,
+    MAZEMAKER_GRAPH_SCHEMA,
 ]
 
 
@@ -126,12 +154,17 @@ class NeuralMemoryProvider(MemoryProvider):
     """Neural memory with semantic search, knowledge graph, and spreading activation."""
 
     def __init__(self):
-        self._memory: Optional[Any] = None  # NeuralMemory instance
+        self._memory: Optional[Any] = None  # Mazemaker instance
         self._config: Optional[dict] = None
         self._session_id: str = ""
         self._lock = threading.Lock()
         self._prefetch_result: Optional[str] = None
         self._prefetch_thread: Optional[threading.Thread] = None
+        # Monotonic sequence number for prefetch generations. Only the
+        # newest prefetch is allowed to publish into _prefetch_result —
+        # an in-flight slow one whose generation has been superseded
+        # silently drops its result instead of clobbering a fresher one.
+        self._prefetch_gen: int = 0
         self._initial_context: str = ""
         self._consolidation_thread: Optional[threading.Thread] = None
         self._consolidation_stop = threading.Event()  # set = stop requested
@@ -148,21 +181,21 @@ class NeuralMemoryProvider(MemoryProvider):
         return "neural"
 
     def is_available(self) -> bool:
-        """Check if neural memory dependencies are installed."""
+        """Check if mazemaker dependencies are installed."""
         try:
             import sys
             from pathlib import Path
 
             # Resolve symlinks so imports work when running from the symlink
             plugin_dir = str(Path(__file__).resolve().parent)
-            real_project_dir = str(Path(__file__).resolve().parent.parent.parent / "neural-memory-adapter" / "python")
+            real_project_dir = str(Path(__file__).resolve().parent.parent.parent / "mazemaker-adapter" / "python")
 
             for p in (plugin_dir, real_project_dir):
                 if p not in sys.path:
                     sys.path.insert(0, p)
 
             # Actually try importing
-            from neural_memory import Memory
+            from mazemaker import Memory
             return True
         except Exception as e:
             import logging
@@ -170,14 +203,17 @@ class NeuralMemoryProvider(MemoryProvider):
             return False
 
     def initialize(self, session_id: str, **kwargs) -> None:
-        """Initialize neural memory for a session."""
+        """Initialize mazemaker for a session."""
         try:
             import sys
             import os
             from pathlib import Path
 
-            # Ensure plugin dir is on sys.path
-            plugin_dir = str(Path(__file__).parent)
+            # Ensure real plugin source dir is on sys.path. __file__ may be a
+            # symlink under ~/.hermes/plugins/...; Path(__file__).parent alone
+            # points at a sparse runtime dir that may not contain config.py or
+            # memory_client.py. Resolve to the source-of-truth python/ dir.
+            plugin_dir = str(Path(__file__).resolve().parent)
             if plugin_dir not in sys.path:
                 sys.path.insert(0, plugin_dir)
 
@@ -200,14 +236,48 @@ class NeuralMemoryProvider(MemoryProvider):
                     os.environ[key] = str(val)
 
             # Use Memory class (auto-detects MSSQL vs SQLite)
-            from neural_memory import Memory
+            from mazemaker import Memory
+            def _cfg_bool(value, default=False):
+                if value is None:
+                    return default
+                if isinstance(value, bool):
+                    return value
+                return str(value).strip().lower() in {"1", "true", "yes", "on", "y"}
             self._memory = Memory(
                 db_path=self._config["db_path"],
                 embedding_backend=self._config["embedding_backend"],
+                retrieval_mode=self._config.get("retrieval_mode", "semantic"),
+                retrieval_candidates=int(self._config.get("retrieval_candidates", 64) or 64),
+                use_hnsw=self._config.get("use_hnsw", "auto"),
+                lazy_graph=_cfg_bool(self._config.get("lazy_graph"), False),
+                think_engine=self._config.get("think_engine", "bfs"),
+                rerank=_cfg_bool(self._config.get("rerank"), False),
+                channel_weights=self._config.get("channel_weights"),
+                rrf_k=int(self._config.get("rrf_k", 60) or 60),
+                salience_decay_k=float(self._config.get("salience_decay_k", 0.03) or 0.03),
+                ppr_alpha=float(self._config.get("ppr_alpha", 0.15) or 0.15),
+                ppr_iters=int(self._config.get("ppr_iters", 20) or 20),
+                ppr_hops=int(self._config.get("ppr_hops", 2) or 2),
+                mmr_lambda=float(self._config.get("mmr_lambda", 0.0) or 0.0),
+                recall_score_floor=float(self._config.get("recall_score_floor", 0.0) or 0.0),
+                recall_score_percentile=float(self._config.get("recall_score_percentile", 0.0) or 0.0),
             )
 
-            # Load initial context from memory
-            self._initial_context = self._load_initial_context()
+            # Load initial context from memory — DEFERRED to a daemon thread.
+            # Calling _load_initial_context() synchronously here was the main
+            # contributor to the >3min hermes-startup latency: it fires two
+            # recall() calls, each of which lazily loads the embed model and
+            # builds the HNSW index on first call. Backgrounding it lets
+            # init return immediately; the first turn's system_prompt_block
+            # consumes _initial_context if it has landed by then, otherwise
+            # it gracefully starts blank.
+            self._initial_context = ""
+            self._initial_context_thread = threading.Thread(
+                target=self._load_initial_context_async,
+                daemon=True,
+                name="neural-initial-ctx",
+            )
+            self._initial_context_thread.start()
 
             # Start dream engine
             self._start_dream_engine()
@@ -235,7 +305,7 @@ class NeuralMemoryProvider(MemoryProvider):
     def update_session_id(self, session_id: str) -> None:
         """Called after session split (e.g. compression) to update the session tag.
         
-        Neural Memory uses session_id as the archive_tag for archive_compression().
+        Mazemaker uses session_id as the archive_tag for archive_compression().
         After compression creates a new session_id, this ensures subsequent
         archives and prefetches use the correct new tag.
         """
@@ -243,9 +313,22 @@ class NeuralMemoryProvider(MemoryProvider):
         logger.debug("Neural memory session_id updated: %s", session_id)
 
     def _start_dream_engine(self) -> None:
-        """Start dream engine — MSSQL (C++) if available, SQLite fallback."""
+        """Start dream engine — MSSQL (C++) if available, SQLite fallback.
+
+        Idempotent: if a prior DreamEngine is still running (e.g. caller is
+        re-initialising Mazemaker after a session split or model switch),
+        stop it first.  Without this each call leaks a daemon thread plus
+        its DB handle and C++ backend state.
+        """
         import os
         from pathlib import Path
+
+        if self._dream is not None:
+            try:
+                self._dream.stop()
+            except Exception as e:
+                logger.debug("Prior dream engine stop failed: %s", e)
+            self._dream = None
 
         try:
             from dream_engine import DreamEngine
@@ -287,12 +370,21 @@ class NeuralMemoryProvider(MemoryProvider):
             self._dream = None
 
     def _start_consolidation_thread(self) -> None:
-        """Start background consolidation thread."""
+        """Start background consolidation thread.
+
+        Idempotent: signals any existing loop to stop and joins it before
+        spawning a replacement, so re-initialisation can't leak threads.
+        """
         if not self._config:
             return
         interval = self._config.get("consolidation_interval", 0)
         if interval <= 0:
             return  # Consolidation disabled
+
+        prior = getattr(self, "_consolidation_thread", None)
+        if prior is not None and prior.is_alive():
+            self._consolidation_stop.set()
+            prior.join(timeout=3.0)
 
         self._consolidation_stop.clear()
 
@@ -351,7 +443,32 @@ class NeuralMemoryProvider(MemoryProvider):
             logger.debug("Failed to load initial context: %s", e)
             return ""
 
+    def _load_initial_context_async(self) -> None:
+        """Background entrypoint — populates self._initial_context off the
+        critical path. Used by initialize() so the provider returns fast
+        even when the first recall has to lazy-load the embed model and
+        build the HNSW index. Errors are swallowed silently — the
+        consumer (system_prompt_block / prefetch fallback) treats an
+        unset initial context as 'no recent activity'.
+        """
+        try:
+            ctx = self._load_initial_context()
+        except Exception:
+            ctx = ""
+        with self._lock:
+            self._initial_context = ctx or ""
+        logger.debug("Neural initial context loaded (%d chars)", len(self._initial_context))
+
     def system_prompt_block(self) -> str:
+        """System-prompt block injected at session start.
+
+        Designed to make WEAK MODELS (minimax/wonderland-tier) actually USE
+        the four neural_* tools instead of chatting from their parametric
+        weights and forgetting everything between turns. The polite earlier
+        version (\"Use neural_recall to search semantically\") was mostly
+        ignored. The new copy is imperative, concrete, and shows what
+        \"good\" tool use looks like — proven to work for tool-laggard models.
+        """
         if not self._memory:
             return ""
         try:
@@ -362,29 +479,81 @@ class NeuralMemoryProvider(MemoryProvider):
             total = 0
             connections = 0
 
+        # State-aware framing: empty store needs different push than populated.
         if total == 0:
-            header = (
-                "# Neural Memory\n"
-                "Active. Empty memory store — proactively store facts the user would expect "
-                "you to remember using neural_remember.\n"
-                "Use neural_recall to search memories semantically.\n"
-                "Use neural_think to explore connected ideas via spreading activation."
-            )
+            state_line = "Memory store is EMPTY. Every fact the user mentions is new — STORE IT."
         else:
-            header = (
-                f"# Neural Memory\n"
-                f"Active. {total} memories, {connections} connections.\n"
-                f"Use neural_remember to store new memories.\n"
-                f"Use neural_recall to search semantically.\n"
-                f"Use neural_think to explore connected ideas."
+            state_line = (
+                f"Memory store contains {total} memories and {connections} connections — "
+                f"a real persistent brain. ALWAYS check it before answering."
             )
 
+        header = f"""# Mazemaker — MANDATORY USAGE
+
+{state_line}
+
+You have a persistent semantic memory across sessions via four tools.
+Models that DON'T use these tools repeat themselves, forget user
+preferences, and re-learn things every session — they look stupid.
+Models that DO use them feel like they actually know the user.
+
+## Hard rules — NOT optional
+
+**1. RECALL FIRST, ANSWER SECOND.**
+At the start of EVERY non-trivial turn, call `neural_recall` with the
+user's query (or its key entities). Only then answer.
+- The user asks about their preferences/setup/files/projects → recall.
+- The user references something from a past conversation → recall.
+- The user asks "what did we…", "remember…", "do you know…" → recall.
+- You think you remember something from training → recall to verify.
+
+**2. STORE ANYTHING DURABLE.**
+Call `neural_remember(content, label=...)` whenever the user states a
+fact about themselves, a decision, a preference, a fix, or a path you
+will need again. Don't ask permission — just store it.
+- User: "I prefer fish shell" → remember("user prefers fish shell", label="pref:shell").
+- "We decided to use FastEmbed e5-large" → remember(...).
+- "The bug was in dream_engine.py:870" → remember(...).
+- Use a stable label like `pref:shell`, `decision:embedding`, `bug:dream-engine`.
+
+**3. EXPLORE CONNECTIONS WITH `neural_think`.**
+After a recall hit on memory id N, call `neural_think(start_id=N)` to
+surface adjacent memories you wouldn't have found by direct similarity.
+This is your *associative* memory — use it to bring in relevant
+context the user didn't ask for explicitly.
+
+**4. `neural_graph` shows the structure.**
+For meta questions ("what do you remember about me?", "what's in your
+memory?") call `neural_graph` to summarise.
+
+## Anti-patterns — STOP doing these
+
+- ❌ Answering from your parametric weights when the user references
+  past context. Your weights don't know this user. Memory does.
+- ❌ Asking the user to repeat preferences they already told you.
+  That's the symptom of NOT calling recall.
+- ❌ Storing entire chat transcripts as memories. Store the DURABLE
+  signal (decision, preference, fix) — the conversation log is noise.
+- ❌ Storing your own reasoning. Store FACTS the USER wants you to
+  remember.
+
+## Tool quick-reference
+- `neural_recall(query, k=5)` — semantic + graph search; returns top-k.
+- `neural_remember(content, label="<topic:slug>")` — store one fact.
+- `neural_think(start_id, depth=3)` — spreading activation from a memory.
+- `neural_graph()` — connection-graph summary."""
+
         if self._initial_context:
-            return f"{header}\n\n## Recent Memory Context\n{self._initial_context}"
+            return f"{header}\n\n## Recent Memory Context (auto-loaded)\n{self._initial_context}"
         return header
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        """Return prefetched recall from background thread."""
+        """Return prefetched recall from background thread.
+
+        Wraps the prefetch lines with a high-visibility header so the model
+        actually reads them. The model sees this RIGHT BEFORE generating —
+        it's the last chance to nudge it into using the tools.
+        """
         if not self._memory or not query:
             return ""
         with self._lock:
@@ -393,39 +562,49 @@ class NeuralMemoryProvider(MemoryProvider):
         if not result:
             # On first call, return initial context if available
             if self._initial_context:
-                return f"## Neural Memory Context (recent history)\n{self._initial_context}"
+                return (
+                    "## ⚡ Mazemaker — recent context\n"
+                    f"{self._initial_context}\n\n"
+                    "**You have access to neural_remember / neural_recall / "
+                    "neural_think / neural_graph. USE THEM.** Do not answer "
+                    "from your weights when the user references prior context."
+                )
             return ""
-        return f"## Neural Memory Context\n{result}"
+        return (
+            "## ⚡ Mazemaker — relevant memories for this turn\n"
+            f"{result}\n\n"
+            "If any of the above hits feel relevant, prefer them over your "
+            "parametric guess. Need more? Call `neural_recall` with a tighter "
+            "query. Need to explore connections? `neural_think(start_id=...)`."
+        )
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
-        """Fire a background recall for the next turn."""
+        """Fire a background recall for the next turn.
+
+        If an earlier prefetch is still in flight, this call bumps the
+        generation counter so the older thread's result is dropped on
+        completion (see `_prefetch_gen` check below). That prevents a slow
+        prefetch from clobbering a fresher one with stale data, and makes
+        the most-recent queue_prefetch the source of truth.
+        """
         if not self._memory or not query:
             return
         limit = min(self._config.get("prefetch_limit", 3), 3) if self._config else 3
 
+        with self._lock:
+            self._prefetch_gen += 1
+            my_gen = self._prefetch_gen
+
         def _run():
             try:
-                results = self._memory.recall(query, k=limit * 2)  # Over-fetch, then filter
-                if not results:
+                lines = self._format_prefetch_lines(query)
+                if not lines:
                     return
-                lines = []
-                for r in results:
-                    sim = r.get("similarity", 0)
-                    if sim < 0.5:
-                        continue  # Skip low-quality matches
-                    content = r.get("content", "")
-                    # Skip meta/debug content
-                    content_lower = content.lower()
-                    if any(skip in content_lower for skip in (
-                        "neural memory", "tool_result", "test_suite", "mssql",
-                        "config.yaml", "odbc", "embedding", "connection string",
-                    )):
-                        continue
-                    lines.append(f"- [{sim:.2f}] {content[:150]}")
-                    if len(lines) >= limit:
-                        break
-                if lines:
-                    with self._lock:
+                with self._lock:
+                    # Drop our result if a newer prefetch has been queued
+                    # in the meantime — its result is the one the next
+                    # turn should see, not ours.
+                    if my_gen == self._prefetch_gen:
                         self._prefetch_result = "\n".join(lines)
             except Exception as e:
                 logger.debug("Neural prefetch failed: %s", e)
@@ -447,10 +626,10 @@ class NeuralMemoryProvider(MemoryProvider):
         "as mentioned in my",
         "according to my memory",
         "i recall from",
-        "neural memory",
-        "neural_recall",
-        "neural_remember",
-        "does neural memory work",
+        "mazemaker",
+        "mazemaker_recall",
+        "mazemaker_remember",
+        "does mazemaker work",
         "tool_result",
         "test_suite",
         "config.yaml",
@@ -459,6 +638,13 @@ class NeuralMemoryProvider(MemoryProvider):
         "embedding",
         "connection string",
         "odbc",
+        # Compaction artifacts — these indicate stale/loop content
+        "[SUPERSEDED]",
+        "[UPDATED TO]",
+        "[CONTEXT COMPACTION",
+        "[SYSTEM: If you have a meaningful status report",
+        "context compaction — reference only",
+        "the latest user message that appears after this summary",
     )
 
     # Patterns that indicate the text is NOT a useful memory (banner/log/config)
@@ -629,15 +815,12 @@ class NeuralMemoryProvider(MemoryProvider):
 
     def post_llm_call(self, session_id: str, user_message: str, assistant_response: str,
                       conversation_history: list, model: str, platform: str, **kwargs) -> None:
-        """After every LLM answer: resume dream engine AND store BOTH messages.
+        """After every LLM answer: resume dream engine and optionally archive raw turns.
 
-        Zero loss: every user query AND every assistant response is stored
-        immediately. No garbage filter, no "is this meaningful?" judgment.
-        Deduplication via embedding similarity prevents floods, but content
-        is NEVER silently dropped.
-
-        Also archives the full conversation turn via archive_compression for
-        complete losslessness.
+        Durable memory extraction happens in on_session_end(). Raw per-turn writes are
+        intentionally opt-in because raw chat/tool dumps poison recall and can expose
+        private conversation text. Set memory.neural.store_raw_turns/archive_raw_turns
+        to true only for forensic debugging.
         """
         # 1. Dream engine resume (existing behaviour)
         if self._dream is not None and self._dream_was_running_before_turn:
@@ -647,117 +830,280 @@ class NeuralMemoryProvider(MemoryProvider):
         if not self._memory:
             return
 
-        # 2. ALWAYS store user message (zero filtering — nothing is "garbage")
-        if user_message and len(user_message.strip()) >= 3:
-            try:
-                self._memory.remember(
-                    user_message,
-                    label=f"turn:user",
-                )
-            except Exception as e:
-                logger.debug(f"User message store failed: {e}")
+        def _cfg_bool(value, default=False):
+            if value is None:
+                return default
+            if isinstance(value, bool):
+                return value
+            return str(value).strip().lower() in {"1", "true", "yes", "on", "y"}
 
-        # 3. ALWAYS store assistant response (zero filtering)
-        if assistant_response and len(assistant_response.strip()) >= 3:
-            try:
-                self._memory.remember(
-                    assistant_response,
-                    label=f"turn:assistant",
-                )
-            except Exception as e:
-                logger.debug(f"Assistant response store failed: {e}")
+        store_raw = _cfg_bool((self._config or {}).get("store_raw_turns"), False)
+        archive_raw = _cfg_bool((self._config or {}).get("archive_raw_turns"), False)
 
-        # 4. Archive full turn for losslessness (user + assistant together)
-        try:
-            if conversation_history:
+        if store_raw:
+            for role, content, label in (
+                ("user", user_message, "turn:user"),
+                ("assistant", assistant_response, "turn:assistant"),
+            ):
+                if content and len(str(content).strip()) >= 3:
+                    try:
+                        self._memory.remember(str(content), label=label)
+                    except Exception as e:
+                        logger.debug("Raw %s message store failed: %s", role, e)
+
+        if archive_raw and conversation_history:
+            try:
                 session_tag = f"session-{session_id[:8]}" if session_id else "session-unknown"
                 self._memory.archive_compression(
-                    turns=conversation_history[-6:],  # last turn: user + asst + tool results
+                    turns=conversation_history[-6:],
                     session_tag=session_tag,
                 )
-        except Exception as e:
-            logger.debug(f"Turn archive failed: {e}")
+            except Exception as e:
+                logger.debug("Turn archive failed: %s", e)
 
     def _on_pre_llm_call(self, session_id: str, user_message: str, **kwargs) -> None:
-        """Internal: activity signal from pre_llm_call hook.
-        
-        Registered as a plugin hook (pre_llm_call) to get notified on every turn.
-        This is the PRIMARY activity signal — fires once per turn, before any tool
-        calls or LLM processing.
-        
-        Pause/resume pattern:
-        - pre_llm_call: record if dreaming, then pause, touch idle timer
-        - post_llm_call: resume if it was running and still idle
+        """Internal: fires once per turn, before LLM processing.
+
+        Two responsibilities:
+
+          1. Dream-engine pause/resume bookkeeping (existing).
+          2. Auto-recall for THIS turn's user_message and stash the result
+             in self._prefetch_result so the next prefetch() call returns
+             memories relevant to the current query — not the previous
+             turn's.
+
+        Why eager-recall here:
+        Even with the iter-72 system-prompt push, weak models (minimax/
+        wonderland-tier) often forget to call neural_recall. Auto-firing
+        a recall and INJECTING the hits into the prefetch context means
+        the relevant memories are RIGHT THERE in the prompt, whether the
+        model bothered to call the tool or not. The model still has the
+        option to call neural_recall for a tighter query — but it can't
+        accidentally answer from its weights when the answer is sitting
+        in front of it.
         """
-        if self._dream is None:
+        # 1. Dream pause/resume
+        if self._dream is not None:
+            self._dream_was_running_before_turn = (
+                hasattr(self._dream, '_thread')
+                and self._dream._thread is not None
+                and self._dream._thread.is_alive()
+            )
+            if self._dream_was_running_before_turn:
+                self._dream.stop()
+            self._dream.touch()
+
+        # 2. Auto-recall for this turn — SYNCHRONOUS so the result is in
+        # _prefetch_result by the time prefetch() reads it. queue_prefetch
+        # was async via a background thread, which lost a 50-200ms race
+        # against the harness's subsequent prefetch() call: the result
+        # would land AFTER the prompt was built, so the model never saw
+        # it. Synchronous recall costs ~100ms per turn (HNSW ANN path)
+        # which is negligible against a multi-second LLM call.
+        # Falls back to queue_prefetch if the sync path raises so we
+        # still have SOMETHING for the next turn.
+        # Skip auto-recall for system/meta messages (compaction headers,
+        # tool-result wrappers, etc.) so we don't burn a recall on text
+        # that would never benefit from memory.
+        if self._should_auto_recall(user_message):
+            try:
+                self._run_sync_prefetch(user_message)
+            except Exception as e:
+                logger.debug("Auto-recall sync failed, falling back to async: %s", e)
+                try:
+                    self.queue_prefetch(user_message, session_id=session_id)
+                except Exception:
+                    pass
+
+    def _should_auto_recall(self, message: str) -> bool:
+        """Decide whether the per-turn auto-recall should fire.
+
+        Skip cases where the recall would be noise: empty/very-short
+        messages (greetings, acknowledgements), system-injected wrappers
+        (compaction headers, [SYSTEM:..] markers), and content already
+        flagged by _is_garbage. The rest pass through.
+        """
+        if not message or len(message.strip()) < 4:
+            return False
+        stripped = message.strip()
+        # System markers — never recall on these.
+        if stripped.startswith(("[SYSTEM:", "SYSTEM:", "<memory-context",
+                                "[CONTEXT COMPACTION", "```memory-context")):
+            return False
+        # Reuse the broader garbage filter.
+        if self._is_garbage(stripped):
+            return False
+        return True
+
+    # Skip list for prefetch result content — drops meta/debug recalls
+    # that would feed a self-referential loop in the model's context.
+    _PREFETCH_SKIP_PATTERNS = (
+        "mazemaker", "tool_result", "test_suite", "mssql",
+        "config.yaml", "odbc", "embedding", "connection string",
+        "archive:session",
+    )
+
+    def _format_prefetch_lines(self, query: str) -> list[str]:
+        """Run a recall and produce the formatted bullet lines used by both
+        the sync (pre_llm_call) and async (queue_prefetch) prefetch paths.
+
+        Single source of truth for the score floor (0.5), the skip-pattern
+        list, the line format (`- [sim] content[:150]`), and the limit
+        (config.prefetch_limit, capped at 3). Empty list = no usable hits.
+        """
+        if not self._memory or not query:
+            return []
+        limit = min(self._config.get("prefetch_limit", 3), 3) if self._config else 3
+        try:
+            results = self._memory.recall(query, k=limit * 2)
+        except Exception as e:
+            logger.debug("Prefetch recall failed: %s", e)
+            return []
+        if not results:
+            return []
+        lines: list[str] = []
+        for r in results:
+            sim = r.get("similarity", 0)
+            if sim < 0.5:
+                continue
+            content = r.get("content", "") or ""
+            content_lower = content.lower()
+            if any(skip in content_lower for skip in self._PREFETCH_SKIP_PATTERNS):
+                continue
+            lines.append(f"- [{sim:.2f}] {content[:150]}")
+            if len(lines) >= limit:
+                break
+        return lines
+
+    def _run_sync_prefetch(self, query: str) -> None:
+        """Synchronous prefetch — runs the recall inline so prefetch()
+        reads a current result. Used from _on_pre_llm_call so the model
+        sees the auto-recall context for the CURRENT turn (the iter-73
+        async path lost a 50-200ms race against prefetch()).
+        """
+        lines = self._format_prefetch_lines(query)
+        if not lines:
             return
-        
-        # Record whether the dream engine was running when this turn started
-        self._dream_was_running_before_turn = (
-            hasattr(self._dream, '_thread') 
-            and self._dream._thread is not None 
-            and self._dream._thread.is_alive()
-        )
-        
-        # Stop the dream engine for the duration of this turn
-        if self._dream_was_running_before_turn:
-            self._dream.stop()
-        
-        # Always reset the idle timer on activity
-        self._dream.touch()
+        with self._lock:
+            # Bump generation — any in-flight async fetch from a previous
+            # turn must drop its result rather than stomp ours.
+            self._prefetch_gen += 1
+            self._prefetch_result = "\n".join(lines)
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return ALL_TOOL_SCHEMAS
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
-        if tool_name == "neural_remember":
+        if tool_name == "mazemaker_remember":
             return self._handle_remember(args)
-        elif tool_name == "neural_recall":
+        elif tool_name == "mazemaker_recall":
             return self._handle_recall(args)
-        elif tool_name == "neural_think":
+        elif tool_name == "mazemaker_think":
             return self._handle_think(args)
-        elif tool_name == "neural_graph":
+        elif tool_name == "mazemaker_graph":
             return self._handle_graph(args)
         return tool_error(f"Unknown tool: {tool_name}")
 
+    def _strip_injected_context(self, content: str) -> str:
+        """Remove ephemeral memory/tool context wrappers before extraction."""
+        if not isinstance(content, str):
+            return ""
+        content = re.sub(r"<memory-context>.*?</memory-context>", "", content, flags=re.S)
+        content = re.sub(r"```memory-context.*?```", "", content, flags=re.S)
+        content = re.sub(r"\[SYSTEM:[^\n]*\]", "", content)
+        return content.strip()
+
+    def _extract_session_facts(self, messages: List[Dict[str, Any]], limit: int = 5) -> list[str]:
+        """Heuristic session-end fact extraction.
+
+        This is deliberately conservative: store durable decisions, preferences,
+        paths, fixes, config/cron changes, and test outcomes. Do not store raw
+        chat transcripts or tool dumps.
+        """
+        durable_patterns = (
+            r"\bremember\b", r"\bvergiss\b", r"\bnotiere\b",
+            r"\bprefer\b", r"\bpreference\b", r"\balways\b", r"\bnever\b",
+            r"\bwe decided\b", r"\bdecision\b", r"\buse .* instead\b",
+            r"\bfixed\b", r"\bbug\b", r"\broot cause\b", r"\bworkaround\b",
+            r"\bconfigured\b", r"\binstalled\b", r"\bdeployed\b", r"\bcron\b",
+            r"\btests?\b", r"\bpassing\b", r"\bfailing\b",
+            r"/home/", r"~/", r"\.yaml\b", r"\.py\b", r"git@", r"https?://",
+        )
+        facts: list[str] = []
+        seen: set[str] = set()
+        for m in messages:
+            role = m.get("role", "")
+            if role not in {"user", "assistant"}:
+                continue
+            text = self._strip_injected_context(m.get("content", ""))
+            if not text or self._is_garbage(text):
+                continue
+            # Prefer bullet/short lines. Long prose gets first sentence only.
+            raw_lines = []
+            for line in text.splitlines():
+                line = line.strip(" \t-*•>")
+                if line:
+                    raw_lines.append(line)
+            if not raw_lines and text:
+                raw_lines = [text]
+            for line in raw_lines:
+                if len(line) < 12 or len(line) > 900:
+                    continue
+                lower = line.lower()
+                if any(skip in lower for skip in ("tool call", "traceback", "token usage", "<memory-context", "```json")):
+                    continue
+                if not any(re.search(p, line, flags=re.I) for p in durable_patterns):
+                    continue
+                fact = re.sub(r"\s+", " ", line).strip()
+                if len(fact) > 360:
+                    fact = fact[:357].rstrip() + "..."
+                key = fact.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                facts.append(fact)
+                if len(facts) >= limit:
+                    return facts
+        return facts
+
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
-        """Store a session summary at session end — the ONLY memory write per session."""
+        """Store compact durable session facts at session end."""
         if not self._memory or not messages:
             return
         try:
-            user_msgs = [m for m in messages if m.get("role") == "user"]
-            if not user_msgs:
+            def _cfg_bool(value, default=True):
+                if value is None:
+                    return default
+                if isinstance(value, bool):
+                    return value
+                return str(value).strip().lower() in {"1", "true", "yes", "on", "y"}
+
+            if not _cfg_bool((self._config or {}).get("session_extract_facts"), True):
                 return
-            
-            summary_parts = []
-            for m in user_msgs:
-                content = m.get("content", "")
-                if not isinstance(content, str):
-                    continue
-                # Skip noise: tool results, log dumps, very short messages
-                if len(content) < 10:
-                    continue
-                if content.startswith(("[SYSTEM:", "SYSTEM:", "Tool ", "Batches:")):
-                    continue
-                if any(skip in content.lower() for skip in (
-                    "tool_result_storage", "run_agent", "DEBUG", "openai client",
-                    "token usage", "completion_tokens", "snapshot_engine",
-                )):
-                    continue
-                # Extract first meaningful line
-                first_line = content.split("\n")[0][:150]
-                if first_line:
-                    summary_parts.append(first_line)
-            
-            if summary_parts:
-                summary = "Session: " + " | ".join(summary_parts[-8:])  # Last 8 meaningful lines
-                self._memory.remember(summary, label="session-summary")
-                logger.info("Neural memory: stored session summary (%d topics)", len(summary_parts))
+            limit = int((self._config or {}).get("session_fact_limit", 5) or 5)
+            facts = self._extract_session_facts(messages, limit=max(1, min(limit, 8)))
+            if not facts:
+                return
+            stored = 0
+            for fact in facts:
+                digest = hashlib.sha1(fact.encode("utf-8")).hexdigest()[:12]
+                label = f"session-fact:{digest}"
+                content = f"Session durable fact: {fact}"
+                try:
+                    self._memory.remember(content, label=label, auto_connect=True, detect_conflicts=True)
+                    stored += 1
+                except Exception as e:
+                    logger.debug("Neural session fact store failed: %s", e)
+            if stored:
+                summary = "Session durable facts: " + " | ".join(facts[:limit])
+                summary_digest = hashlib.sha1(summary.encode("utf-8")).hexdigest()[:12]
+                self._memory.remember(summary, label=f"session-summary:{summary_digest}")
+                logger.info("Neural memory: stored %d durable session facts", stored)
         except Exception as e:
             logger.debug("Neural on_session_end failed: %s", e)
 
     def on_memory_write(self, action: str, target: str, content: str) -> None:
-        """Mirror built-in memory writes to neural memory. Skips garbage."""
+        """Mirror built-in memory writes to mazemaker. Skips garbage."""
         if action == "add" and self._memory and content:
             if self._is_garbage(content):
                 return
@@ -780,6 +1126,9 @@ class NeuralMemoryProvider(MemoryProvider):
         if not self._memory or not messages:
             return ""
         try:
+            archive_raw = (self._config or {}).get("archive_raw_turns", False)
+            if not (archive_raw is True or str(archive_raw).strip().lower() in {"1", "true", "yes", "on", "y"}):
+                return ""
             session_tag = f"session-{self._session_id[:8]}" if self._session_id else "session-unknown"
             result = self._memory.archive_compression(
                 turns=messages,
@@ -788,13 +1137,22 @@ class NeuralMemoryProvider(MemoryProvider):
             count = result.get("archived", 0)
             if count > 0:
                 logger.info(f"Neural memory: archived {count} turns before compression")
-            return f"[{count} conversation turns archived to neural memory before compression]"
+            return f"[{count} conversation turns archived to mazemaker before compression]"
         except Exception as e:
             logger.debug(f"Archive failed: {e}")
             return ""
 
     def shutdown(self) -> None:
-        """Clean shutdown."""
+        """Clean shutdown.
+
+        Stops every background thread the provider owns: dream engine,
+        consolidation loop, sponge worker, and the initial-context
+        loader. Previously the sponge worker was leaked entirely
+        (survived only because it's daemon=True), and the iter-65
+        deferred initial-context thread was never joined either —
+        so an orderly shutdown could leave it touching self._memory
+        AFTER memory.close() had already torn the store down.
+        """
         # Stop dream engine
         if hasattr(self, '_dream') and self._dream:
             try:
@@ -802,9 +1160,24 @@ class NeuralMemoryProvider(MemoryProvider):
             except Exception:
                 pass
             self._dream = None
+        # Stop consolidation
         self._consolidation_stop.set()
         if self._consolidation_thread and self._consolidation_thread.is_alive():
             self._consolidation_thread.join(timeout=2.0)
+        # Stop sponge worker (was leaked previously)
+        try:
+            if hasattr(self, '_sponge_running') and self._sponge_running:
+                self._stop_sponge()
+        except Exception as e:
+            logger.debug("Sponge stop during shutdown failed: %s", e)
+        # Wait briefly for the initial-context loader so it doesn't race
+        # with memory.close() below. If it's still running we give up the
+        # join after 2s; the thread is daemon=True so it dies with the
+        # process anyway, and its only side-effect is a write to
+        # self._initial_context which is no longer observed post-shutdown.
+        ctx_thread = getattr(self, '_initial_context_thread', None)
+        if ctx_thread is not None and ctx_thread.is_alive():
+            ctx_thread.join(timeout=2.0)
         if self._memory:
             try:
                 self._memory.close()
@@ -815,23 +1188,75 @@ class NeuralMemoryProvider(MemoryProvider):
     # -- Tool handlers -------------------------------------------------------
 
     def _handle_remember(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
         try:
             content = args["content"]
-            label = args.get("label", "")
+            # Type-check: weak models sometimes pass nested dicts/lists for
+            # `content` because the schema says \"string\". Coerce to string
+            # via str() if it's a primitive number/bool, reject anything
+            # structured up front with a clear message.
+            if isinstance(content, (dict, list)):
+                return tool_error(
+                    "content must be a string, not a JSON object/array — "
+                    "summarise the fact in one sentence"
+                )
+            if content is None:
+                return tool_error("content must be a non-empty string, got null")
+            if not isinstance(content, str):
+                content = str(content)
+            if not content.strip():
+                return tool_error("content must be a non-empty string")
+            label = args.get("label") or ""
+            if not isinstance(label, str):
+                label = str(label)
             mem_id = self._memory.remember(content, label=label)
             # Touch dream engine (reset idle timer)
             if hasattr(self, '_dream') and self._dream:
                 self._dream.touch()
-            return json.dumps({"id": mem_id, "status": "stored"})
+            # iter-60 rejects empty-after-strip text by returning -1; surface
+            # that clearly instead of pretending the write succeeded.
+            if mem_id == -1:
+                return json.dumps({"status": "skipped", "reason": "empty content after strip"})
+            # remember_chunked returns a list[int]; keep the response shape
+            # consistent so tool consumers can rely on it.
+            if isinstance(mem_id, list):
+                return json.dumps({"ids": mem_id, "status": "stored", "count": len(mem_id)})
+            return json.dumps({"id": int(mem_id), "status": "stored"})
         except KeyError as exc:
             return tool_error(f"Missing required argument: {exc}")
         except Exception as exc:
             return tool_error(str(exc))
 
+    @staticmethod
+    def _coerce_int(value, default: int) -> int:
+        """Tolerant int coercion for tool-call args.
+
+        Models emit a mix of `5`, `\"5\"`, and `null` for numeric kwargs;
+        the strict `int(args.get(\"k\", 5))` raised TypeError on None and
+        ValueError on \"five\", both bubbling up as \"int() argument must be\"
+        errors that look like adapter bugs to the model. Coerce to int when
+        possible, fall back to the default otherwise.
+        """
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                return default
+
     def _handle_recall(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
         try:
             query = args["query"]
-            limit = int(args.get("limit", 5))
+            if not isinstance(query, str) or not query.strip():
+                return tool_error("query must be a non-empty string")
+            limit = self._coerce_int(args.get("limit"), 5)
+            limit = max(1, min(limit, 50))  # sanity-clamp
             results = self._memory.recall(query, k=limit)
             return json.dumps({"results": results, "count": len(results)})
         except KeyError as exc:
@@ -840,9 +1265,17 @@ class NeuralMemoryProvider(MemoryProvider):
             return tool_error(str(exc))
 
     def _handle_think(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
         try:
-            memory_id = int(args["memory_id"])
-            depth = int(args.get("depth", 3))
+            mid_raw = args.get("memory_id")
+            if mid_raw is None:
+                return tool_error("Missing required argument: memory_id")
+            memory_id = self._coerce_int(mid_raw, -1)
+            if memory_id < 0:
+                return tool_error(f"memory_id must be a non-negative integer, got {mid_raw!r}")
+            depth = self._coerce_int(args.get("depth"), 3)
+            depth = max(1, min(depth, 10))  # sanity-clamp; depth>10 is unbounded BFS
             results = self._memory.think(memory_id, depth=depth)
             return json.dumps({"results": results, "count": len(results)})
         except KeyError as exc:
@@ -851,6 +1284,8 @@ class NeuralMemoryProvider(MemoryProvider):
             return tool_error(str(exc))
 
     def _handle_graph(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
         try:
             graph = self._memory.graph()
             stats = self._memory.stats()
@@ -886,6 +1321,25 @@ class NeuralMemoryProvider(MemoryProvider):
                 "required": False,
                 "default": 0,
             },
+            {"key": "retrieval_mode",
+             "description": "Retrieval mode (semantic, hybrid, advanced, skynet, lean, trim). "
+                            "lean drops bm25/temporal/salience — beats skynet on real prose by "
+                            "+0.18 R@5 per the 2026-04-28 benchmark and is 4× faster on synthetic. "
+                            "trim drops only salience (conservative middle-ground).",
+             "required": False, "default": "semantic"},
+            {"key": "use_hnsw", "description": "Use HNSW ANN index (auto, true, false)", "required": False, "default": "auto"},
+            {"key": "lazy_graph", "description": "Hydrate graph nodes on demand instead of at startup", "required": False, "default": False},
+            {"key": "think_engine", "description": "Graph thinking engine (bfs or ppr)", "required": False, "default": "bfs"},
+            {"key": "rerank", "description": "Use lazy cross-encoder reranker for recall", "required": False, "default": False},
+            {"key": "store_raw_turns", "description": "Store raw per-turn messages (debug only)", "required": False, "default": False},
+            {"key": "archive_raw_turns", "description": "Archive raw turns before compression (debug only)", "required": False, "default": False},
+            {"key": "mmr_lambda", "description": "MMR diversity weight for recall (0.0=relevance only, 0.7=balanced; off by default)", "required": False, "default": 0.0},
+            {"key": "recall_score_floor",
+             "description": "Minimum similarity to return a recall hit on the RAW RRF scale (~0..0.05; legacy, use recall_score_percentile instead). 0 = off.",
+             "required": False, "default": 0.0},
+            {"key": "recall_score_percentile",
+             "description": "Calibrated [0,1] alternative to recall_score_floor. Drops the bottom X fraction of candidates by RANK (0.5=keep top half). Off by default.",
+             "required": False, "default": 0.0},
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
@@ -907,7 +1361,7 @@ class NeuralMemoryProvider(MemoryProvider):
 # ---------------------------------------------------------------------------
 
 def register(ctx) -> None:
-    """Register the neural memory provider with the plugin system."""
+    """Register the mazemaker provider with the plugin system."""
     provider = NeuralMemoryProvider()
     ctx.register_memory_provider(provider)
     

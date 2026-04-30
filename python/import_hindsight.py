@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-import_hindsight.py - Import Hindsight Cloud data into Neural Memory
+import_hindsight.py - Import Hindsight Cloud data into Mazemaker
 
 Connects to Hindsight Cloud API, exports all banks/memories/mental models,
-and imports them into Neural Memory with proper embeddings.
+and imports them into Mazemaker with proper embeddings.
 
 Usage:
     python import_hindsight.py --api-key YOUR_KEY [--base-url https://api.hindsight.vectorize.io]
@@ -26,9 +26,9 @@ from typing import Any, Dict, List, Optional
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
-# Neural Memory imports
+# Mazemaker imports
 sys.path.insert(0, str(Path(__file__).parent))
-from neural_memory import Memory
+from mazemaker import Memory
 
 DB_PATH = Path.home() / ".neural_memory" / "memory.db"
 
@@ -202,7 +202,11 @@ def export_all(client: HindsightClient, output_dir: Path,
         try:
             stats = client.get_bank_stats(bank_id)
             name = stats.get("name", bank_id)
-        except:
+        except Exception:
+            # Narrowed from bare `except:` so KeyboardInterrupt /
+            # SystemExit propagate. API failures, network errors,
+            # JSON decode errors are still caught and the bank id
+            # itself is used as a fallback name.
             name = bank_id
         results.append(export_bank(client, bank_id, name, output_dir))
     else:
@@ -235,12 +239,12 @@ def export_all(client: HindsightClient, output_dir: Path,
 
 
 # ---------------------------------------------------------------------------
-# Import into Neural Memory
+# Import into Mazemaker
 # ---------------------------------------------------------------------------
 
 def import_bank(mem: Memory, bank_dir: Path, bank_id: str, bank_name: str,
                 batch_size: int = 256) -> Dict[str, int]:
-    """Import a single bank's data into Neural Memory."""
+    """Import a single bank's data into Mazemaker."""
     import sqlite3
 
     print(f"\n{'='*60}")
@@ -252,9 +256,16 @@ def import_bank(mem: Memory, bank_dir: Path, bank_id: str, bank_name: str,
     counts = {"memories": 0, "mental_models": 0, "connections": 0}
 
     conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return _import_bank_body(mem, bank_dir, bank_id, bank_name, batch_size, conn, counts, embedder, dim)
+    finally:
+        conn.close()
 
+
+def _import_bank_body(mem, bank_dir, bank_id, bank_name, batch_size, conn, counts, embedder, dim):
+    """Body of import_bank, called under conn try/finally for cleanup."""
     # 1. Import memories
     mem_file = bank_dir / "memories.json"
     if mem_file.exists():
@@ -414,12 +425,11 @@ def import_bank(mem: Memory, bank_dir: Path, bank_id: str, bank_name: str,
                 counts["documents"] = len(texts)
                 print(f"    Done: {len(texts)} documents")
 
-    conn.close()
     return counts
 
 
 def import_all(mem: Memory, export_dir: Path, batch_size: int = 256) -> None:
-    """Import all exported banks into Neural Memory."""
+    """Import all exported banks into Mazemaker."""
     summary_file = export_dir / "export_summary.json"
     if not summary_file.exists():
         print(f"ERROR: No export summary found at {summary_file}")
@@ -464,62 +474,63 @@ def build_connections(threshold: float = 0.15, sample_size: int = 5000):
     print(f"\n=== Building connections (threshold={threshold}) ===")
 
     conn = sqlite3.connect(str(DB_PATH))
-    rows = conn.execute("SELECT id, embedding FROM memories ORDER BY id").fetchall()
-    total = len(rows)
-    print(f"  {total} memories total")
+    try:
+        rows = conn.execute("SELECT id, embedding FROM memories ORDER BY id").fetchall()
+        total = len(rows)
+        print(f"  {total} memories total")
 
-    if total == 0:
+        if total == 0:
+            return
+
+        dim = len(rows[0][1]) // 4
+        all_ids = []
+        all_embs = []
+        for row in rows:
+            all_ids.append(row[0])
+            all_embs.append(list(struct.unpack(f'{dim}f', row[1])))
+
+        def cosine(a, b):
+            dot = sum(x * y for x, y in zip(a, b))
+            na = math.sqrt(sum(x * x for x in a))
+            nb = math.sqrt(sum(x * x for x in b))
+            return dot / (na * nb) if na * nb > 0 else 0
+
+        connections = []
+        t0 = time.time()
+
+        if total <= sample_size:
+            for i in range(total):
+                for j in range(i + 1, total):
+                    sim = cosine(all_embs[i], all_embs[j])
+                    if sim > threshold:
+                        connections.append((all_ids[i], all_ids[j], sim))
+                if (i + 1) % 500 == 0:
+                    print(f"  [{i + 1}/{total}] {len(connections)} connections", flush=True)
+        else:
+            window = 200
+            for i in range(total):
+                start = max(0, i - window)
+                end = min(total, i + window)
+                for j in range(start, end):
+                    if j <= i:
+                        continue
+                    sim = cosine(all_embs[i], all_embs[j])
+                    if sim > threshold:
+                        connections.append((all_ids[i], all_ids[j], sim))
+                if (i + 1) % 2000 == 0:
+                    elapsed = time.time() - t0
+                    rate = (i + 1) / elapsed
+                    print(f"  [{i + 1}/{total}] {len(connections)} conns, {rate:.0f}/s", flush=True)
+
+        print(f"  Inserting {len(connections)} connections...")
+        conn.executemany(
+            "INSERT OR IGNORE INTO connections (source_id, target_id, weight, edge_type) VALUES (?, ?, ?, 'similar')",
+            connections
+        )
+        conn.commit()
+        print(f"  Done: {len(connections)} connections in {time.time() - t0:.1f}s")
+    finally:
         conn.close()
-        return
-
-    dim = len(rows[0][1]) // 4
-    all_ids = []
-    all_embs = []
-    for row in rows:
-        all_ids.append(row[0])
-        all_embs.append(list(struct.unpack(f'{dim}f', row[1])))
-
-    def cosine(a, b):
-        dot = sum(x * y for x, y in zip(a, b))
-        na = math.sqrt(sum(x * x for x in a))
-        nb = math.sqrt(sum(x * x for x in b))
-        return dot / (na * nb) if na * nb > 0 else 0
-
-    connections = []
-    t0 = time.time()
-
-    if total <= sample_size:
-        for i in range(total):
-            for j in range(i + 1, total):
-                sim = cosine(all_embs[i], all_embs[j])
-                if sim > threshold:
-                    connections.append((all_ids[i], all_ids[j], sim))
-            if (i + 1) % 500 == 0:
-                print(f"  [{i + 1}/{total}] {len(connections)} connections", flush=True)
-    else:
-        window = 200
-        for i in range(total):
-            start = max(0, i - window)
-            end = min(total, i + window)
-            for j in range(start, end):
-                if j <= i:
-                    continue
-                sim = cosine(all_embs[i], all_embs[j])
-                if sim > threshold:
-                    connections.append((all_ids[i], all_ids[j], sim))
-            if (i + 1) % 2000 == 0:
-                elapsed = time.time() - t0
-                rate = (i + 1) / elapsed
-                print(f"  [{i + 1}/{total}] {len(connections)} conns, {rate:.0f}/s", flush=True)
-
-    print(f"  Inserting {len(connections)} connections...")
-    conn.executemany(
-        "INSERT OR IGNORE INTO connections (source_id, target_id, weight, edge_type) VALUES (?, ?, ?, 'similar')",
-        connections
-    )
-    conn.commit()
-    conn.close()
-    print(f"  Done: {len(connections)} connections in {time.time() - t0:.1f}s")
 
 
 # ---------------------------------------------------------------------------
@@ -528,7 +539,7 @@ def build_connections(threshold: float = 0.15, sample_size: int = 5000):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Import Hindsight Cloud data into Neural Memory",
+        description="Import Hindsight Cloud data into Mazemaker",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -583,13 +594,13 @@ Examples:
 
     if not args.export_only:
         mem = Memory()
-        print("Neural Memory initialized")
+        print("Mazemaker initialized")
         import_all(mem, export_dir, args.batch_size)
 
         if not args.no_connections:
             build_connections(args.threshold)
 
-    print("\nDone! Run 'neural_remember' or check ~/.neural_memory/memory.db")
+    print("\nDone! Run 'mazemaker_remember' or check ~/.neural_memory/memory.db")
 
 
 if __name__ == "__main__":

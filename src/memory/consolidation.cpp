@@ -1,6 +1,6 @@
 // src/memory/consolidation.cpp - Memory Consolidation Engine
-#include "neural/memory.h"
-#include "neural/hopfield.h"
+#include "mazemaker/memory.h"
+#include "mazemaker/hopfield.h"
 #include <cmath>
 #include <algorithm>
 #include <numeric>

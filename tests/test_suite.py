@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Neural Memory Adapter — Comprehensive Test Suite
+Mazemaker Adapter — Comprehensive Test Suite
 ==================================================
 Tests every component, integration point, and edge case.
 Run: python3 tests/test_suite.py [--quick] [--verbose]
 
 Components tested:
   1. Embed Provider (bge-m3, 1024d, CUDA)
-  2. Neural Memory Client (remember, recall, think)
+  2. Mazemaker Client (remember, recall, think)
   3. Dream Engine (NREM, REM, Insight phases)
   4. Database (schema, integrity, indexes)
   5. C++ Bridge / LSTM-KNN Bridge
@@ -77,28 +77,49 @@ R = TestResult()
 # ========================================================================
 
 def test_install_sync():
+    """Verify python/ source files exist and hermes-plugin/ holds metadata only.
+
+    Architecture (since refactor e4f33d9):
+      python/         — single source of truth for all .py files
+      hermes-plugin/  — Hermes-specific metadata (plugin.yaml, etc.)
+      Deploy targets  — SYMLINKS back to python/, created by install.sh
+
+    Pre-refactor this test verified .py copies in hermes-plugin/ were in
+    sync; that path no longer exists. Same fix as tests/test_upside_down.py
+    (iter 1 commit 52bdc24).
+    """
     print("\n[1] INSTALLATION SYNC")
-    shared = [
+    sources = [
         '__init__.py', 'access_logger.py', 'config.py', 'cpp_bridge.py',
         'cpp_dream_backend.py', 'dream_engine.py', 'dream_mssql_store.py',
         'dream_worker.py', 'embed_provider.py', 'lstm_knn_bridge.py',
         'memory_client.py', 'mssql_store.py', 'neural_memory.py',
     ]
-    for f in shared:
-        py = PYTHON_DIR / f
-        hp = PLUGIN_DIR / f
-        if not py.exists():
-            R.fail(f"sync/{f}", "missing from python/")
-            continue
-        if not hp.exists():
-            R.fail(f"sync/{f}", "missing from hermes-plugin/")
-            continue
-        py_hash = hashlib.md5(py.read_bytes()).hexdigest()
-        hp_hash = hashlib.md5(hp.read_bytes()).hexdigest()
-        if py_hash == hp_hash:
-            R.ok(f"sync/{f}")
+    missing = [f for f in sources if not (PYTHON_DIR / f).exists()]
+    if missing:
+        R.fail("sync/sources", f"missing from python/: {missing}")
+    else:
+        R.ok("sync/sources", f"all {len(sources)} source files present in python/")
+
+    plugin_only = ['plugin.yaml', 'neural_skin.yaml', 'skills']
+    for f in plugin_only:
+        if (PLUGIN_DIR / f).exists():
+            R.ok(f"sync/plugin-only/{f}", "present")
         else:
-            R.fail(f"sync/{f}", "files differ!")
+            R.fail(f"sync/plugin-only/{f}", "missing from hermes-plugin")
+
+    # Regression guard: hermes-plugin/ should NOT contain .py copies
+    # (symlinks to python/ are fine for in-tree testing).
+    stray = []
+    if PLUGIN_DIR.exists():
+        for p in PLUGIN_DIR.glob("*.py"):
+            if not p.is_symlink():
+                stray.append(p.name)
+    if stray:
+        R.fail("sync/no-stray-copies",
+               f"hermes-plugin/ has non-symlink .py files (regression): {stray}")
+    else:
+        R.ok("sync/no-stray-copies", "hermes-plugin/ has no stray .py copies")
 
 
 # ========================================================================
@@ -199,7 +220,7 @@ def test_embed_provider():
 
     # Single embed
     try:
-        vec = ep.embed("Test sentence for neural memory embedding")
+        vec = ep.embed("Test sentence for mazemaker embedding")
         if len(vec) == 1024:
             R.ok("embed/single", f"len={len(vec)}")
         else:
@@ -232,14 +253,14 @@ def test_embed_provider():
 def test_memory_client():
     print("\n[4] NEURAL MEMORY CLIENT")
     try:
-        from memory_client import NeuralMemory
+        from memory_client import Mazemaker
     except Exception as e:
         R.fail("nm/import", str(e))
         return
 
     # Initialize
     try:
-        nm = NeuralMemory()
+        nm = Mazemaker()
         R.ok("nm/init", f"{len(nm._graph_nodes)} nodes loaded")
     except Exception as e:
         R.fail("nm/init", str(e))
@@ -376,8 +397,8 @@ def test_bridges():
 
     # C++ Bridge
     try:
-        from cpp_bridge import NeuralMemoryCpp
-        R.ok("cpp/import", "NeuralMemoryCpp available")
+        from cpp_bridge import MazemakerCpp
+        R.ok("cpp/import", "MazemakerCpp available")
     except Exception as e:
         R.warn("cpp/import", f"not available: {e}")
 
@@ -411,8 +432,8 @@ def test_bridges():
 def test_edge_cases():
     print("\n[7] EDGE CASES")
     try:
-        from memory_client import NeuralMemory
-        nm = NeuralMemory()
+        from memory_client import Mazemaker
+        nm = Mazemaker()
     except Exception as e:
         R.fail("edge/import", str(e))
         return
@@ -525,7 +546,7 @@ def test_no_minilm():
 # ========================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='Neural Memory Test Suite')
+    parser = argparse.ArgumentParser(description='Mazemaker Test Suite')
     parser.add_argument('--quick', action='store_true', help='Skip slow tests')
     parser.add_argument('--verbose', action='store_true', help='Extra output')
     args = parser.parse_args()

@@ -1,9 +1,9 @@
 // neural/core/c_api.cpp - C-compatible API implementation
 // Wraps NeuralMemoryAdapter for use via ctypes / FFI.
-#include "neural/c_api.h"
-#include "neural/memory_adapter.h"
-#include "neural/lstm.h"
-#include "neural/knn.h"
+#include "mazemaker/c_api.h"
+#include "mazemaker/memory_adapter.h"
+#include "mazemaker/lstm.h"
+#include "mazemaker/knn.h"
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
@@ -13,7 +13,7 @@
 using namespace neural;
 
 // Helper: convert handle to typed pointer
-static inline NeuralMemoryAdapter* to_adapter(NeuralMemoryHandle h) {
+static inline NeuralMemoryAdapter* to_adapter(MazemakerHandle h) {
     return static_cast<NeuralMemoryAdapter*>(h);
 }
 
@@ -21,11 +21,11 @@ static inline NeuralMemoryAdapter* to_adapter(NeuralMemoryHandle h) {
 // Lifecycle
 // ============================================================================
 
-NEURAL_API NeuralMemoryHandle neural_memory_create(void) {
-    return neural_memory_create_dim(1024);
+MAZEMAKER_API MazemakerHandle mazemaker_create(void) {
+    return mazemaker_create_dim(1024);
 }
 
-NEURAL_API NeuralMemoryHandle neural_memory_create_dim(int vector_dim) {
+MAZEMAKER_API MazemakerHandle mazemaker_create_dim(int vector_dim) {
     if (vector_dim <= 0) vector_dim = 1024;
 
     auto* adapter = new (std::nothrow) NeuralMemoryAdapter();
@@ -68,10 +68,10 @@ NEURAL_API NeuralMemoryHandle neural_memory_create_dim(int vector_dim) {
         return nullptr;
     }
 
-    return static_cast<NeuralMemoryHandle>(adapter);
+    return static_cast<MazemakerHandle>(adapter);
 }
 
-NEURAL_API void neural_memory_destroy(NeuralMemoryHandle handle) {
+MAZEMAKER_API void mazemaker_destroy(MazemakerHandle handle) {
     if (!handle) return;
     auto* adapter = to_adapter(handle);
     adapter->shutdown();
@@ -82,8 +82,8 @@ NEURAL_API void neural_memory_destroy(NeuralMemoryHandle handle) {
 // Core operations
 // ============================================================================
 
-NEURAL_API uint64_t neural_memory_store(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API uint64_t mazemaker_store(
+    MazemakerHandle handle,
     const float* vec,
     int dim,
     const char* label,
@@ -99,8 +99,8 @@ NEURAL_API uint64_t neural_memory_store(
     return adapter->store(embedding, lbl, cnt, "api");
 }
 
-NEURAL_API uint64_t neural_memory_store_text(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API uint64_t mazemaker_store_text(
+    MazemakerHandle handle,
     const char* text,
     const char* label
 ) {
@@ -113,8 +113,8 @@ NEURAL_API uint64_t neural_memory_store_text(
     return adapter->store_text(txt, lbl);
 }
 
-NEURAL_API int neural_memory_retrieve(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_retrieve(
+    MazemakerHandle handle,
     const float* vec,
     int dim,
     int k,
@@ -137,12 +137,12 @@ NEURAL_API int neural_memory_retrieve(
     return count;
 }
 
-NEURAL_API int neural_memory_retrieve_full(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_retrieve_full(
+    MazemakerHandle handle,
     const float* vec,
     int dim,
     int k,
-    NeuralMemoryResult* results
+    MazemakerResult* results
 ) {
     if (!handle || !vec || dim <= 0 || k <= 0 || !results) return 0;
     auto* adapter = to_adapter(handle);
@@ -171,8 +171,8 @@ NEURAL_API int neural_memory_retrieve_full(
     return count;
 }
 
-NEURAL_API int neural_memory_search(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_search(
+    MazemakerHandle handle,
     const char* query,
     int k,
     uint64_t* ids,
@@ -194,10 +194,10 @@ NEURAL_API int neural_memory_search(
     return count;
 }
 
-NEURAL_API int neural_memory_read(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_read(
+    MazemakerHandle handle,
     uint64_t id,
-    NeuralMemoryResult* result
+    MazemakerResult* result
 ) {
     if (!handle || !result) return 0;
     auto* adapter = to_adapter(handle);
@@ -224,8 +224,8 @@ NEURAL_API int neural_memory_read(
 // Graph / Spreading Activation
 // ============================================================================
 
-NEURAL_API int neural_memory_think(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_think_c(
+    MazemakerHandle handle,
     uint64_t start_id,
     int depth,
     uint64_t* node_ids,
@@ -252,17 +252,17 @@ NEURAL_API int neural_memory_think(
 // Consolidation & Decay
 // ============================================================================
 
-NEURAL_API size_t neural_memory_consolidate(NeuralMemoryHandle handle) {
+MAZEMAKER_API size_t mazemaker_consolidate(MazemakerHandle handle) {
     if (!handle) return 0;
     return to_adapter(handle)->consolidate();
 }
 
-NEURAL_API void neural_memory_decay(NeuralMemoryHandle handle) {
+MAZEMAKER_API void mazemaker_decay(MazemakerHandle handle) {
     if (!handle) return;
     to_adapter(handle)->decay();
 }
 
-NEURAL_API size_t neural_memory_predict_links(NeuralMemoryHandle handle) {
+MAZEMAKER_API size_t mazemaker_predict_links(MazemakerHandle handle) {
     if (!handle) return 0;
     return to_adapter(handle)->predict_links();
 }
@@ -271,17 +271,17 @@ NEURAL_API size_t neural_memory_predict_links(NeuralMemoryHandle handle) {
 // Configuration
 // ============================================================================
 
-NEURAL_API void neural_memory_set_beta(NeuralMemoryHandle handle, float beta) {
+MAZEMAKER_API void mazemaker_set_beta(MazemakerHandle handle, float beta) {
     if (!handle) return;
     to_adapter(handle)->set_beta(beta);
 }
 
-NEURAL_API float neural_memory_get_beta(NeuralMemoryHandle handle) {
+MAZEMAKER_API float mazemaker_get_beta(MazemakerHandle handle) {
     if (!handle) return 0.0f;
     return to_adapter(handle)->get_beta();
 }
 
-NEURAL_API void neural_memory_set_consolidation_threshold(NeuralMemoryHandle handle, float threshold) {
+MAZEMAKER_API void mazemaker_set_consolidation_threshold(MazemakerHandle handle, float threshold) {
     if (!handle) return;
     to_adapter(handle)->set_consolidation_threshold(threshold);
 }
@@ -290,7 +290,7 @@ NEURAL_API void neural_memory_set_consolidation_threshold(NeuralMemoryHandle han
 // Statistics
 // ============================================================================
 
-NEURAL_API void neural_memory_stats(NeuralMemoryHandle handle, NeuralMemoryStats* stats) {
+MAZEMAKER_API void mazemaker_stats_c(MazemakerHandle handle, MazemakerStats* stats) {
     if (!handle || !stats) return;
     auto* adapter = to_adapter(handle);
 
@@ -320,8 +320,8 @@ NEURAL_API void neural_memory_stats(NeuralMemoryHandle handle, NeuralMemoryStats
 
 #ifdef USE_MSSQL
 
-NEURAL_API uint64_t neural_memory_store_mssql(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API uint64_t mazemaker_store_mssql(
+    MazemakerHandle handle,
     const float* vec,
     int dim,
     const char* label,
@@ -337,8 +337,8 @@ NEURAL_API uint64_t neural_memory_store_mssql(
     return adapter->store_mssql(embedding, lbl, cnt);
 }
 
-NEURAL_API int neural_memory_add_edge(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_add_edge(
+    MazemakerHandle handle,
     uint64_t from_id,
     uint64_t to_id,
     float weight,
@@ -351,8 +351,8 @@ NEURAL_API int neural_memory_add_edge(
     return adapter->add_edge(from_id, to_id, weight, etype) ? 1 : 0;
 }
 
-NEURAL_API int neural_memory_batch_add_edges(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_batch_add_edges(
+    MazemakerHandle handle,
     const uint64_t* from_ids,
     const uint64_t* to_ids,
     const float* weights,
@@ -370,8 +370,8 @@ NEURAL_API int neural_memory_batch_add_edges(
     return adapter->batch_add_edges(fids, tids, wts, etype);
 }
 
-NEURAL_API int neural_memory_batch_strengthen_edges(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_batch_strengthen_edges(
+    MazemakerHandle handle,
     const uint64_t* from_ids,
     const uint64_t* to_ids,
     int count,
@@ -386,8 +386,8 @@ NEURAL_API int neural_memory_batch_strengthen_edges(
     return adapter->batch_strengthen_edges(fids, tids, delta);
 }
 
-NEURAL_API int neural_memory_bulk_weaken_prune(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_bulk_weaken_prune(
+    MazemakerHandle handle,
     float delta,
     float threshold
 ) {
@@ -395,8 +395,8 @@ NEURAL_API int neural_memory_bulk_weaken_prune(
     return to_adapter(handle)->bulk_weaken_prune(delta, threshold);
 }
 
-NEURAL_API int neural_memory_get_edges(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_get_edges(
+    MazemakerHandle handle,
     uint64_t node_id,
     uint64_t* edge_ids,
     float* weights,
@@ -417,7 +417,7 @@ NEURAL_API int neural_memory_get_edges(
     return count;
 }
 
-NEURAL_API int64_t neural_memory_count_edges(NeuralMemoryHandle handle) {
+MAZEMAKER_API int64_t mazemaker_count_edges(MazemakerHandle handle) {
     if (!handle) return 0;
     return to_adapter(handle)->count_edges();
 }
@@ -426,43 +426,43 @@ NEURAL_API int64_t neural_memory_count_edges(NeuralMemoryHandle handle) {
 
 // Stubs when MSSQL is not compiled in
 
-NEURAL_API uint64_t neural_memory_store_mssql(
-    NeuralMemoryHandle handle, const float* vec, int dim,
+MAZEMAKER_API uint64_t mazemaker_store_mssql(
+    MazemakerHandle handle, const float* vec, int dim,
     const char* label, const char* content) {
     return 0;
 }
 
-NEURAL_API int neural_memory_add_edge(
-    NeuralMemoryHandle handle, uint64_t from_id, uint64_t to_id,
+MAZEMAKER_API int mazemaker_add_edge(
+    MazemakerHandle handle, uint64_t from_id, uint64_t to_id,
     float weight, const char* edge_type) {
     return 0;
 }
 
-NEURAL_API int neural_memory_batch_add_edges(
-    NeuralMemoryHandle handle, const uint64_t* from_ids,
+MAZEMAKER_API int mazemaker_batch_add_edges(
+    MazemakerHandle handle, const uint64_t* from_ids,
     const uint64_t* to_ids, const float* weights,
     int count, const char* edge_type) {
     return 0;
 }
 
-NEURAL_API int neural_memory_batch_strengthen_edges(
-    NeuralMemoryHandle handle, const uint64_t* from_ids,
+MAZEMAKER_API int mazemaker_batch_strengthen_edges(
+    MazemakerHandle handle, const uint64_t* from_ids,
     const uint64_t* to_ids, int count, float delta) {
     return 0;
 }
 
-NEURAL_API int neural_memory_bulk_weaken_prune(
-    NeuralMemoryHandle handle, float delta, float threshold) {
+MAZEMAKER_API int mazemaker_bulk_weaken_prune(
+    MazemakerHandle handle, float delta, float threshold) {
     return 0;
 }
 
-NEURAL_API int neural_memory_get_edges(
-    NeuralMemoryHandle handle, uint64_t node_id,
+MAZEMAKER_API int mazemaker_get_edges(
+    MazemakerHandle handle, uint64_t node_id,
     uint64_t* edge_ids, float* weights, int max_edges) {
     return 0;
 }
 
-NEURAL_API int64_t neural_memory_count_edges(NeuralMemoryHandle handle) {
+MAZEMAKER_API int64_t mazemaker_count_edges(MazemakerHandle handle) {
     return 0;
 }
 
@@ -476,7 +476,7 @@ static inline neural::lstm::LSTMPredictor* to_lstm(LSTMPredictorHandle h) {
     return static_cast<neural::lstm::LSTMPredictor*>(h);
 }
 
-NEURAL_API LSTMPredictorHandle nm_lstm_create(int input_dim, int hidden_dim) {
+MAZEMAKER_API LSTMPredictorHandle nm_lstm_create(int input_dim, int hidden_dim) {
     if (input_dim <= 0 || hidden_dim <= 0) return nullptr;
     try {
         auto* lstm = new (std::nothrow) neural::lstm::LSTMPredictor(
@@ -499,7 +499,7 @@ static std::vector<std::vector<float>> flatten_sequence(const float* seq, int se
     return result;
 }
 
-NEURAL_API int nm_lstm_forward(LSTMPredictorHandle handle,
+MAZEMAKER_API int nm_lstm_forward(LSTMPredictorHandle handle,
                                 const float* sequence, int seq_len,
                                 float* output) {
     if (!handle || !sequence || seq_len <= 0 || !output) return -1;
@@ -516,7 +516,7 @@ NEURAL_API int nm_lstm_forward(LSTMPredictorHandle handle,
     }
 }
 
-NEURAL_API float nm_lstm_train(LSTMPredictorHandle handle,
+MAZEMAKER_API float nm_lstm_train(LSTMPredictorHandle handle,
                                 const float* sequence, int seq_len,
                                 const float* target, float lr) {
     if (!handle || !sequence || seq_len <= 0 || !target) return -1.0f;
@@ -531,7 +531,7 @@ NEURAL_API float nm_lstm_train(LSTMPredictorHandle handle,
     }
 }
 
-NEURAL_API int nm_lstm_save(LSTMPredictorHandle handle, const char* path) {
+MAZEMAKER_API int nm_lstm_save(LSTMPredictorHandle handle, const char* path) {
     if (!handle || !path) return -1;
     auto* lstm = to_lstm(handle);
     try {
@@ -542,7 +542,7 @@ NEURAL_API int nm_lstm_save(LSTMPredictorHandle handle, const char* path) {
     }
 }
 
-NEURAL_API LSTMPredictorHandle nm_lstm_load(const char* path, int input_dim, int hidden_dim) {
+MAZEMAKER_API LSTMPredictorHandle nm_lstm_load(const char* path, int input_dim, int hidden_dim) {
     if (!path || input_dim <= 0 || hidden_dim <= 0) return nullptr;
     try {
         auto* lstm = new (std::nothrow) neural::lstm::LSTMPredictor(
@@ -562,7 +562,7 @@ NEURAL_API LSTMPredictorHandle nm_lstm_load(const char* path, int input_dim, int
     }
 }
 
-NEURAL_API void nm_lstm_destroy(LSTMPredictorHandle handle) {
+MAZEMAKER_API void nm_lstm_destroy(LSTMPredictorHandle handle) {
     if (!handle) return;
     delete to_lstm(handle);
 }
@@ -575,7 +575,7 @@ static inline neural::knn::KNNEngine* to_knn(KNNEngineHandle h) {
     return static_cast<neural::knn::KNNEngine*>(h);
 }
 
-NEURAL_API KNNEngineHandle nm_knn_create(int embed_dim) {
+MAZEMAKER_API KNNEngineHandle nm_knn_create(int embed_dim) {
     if (embed_dim <= 0) return nullptr;
     try {
         auto* knn = new (std::nothrow) neural::knn::KNNEngine(
@@ -586,7 +586,7 @@ NEURAL_API KNNEngineHandle nm_knn_create(int embed_dim) {
     }
 }
 
-NEURAL_API int nm_knn_search(KNNEngineHandle handle,
+MAZEMAKER_API int nm_knn_search(KNNEngineHandle handle,
                               const float* query, int embed_dim,
                               const float* candidates,
                               const uint64_t* candidate_ids,
@@ -633,13 +633,13 @@ NEURAL_API int nm_knn_search(KNNEngineHandle handle,
     }
 }
 
-NEURAL_API void nm_knn_adjust_weights(KNNEngineHandle handle,
+MAZEMAKER_API void nm_knn_adjust_weights(KNNEngineHandle handle,
                                        const float* lstm_context) {
     if (!handle) return;
     to_knn(handle)->adjust_weights(lstm_context);
 }
 
-NEURAL_API void nm_knn_destroy(KNNEngineHandle handle) {
+MAZEMAKER_API void nm_knn_destroy(KNNEngineHandle handle) {
     if (!handle) return;
     delete to_knn(handle);
 }

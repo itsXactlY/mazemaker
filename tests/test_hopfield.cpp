@@ -1,5 +1,5 @@
 // tests/test_hopfield.cpp - Hopfield memory tests
-#include "neural/hopfield.h"
+#include "mazemaker/hopfield.h"
 #include <cassert>
 #include <cmath>
 #include <iostream>

@@ -6,7 +6,7 @@ Implements three phases inspired by biological sleep:
   3. Insight — Abstraction & community detection
 
 Runs as a background daemon during idle periods. Stores results
-in the same SQLite DB as the main neural memory, extended with
+in the same SQLite DB as the main mazemaker, extended with
 dream-specific tables.
 
 MSSQL support: if mssql_store is configured, dreams run against
@@ -18,10 +18,17 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import struct
 import threading
 import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple
+
+try:
+    import networkx as nx
+    HAS_NETWORKX = True
+except ImportError:
+    HAS_NETWORKX = False
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +75,10 @@ CREATE INDEX IF NOT EXISTS idx_dream_insights_session
     ON dream_insights(session_id);
 CREATE INDEX IF NOT EXISTS idx_conn_history_nodes
     ON connection_history(source_id, target_id);
+CREATE INDEX IF NOT EXISTS idx_conn_history_changed_at
+    ON connection_history(changed_at);
+CREATE INDEX IF NOT EXISTS idx_dream_sessions_started_at
+    ON dream_sessions(started_at);
 """
 
 
@@ -117,7 +128,12 @@ class DreamBackend:
         raise NotImplementedError
 
     def add_bridge(self, source_id: int, target_id: int,
-                    weight: float = 0.3) -> None:
+                    weight: float = 0.3) -> bool:
+        """Insert a bridge edge. Returns True if newly inserted, False if skipped
+        (e.g. edge already exists or self-loop). Backends must canonicalise
+        source<target before INSERT so connection_history and the connections
+        table stay aligned. Callers should only log_connection_change on True.
+        """
         raise NotImplementedError
 
     def prune_weak(self, threshold: float = 0.05) -> int:
@@ -126,6 +142,22 @@ class DreamBackend:
     def log_connection_change(self, source_id: int, target_id: int,
                                old_weight: float, new_weight: float,
                                reason: str) -> None:
+        raise NotImplementedError
+
+    def get_memory_vectors(self, memory_ids: List[int]) -> Dict[int, List[float]]:
+        """Return embeddings for memory IDs. Optional backend capability."""
+        return {}
+
+    def set_connection_weight(self, source_id: int, target_id: int,
+                              weight: float, reason: str = "semantic_reweight") -> bool:
+        raise NotImplementedError
+
+    def add_typed_connection(self, source_id: int, target_id: int,
+                             weight: float = 0.5,
+                             edge_type: str = "similar") -> bool:
+        if edge_type == "bridge":
+            self.add_bridge(source_id, target_id, weight)
+            return True
         raise NotImplementedError
 
     def add_insight(self, session_id: int, insight_type: str,
@@ -154,7 +186,7 @@ class DreamBackend:
 # ---------------------------------------------------------------------------
 
 class SQLiteDreamBackend(DreamBackend):
-    """Dream backend using the existing neural memory SQLite DB."""
+    """Dream backend using the existing mazemaker SQLite DB."""
 
     def __init__(self, db_path: str):
         self._db_path = db_path
@@ -178,6 +210,30 @@ class SQLiteDreamBackend(DreamBackend):
         conn = sqlite3.connect(self._db_path)
         try:
             conn.executescript(_DREAM_SCHEMA)
+            # Existing mazemaker DBs may predate typed/bi-temporal edges.
+            has_connections = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='connections'"
+            ).fetchone()
+            if has_connections:
+                cols = {r[1] for r in conn.execute("PRAGMA table_info(connections)").fetchall()}
+                if "edge_type" not in cols:
+                    conn.execute("ALTER TABLE connections ADD COLUMN edge_type TEXT DEFAULT 'similar'")
+                for col, sql in {
+                    "event_time": "ALTER TABLE connections ADD COLUMN event_time REAL",
+                    "ingestion_time": "ALTER TABLE connections ADD COLUMN ingestion_time REAL DEFAULT (unixepoch())",
+                    "valid_from": "ALTER TABLE connections ADD COLUMN valid_from REAL",
+                    "valid_to": "ALTER TABLE connections ADD COLUMN valid_to REAL",
+                }.items():
+                    if col not in cols:
+                        try:
+                            conn.execute(sql)
+                        except sqlite3.OperationalError:
+                            pass
+                conn.execute("UPDATE connections SET edge_type = 'similar' WHERE edge_type IS NULL OR edge_type = ''")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_connections_edge_type_weight "
+                    "ON connections(edge_type, weight)"
+                )
             conn.commit()
         finally:
             conn.close()
@@ -259,18 +315,109 @@ class SQLiteDreamBackend(DreamBackend):
         conn = self._connect()
         try:
             rows = conn.execute(
-                "SELECT source_id, target_id, weight FROM connections "
-                "WHERE weight >= 0.05"
+                "SELECT source_id, target_id, weight, COALESCE(edge_type, 'similar') AS edge_type "
+                "FROM connections WHERE weight >= 0.05"
             ).fetchall()
             return [
-                {"source_id": r["source_id"], "target_id": r["target_id"], "weight": r["weight"]}
+                {
+                    "source_id": r["source_id"],
+                    "target_id": r["target_id"],
+                    "weight": r["weight"],
+                    "edge_type": r["edge_type"],
+                    "type": r["edge_type"],
+                }
                 for r in rows
             ]
         finally:
             conn.close()
 
+    def get_memory_vectors(self, memory_ids: List[int]) -> Dict[int, List[float]]:
+        if not memory_ids:
+            return {}
+        placeholders = ",".join("?" * len(memory_ids))
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"SELECT id, embedding FROM memories WHERE id IN ({placeholders}) AND embedding IS NOT NULL",
+                tuple(memory_ids),
+            ).fetchall()
+            out: Dict[int, List[float]] = {}
+            for r in rows:
+                blob = r["embedding"]
+                dim = len(blob) // 4 if blob else 0
+                if dim:
+                    out[r["id"]] = list(struct.unpack(f"{dim}f", blob))
+            return out
+        finally:
+            conn.close()
+
+    def set_connection_weight(self, source_id: int, target_id: int,
+                              weight: float, reason: str = "semantic_reweight") -> bool:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT id, source_id, target_id, weight FROM connections "
+                "WHERE (source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)",
+                (source_id, target_id, target_id, source_id),
+            ).fetchone()
+            if not row:
+                return False
+            new_weight = max(0.0, min(1.0, float(weight)))
+            conn.execute("UPDATE connections SET weight = ? WHERE id = ?", (new_weight, row["id"]))
+            conn.execute(
+                "INSERT INTO connection_history (source_id, target_id, old_weight, new_weight, reason, changed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (row["source_id"], row["target_id"], row["weight"], new_weight, reason, time.time()),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def add_typed_connection(self, source_id: int, target_id: int,
+                             weight: float = 0.5,
+                             edge_type: str = "similar") -> bool:
+        if source_id == target_id:
+            return False
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
+        conn = self._connect()
+        try:
+            existing = conn.execute(
+                "SELECT id, weight FROM connections WHERE source_id = ? AND target_id = ? AND COALESCE(edge_type, 'similar') = ?",
+                (source_id, target_id, edge_type),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE connections SET weight = MAX(weight, ?) WHERE id = ?",
+                    (weight, existing["id"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO connections (source_id, target_id, weight, edge_type, created_at, event_time, ingestion_time, valid_from) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (source_id, target_id, weight, edge_type, time.time(), time.time(), time.time(), time.time()),
+                )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
     def strengthen_connection(self, source_id: int, target_id: int,
                                delta: float = 0.05) -> None:
+        """Bump an edge's weight by delta, capped at 1.0.
+
+        Canonicalises (source < target) before the UPDATE so this works
+        on the canonical rows produced by the iter-62 migration. Without
+        the swap, a caller passing (max, min) would silently match no
+        rows and the update would be a no-op — observed in practice
+        when NREM activated_edges happened to be derived from a
+        non-canonical source.
+        """
+        if source_id == target_id:
+            return
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
         conn = self._connect()
         try:
             conn.execute(
@@ -297,18 +444,35 @@ class SQLiteDreamBackend(DreamBackend):
 
     def batch_strengthen_connections(self, edges: List[Tuple[int, int]],
                                       delta: float = 0.05) -> int:
-        """Bulk strengthen via executemany. Returns count updated."""
+        """Bulk strengthen via executemany. Returns count updated.
+
+        Canonicalises every (src, tgt) pair before the UPDATE — same
+        rationale as strengthen_connection above. NREM's activated_edges
+        set already stores (min, max), so this is a no-op for the
+        primary caller; the canonicalisation is here so any future
+        caller that forgets to swap still hits the right rows.
+        """
         if not edges:
+            return 0
+        canon = []
+        for src, tgt in edges:
+            src, tgt = int(src), int(tgt)
+            if src == tgt:
+                continue
+            if src > tgt:
+                src, tgt = tgt, src
+            canon.append((delta, src, tgt))
+        if not canon:
             return 0
         conn = self._connect()
         try:
             conn.executemany(
                 "UPDATE connections SET weight = MIN(weight + ?, 1.0) "
                 "WHERE source_id = ? AND target_id = ?",
-                [(delta, src, tgt) for src, tgt in edges]
+                canon,
             )
             conn.commit()
-            return len(edges)
+            return len(canon)
         finally:
             conn.close()
 
@@ -328,22 +492,39 @@ class SQLiteDreamBackend(DreamBackend):
             conn.close()
 
     def add_bridge(self, source_id: int, target_id: int,
-                    weight: float = 0.3) -> None:
+                    weight: float = 0.3) -> bool:
+        """Insert a REM-discovered bridge edge. Returns True if newly inserted.
+
+        Canonicalises source<target to match add_connection's invariant.
+        Without this, the connections table held mixed-orientation rows:
+        an edge added by remember()'s auto_connect path was always (min,max),
+        but a bridge from REM could be (max,min). Any downstream code that
+        assumed canonical form (\"WHERE source=? AND target=?\") would miss
+        the bridge edge half the time.
+
+        Returns False on self-loop or pre-existing edge so the caller can
+        avoid writing a misleading connection_history row claiming the
+        weight changed from 0.0.
+        """
+        if source_id == target_id:
+            return False
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
         conn = self._connect()
         try:
             existing = conn.execute(
-                "SELECT id FROM connections "
-                "WHERE (source_id = ? AND target_id = ?) "
-                "OR (source_id = ? AND target_id = ?)",
-                (source_id, target_id, target_id, source_id)
+                "SELECT id FROM connections WHERE source_id = ? AND target_id = ?",
+                (source_id, target_id),
             ).fetchone()
-            if not existing:
-                conn.execute(
-                    "INSERT INTO connections (source_id, target_id, weight, edge_type, created_at) "
-                    "VALUES (?, ?, ?, 'bridge', ?)",
-                    (source_id, target_id, weight, time.time())
-                )
-                conn.commit()
+            if existing:
+                return False
+            conn.execute(
+                "INSERT INTO connections (source_id, target_id, weight, edge_type, created_at) "
+                "VALUES (?, ?, ?, 'bridge', ?)",
+                (source_id, target_id, weight, time.time())
+            )
+            conn.commit()
+            return True
         finally:
             conn.close()
 
@@ -362,6 +543,13 @@ class SQLiteDreamBackend(DreamBackend):
     def log_connection_change(self, source_id: int, target_id: int,
                                old_weight: float, new_weight: float,
                                reason: str) -> None:
+        # Defensive canonicalisation: every connections row is canonical
+        # (source<target), so log rows must match or any join on
+        # (source_id, target_id) loses half the history. Callers fixed in
+        # iter-M already canonicalise; this guard makes the contract
+        # function-level so a future caller can't silently regress.
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
         conn = self._connect()
         try:
             conn.execute(
@@ -403,10 +591,23 @@ class SQLiteDreamBackend(DreamBackend):
             conn.close()
 
     def prune_old_dream_sessions(self, keep_days: int = 30) -> int:
-        """Delete dream sessions older than keep_days."""
+        """Delete dream sessions older than keep_days and their associated insights.
+
+        Uses correlated DELETE+subquery (no per-id parameter binding) so first-run
+        cleanup of a large backlog can't trip SQLITE_MAX_VARIABLE_NUMBER. The
+        previous implementation built `IN (?,?,?,...)` with one placeholder per
+        old session — fine for the steady-state (3/cycle), broken if the user
+        enabled cleanup after months of accumulation.
+        """
         conn = self._connect()
         try:
             cutoff = time.time() - (keep_days * 86400)
+            # Insights first — SQLite has no FK cascade in default schemas.
+            conn.execute(
+                "DELETE FROM dream_insights "
+                "WHERE session_id IN (SELECT id FROM dream_sessions WHERE started_at < ?)",
+                (cutoff,)
+            )
             count = conn.execute(
                 "DELETE FROM dream_sessions WHERE started_at < ?",
                 (cutoff,)
@@ -465,7 +666,7 @@ class SQLiteDreamBackend(DreamBackend):
 # ---------------------------------------------------------------------------
 
 class DreamEngine:
-    """Autonomous background consolidation for neural memory.
+    """Autonomous background consolidation for mazemaker.
 
     Three phases:
       NREM  — Replay recent memories, strengthen active, prune dead
@@ -482,7 +683,7 @@ class DreamEngine:
         max_memories_per_cycle: int = 100,
     ):
         self._backend = backend
-        self._memory = neural_memory        # NeuralMemory instance for think/recall
+        self._memory = neural_memory        # Mazemaker instance for think/recall
         self._idle_threshold = idle_threshold
         self._memory_threshold = memory_threshold
         self._max_memories = max_memories_per_cycle
@@ -565,6 +766,12 @@ class DreamEngine:
                         idle, new_since_last,
                     )
                     self._run_dream_cycle()
+                    # Reset idle timer so the next cycle doesn't re-trigger
+                    # on the very next 30s wake.  Without this, every poll
+                    # after the threshold is crossed sees idle >= threshold
+                    # and fires another cycle, pegging CPU on spreading
+                    # activation indefinitely.
+                    self._last_activity = time.time()
 
             except Exception as e:
                 logger.debug("Dream loop error: %s", e)
@@ -608,6 +815,15 @@ class DreamEngine:
             except Exception as e:
                 logger.error("Dream cycle failed: %s", e)
                 total_stats["error"] = str(e)
+            finally:
+                # Reset the idle timer after every cycle, regardless of how
+                # _run_dream_cycle was invoked (loop poll OR explicit dream_now()).
+                # Without this in the finally, dream_now() leaves _last_activity
+                # untouched, so the very next 30s loop wake sees idle >>
+                # idle_threshold and immediately fires another cycle — pegging
+                # CPU on spreading activation. The duplicate reset in the loop
+                # caller is now redundant but harmless.
+                self._last_activity = time.time()
 
             return total_stats
 
@@ -660,25 +876,27 @@ class DreamEngine:
             # Prune dead connections
             stats["pruned"] = self._backend.prune_weak(0.05)
 
-            # Periodic maintenance: prune old history + orphans every 50 cycles
-            if self._dream_count % 50 == 0:
-                try:
-                    pruned_hist = self._backend.prune_connection_history(keep_days=7)
-                    if pruned_hist:
-                        logger.info("Pruned %d old connection_history entries", pruned_hist)
-                    pruned_sessions = self._backend.prune_old_dream_sessions(keep_days=30)
-                    if pruned_sessions:
-                        logger.info("Pruned %d old dream sessions", pruned_sessions)
-                    pruned_orphans = self._backend.prune_orphans()
-                    if pruned_orphans:
-                        logger.info("Pruned %d orphan connections", pruned_orphans)
-                except Exception as e:
-                    logger.debug("Maintenance cleanup error: %s", e)
-
-            self._backend.finish_session(session_id, stats)
+            # Every NREM cycle: prune old history + orphans
+            try:
+                pruned_hist = self._backend.prune_connection_history(keep_days=7)
+                if pruned_hist:
+                    logger.info("Pruned %d old connection_history entries", pruned_hist)
+                pruned_sessions = self._backend.prune_old_dream_sessions(keep_days=30)
+                if pruned_sessions:
+                    logger.info("Pruned %d old dream sessions", pruned_sessions)
+                pruned_orphans = self._backend.prune_orphans()
+                if pruned_orphans:
+                    logger.info("Pruned %d orphan connections", pruned_orphans)
+            except Exception as e:
+                logger.debug("Maintenance cleanup error: %s", e)
 
         except Exception as e:
             logger.debug("NREM phase error: %s", e)
+        finally:
+            try:
+                self._backend.finish_session(session_id, stats)
+            except Exception as e:
+                logger.debug("NREM finish_session failed: %s", e)
 
         return stats
 
@@ -720,19 +938,28 @@ class DreamEngine:
                             continue
 
                         bridge_weight = round(sim_score * 0.3, 3)
-                        self._backend.add_bridge(mid, sim_id, bridge_weight)
-                        self._backend.log_connection_change(
-                            mid, sim_id, 0.0, bridge_weight, "rem_bridge"
-                        )
-                        stats["bridges"] += 1
+                        # Only count + log when add_bridge actually inserted.
+                        # Pre-existing edges return False; logging a "0.0 → w"
+                        # change on those would falsify connection_history.
+                        # Canonicalise the (src, tgt) for the history row to
+                        # match the connections row's canonical orientation.
+                        if self._backend.add_bridge(mid, sim_id, bridge_weight):
+                            src, tgt = (mid, sim_id) if mid < sim_id else (sim_id, mid)
+                            self._backend.log_connection_change(
+                                src, tgt, 0.0, bridge_weight, "rem_bridge"
+                            )
+                            stats["bridges"] += 1
 
                 except Exception:
                     pass
 
-            self._backend.finish_session(session_id, stats)
-
         except Exception as e:
             logger.debug("REM phase error: %s", e)
+        finally:
+            try:
+                self._backend.finish_session(session_id, stats)
+            except Exception as e:
+                logger.debug("REM finish_session failed: %s", e)
 
         return stats
 
@@ -745,7 +972,7 @@ class DreamEngine:
         2. Identify bridge nodes connecting communities
         3. Create insight memories for dense clusters
         """
-        stats = {"communities": 0, "bridges": 0, "insights": 0}
+        stats = {"communities": 0, "bridges": 0, "insights": 0, "derived_facts": 0}
         session_id = self._backend.start_session("insight")
 
         try:
@@ -763,24 +990,7 @@ class DreamEngine:
                 nodes.add(s)
                 nodes.add(t)
 
-            # Connected components (BFS)
-            visited = set()
-            communities: List[List[int]] = []
-            for node in nodes:
-                if node in visited:
-                    continue
-                component = []
-                queue = [node]
-                while queue:
-                    curr = queue.pop(0)
-                    if curr in visited:
-                        continue
-                    visited.add(curr)
-                    component.append(curr)
-                    for neighbor, _ in adj.get(curr, []):
-                        if neighbor not in visited:
-                            queue.append(neighbor)
-                communities.append(component)
+            communities = self._detect_communities(edges, nodes, adj)
             stats["communities"] = len(communities)
 
             # Map nodes to communities
@@ -808,14 +1018,18 @@ class DreamEngine:
                 content = f"Cluster of {len(comm)} related memories: {theme}"
                 self._backend.add_insight(session_id, "cluster", comm[0], content, confidence)
                 stats["insights"] += 1
+                if self._write_derived_cluster_memory(comm, content, confidence) is not None:
+                    stats["derived_facts"] += 1
 
-            # Create bridge insights
+            # Create bridge insights — use the adjacency map we already built
+            # (one O(E) construction up front) instead of rescanning the
+            # entire edge list per bridge node. The previous loop was
+            # O(|bridges| * |edges|), which on a 10K-edge / 500-bridge graph
+            # meant 5M iterations every Insight phase.
             for bnode in bridge_nodes:
                 bridging_communities = set()
-                for e in edges:
-                    if e["source_id"] == bnode or e["target_id"] == bnode:
-                        other = e["target_id"] if e["source_id"] == bnode else e["source_id"]
-                        bridging_communities.add(node_to_comm.get(other, -1))
+                for neighbor, _w in adj.get(bnode, ()):
+                    bridging_communities.add(node_to_comm.get(neighbor, -1))
                 bridging_communities.discard(-1)
 
                 if len(bridging_communities) >= 2:
@@ -826,12 +1040,125 @@ class DreamEngine:
                     self._backend.add_insight(session_id, "bridge", bnode, content, 0.8)
                     stats["insights"] += 1
 
-            self._backend.finish_session(session_id, stats)
-
         except Exception as e:
             logger.debug("Insight phase error: %s", e)
+        finally:
+            try:
+                self._backend.finish_session(session_id, stats)
+            except Exception as e:
+                logger.debug("Insight finish_session failed: %s", e)
 
         return stats
+
+    def _detect_communities(self, edges: List[Dict[str, Any]], nodes: set,
+                            adj: Dict[int, List[Tuple[int, float]]]) -> List[List[int]]:
+        """Louvain community detection with deterministic BFS fallback."""
+        if HAS_NETWORKX:
+            try:
+                graph = nx.Graph()
+                graph.add_nodes_from(nodes)
+                for e in edges:
+                    graph.add_edge(e["source_id"], e["target_id"], weight=float(e.get("weight", 0.0) or 0.0))
+                if hasattr(nx.algorithms.community, "louvain_communities"):
+                    comms = nx.algorithms.community.louvain_communities(graph, weight="weight", seed=42)
+                    out = [sorted(int(n) for n in comm) for comm in comms if comm]
+                    if out:
+                        out.sort(key=lambda c: (-len(c), c[0]))
+                        return out
+            except Exception:
+                pass
+
+        visited = set()
+        communities: List[List[int]] = []
+        for node in nodes:
+            if node in visited:
+                continue
+            component = []
+            queue = [node]
+            while queue:
+                curr = queue.pop(0)
+                if curr in visited:
+                    continue
+                visited.add(curr)
+                component.append(curr)
+                for neighbor, _ in adj.get(curr, []):
+                    if neighbor not in visited:
+                        queue.append(neighbor)
+            communities.append(component)
+        return communities
+
+    def _write_derived_cluster_memory(self, comm: List[int], content: str, confidence: float) -> int | None:
+        """Materialize a dream insight as a first-class derived memory.
+
+        Dedup strategy:
+        1) Reuse existing identical derived:cluster content when present.
+        2) Otherwise create a new memory entry (with conflict detection enabled).
+        """
+        if not self._memory:
+            return None
+
+        store = getattr(self._memory, "store", None)
+        if store is None and hasattr(self._memory, "_sqlite_memory"):
+            store = self._memory._sqlite_memory.store
+
+        derived_id: Optional[int] = None
+
+        # Reuse exact duplicate first to prevent unbounded growth.
+        if store is not None:
+            try:
+                lock = getattr(store, "_lock", None)
+                if lock is not None:
+                    with lock:
+                        row = store.conn.execute(
+                            "SELECT id FROM memories WHERE label = ? AND content = ? ORDER BY id DESC LIMIT 1",
+                            ("derived:cluster", content),
+                        ).fetchone()
+                else:
+                    row = store.conn.execute(
+                        "SELECT id FROM memories WHERE label = ? AND content = ? ORDER BY id DESC LIMIT 1",
+                        ("derived:cluster", content),
+                    ).fetchone()
+
+                if row is not None:
+                    derived_id = int(row["id"] if isinstance(row, sqlite3.Row) else row[0])
+                    try:
+                        store.touch(derived_id)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # No exact duplicate found: create one.
+        if derived_id is None:
+            try:
+                created = self._memory.remember(
+                    content,
+                    label="derived:cluster",
+                    auto_connect=False,
+                    detect_conflicts=True,
+                )
+                if isinstance(created, list):
+                    created = created[0]
+                derived_id = int(created)
+            except Exception:
+                return None
+
+        # Ensure derived_from links to source memories exist.
+        try:
+            if store is None:
+                store = getattr(self._memory, "store", None)
+                if store is None and hasattr(self._memory, "_sqlite_memory"):
+                    store = self._memory._sqlite_memory.store
+            if store is not None:
+                link_weight = max(0.35, min(0.95, confidence))
+                for source_id in comm:
+                    sid = int(source_id)
+                    if sid != int(derived_id):
+                        store.add_connection(int(derived_id), sid, link_weight, edge_type="derived_from")
+        except Exception:
+            pass
+
+        return int(derived_id)
 
     # -- Helpers -------------------------------------------------------------
 

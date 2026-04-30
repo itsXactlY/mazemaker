@@ -2,7 +2,7 @@
 CppDreamBackend — Dream backend that uses C++ bridge for MSSQL operations.
 
 All graph operations (strengthen, weaken, prune, spreading activation)
-go through the C++ libneural_memory.so → ODBC → MSSQL.
+go through the C++ libmazemaker.so → ODBC → MSSQL.
 
 SQLite fallback is handled by SQLiteDreamBackend in dream_engine.py.
 """
@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 # Import the C++ bridge
 sys.path.insert(0, str(Path(__file__).parent))
-from cpp_bridge import NeuralMemoryCpp
+from cpp_bridge import MazemakerCpp
 
 from dream_engine import DreamBackend
 
@@ -35,7 +35,7 @@ class CppDreamBackend(DreamBackend):
     def __init__(self, dim: int = 1024):
         import sqlite3
 
-        self._cpp = NeuralMemoryCpp()
+        self._cpp = MazemakerCpp()
         self._cpp.initialize(dim=dim)
         self._dim = dim
         logger.info("CppDreamBackend initialized (dim=%d)", dim)
@@ -51,7 +51,7 @@ class CppDreamBackend(DreamBackend):
                 self._mssql_conn = pyodbc.connect(
                     f"DRIVER={os.environ.get('MSSQL_DRIVER', '{ODBC Driver 18 for SQL Server}')};"
                     f"SERVER={mssql_server};"
-                    f"DATABASE={os.environ.get('MSSQL_DATABASE', 'NeuralMemory')};"
+                    f"DATABASE={os.environ.get('MSSQL_DATABASE', 'Mazemaker')};"
                     f"UID={os.environ.get('MSSQL_USERNAME', 'SA')};"
                     f"PWD={mssql_password};"
                     f"TrustServerCertificate=yes;",
@@ -88,6 +88,10 @@ class CppDreamBackend(DreamBackend):
                 confidence REAL DEFAULT 0.0,
                 created_at REAL NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_dream_sessions_started_at
+                ON dream_sessions(started_at);
+            CREATE INDEX IF NOT EXISTS idx_dream_insights_session
+                ON dream_insights(session_id);
         """)
         conn.commit()
         conn.close()
@@ -103,34 +107,37 @@ class CppDreamBackend(DreamBackend):
     def start_session(self, phase: str) -> int:
         import sqlite3, time
         conn = sqlite3.connect(self._session_db)
-        cur = conn.execute(
-            "INSERT INTO dream_sessions (started_at, phase) VALUES (?, ?)",
-            (time.time(), phase)
-        )
-        conn.commit()
-        sid = cur.lastrowid
-        conn.close()
-        return sid
+        try:
+            cur = conn.execute(
+                "INSERT INTO dream_sessions (started_at, phase) VALUES (?, ?)",
+                (time.time(), phase)
+            )
+            conn.commit()
+            return cur.lastrowid
+        finally:
+            conn.close()
 
     def finish_session(self, session_id: int, stats: Dict[str, Any]) -> None:
         if session_id < 0:
             return
         import sqlite3, time
         conn = sqlite3.connect(self._session_db)
-        conn.execute(
-            "UPDATE dream_sessions SET finished_at=?, memories_processed=?, "
-            "connections_strengthened=?, connections_pruned=?, "
-            "bridges_found=?, insights_created=? WHERE id=?",
-            (time.time(),
-             stats.get("processed", stats.get("explored", 0)),
-             stats.get("strengthened", 0),
-             stats.get("pruned", 0),
-             stats.get("bridges", 0),
-             stats.get("insights", 0),
-             session_id)
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                "UPDATE dream_sessions SET finished_at=?, memories_processed=?, "
+                "connections_strengthened=?, connections_pruned=?, "
+                "bridges_found=?, insights_created=? WHERE id=?",
+                (time.time(),
+                 stats.get("processed", stats.get("explored", 0)),
+                 stats.get("strengthened", 0),
+                 stats.get("pruned", 0),
+                 stats.get("bridges", 0),
+                 stats.get("insights", 0),
+                 session_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     # -- Graph Operations (ALL via C++ → MSSQL) --
 
@@ -201,9 +208,19 @@ class CppDreamBackend(DreamBackend):
 
     def strengthen_connection(self, source_id: int, target_id: int,
                                delta: float = 0.05) -> None:
-        """Strengthen edge in connections table via MSSQL."""
+        """Strengthen edge in connections table via MSSQL.
+
+        Canonicalises (source < target) so the strict WHERE matches the
+        rows produced by every canonicalising writer (iter 36 add_bridge,
+        iter 50 add_connection, iter 61 migration). Without the swap,
+        callers passing (max, min) silently update zero rows.
+        """
         if not self._mssql_conn:
             return
+        if source_id == target_id:
+            return
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
         try:
             self._mssql_conn.execute(
                 "UPDATE connections SET weight = CASE WHEN weight + ? > 1.0 THEN 1.0 ELSE weight + ? END "
@@ -218,6 +235,7 @@ class CppDreamBackend(DreamBackend):
 
         Accepts 2-tuples (source_id, target_id) — fetches current weight and adds delta.
         Also accepts 3-tuples (new_weight, source_id, target_id) for direct weight set.
+        Both forms get source<target canonicalisation before the SELECT/UPDATE.
         """
         if not edges or not self._mssql_conn:
             return 0
@@ -230,6 +248,13 @@ class CppDreamBackend(DreamBackend):
                 except ValueError:
                     # 2-tuple: (source_id, target_id) — fetch weight then add delta
                     src, tgt = item
+                    new_w = None
+                src, tgt = int(src), int(tgt)
+                if src == tgt:
+                    continue
+                if src > tgt:
+                    src, tgt = tgt, src
+                if new_w is None:
                     try:
                         cursor.execute(
                             "SELECT weight FROM connections WHERE source_id = ? AND target_id = ?",
@@ -291,29 +316,45 @@ class CppDreamBackend(DreamBackend):
                 logger.debug("batch_weaken (bulk) failed: %s", e)
                 return 0
         
-        # Explicit mode: list of tuples
+        # Explicit mode: list of tuples — single executemany instead of N
+        # individual UPDATE statements. Each separate execute() pays a fresh
+        # round-trip + statement-prepare cost; with a few hundred edges
+        # per cycle that latency dominated MSSQL dream operations.
         if not updates:
             return 0
         try:
             cursor = self._mssql_conn.cursor()
-            for new_w, src, tgt in updates:
-                cursor.execute(
-                    "UPDATE connections SET weight = ? "
-                    "WHERE source_id = ? AND target_id = ?",
-                    new_w, src, tgt
-                )
+            cursor.executemany(
+                "UPDATE connections SET weight = ? "
+                "WHERE source_id = ? AND target_id = ?",
+                list(updates),
+            )
             return len(updates)
         except Exception as e:
             logger.debug("batch_weaken failed: %s", e)
             return 0
 
     def add_bridge(self, source_id: int, target_id: int,
-                    weight: float = 0.3) -> None:
-        """Add bridge edge to connections table via MSSQL (UPSERT)."""
+                    weight: float = 0.3) -> bool:
+        """Add bridge edge to connections table via MSSQL (UPSERT).
+        Returns True if newly inserted, False if skipped (self-loop, no
+        connection, MERGE matched existing row, or MSSQL error).
+
+        Canonicalises source<target so the row matches the invariant the
+        application-side SQLiteStore.add_connection enforces. Without
+        canonicalisation, the connections table accumulated mixed-orientation
+        rows (auto_connect produced (min, max), REM bridges via this method
+        could produce (max, min)). See iters 23 and 36 for the matching
+        SQLite and dream_mssql_store fixes.
+        """
         if not self._mssql_conn:
-            return
+            return False
+        if source_id == target_id:
+            return False
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
         try:
-            self._mssql_conn.execute(
+            cursor = self._mssql_conn.execute(
                 "MERGE connections AS target "
                 "USING (VALUES (?, ?)) AS src(source_id, target_id) "
                 "ON target.source_id = src.source_id AND target.target_id = src.target_id "
@@ -322,8 +363,12 @@ class CppDreamBackend(DreamBackend):
                 source_id, target_id,     # USING
                 source_id, target_id, weight  # INSERT
             )
+            # rowcount > 0 only when WHEN NOT MATCHED fired (no WHEN MATCHED here).
+            rc = getattr(cursor, "rowcount", 0) or 0
+            return rc > 0
         except Exception as e:
             logger.debug("add_bridge failed: %s", e)
+            return False
 
     def prune_weak(self, threshold: float = 0.05) -> int:
         """Prune weak connections from connections table via MSSQL."""
@@ -342,9 +387,17 @@ class CppDreamBackend(DreamBackend):
     def log_connection_change(self, source_id: int, target_id: int,
                                old_weight: float, new_weight: float,
                                reason: str) -> None:
-        """Log connection change to connection_history table (UPSERT)."""
+        """Log connection change to connection_history table (UPSERT).
+
+        Canonicalises source<target so the MERGE upsert key matches the
+        canonical orientation of connections rows (see iters 23, 36, 61).
+        Without this guard a caller passing (high, low) creates a separate
+        non-canonical history row for the same edge.
+        """
         if not self._mssql_conn:
             return
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
         try:
             self._mssql_conn.execute(
                 "MERGE connection_history AS target "
@@ -360,15 +413,41 @@ class CppDreamBackend(DreamBackend):
         except Exception as e:
             logger.debug("log_connection_change failed: %s", e)
     def prune_connection_history(self, keep_days: int = 7) -> int:
-        """Skip — C++/MSSQL handles history internally."""
-        return 0
+        """Delete connection_history entries older than keep_days via MSSQL.
+        
+        Returns the count of deleted rows.
+        """
+        if not self._mssql_conn:
+            return 0
+        try:
+            cursor = self._mssql_conn.cursor()
+            cursor.execute(
+                "DELETE FROM connection_history WHERE changed_at < DATEADD(day, ?, SYSUTCDATETIME())",
+                (-keep_days,)
+            )
+            deleted = cursor.rowcount
+            return deleted
+        except Exception as e:
+            logger.debug("prune_connection_history failed: %s", e)
+            return 0
 
     def prune_old_dream_sessions(self, keep_days: int = 30) -> int:
-        """Prune old dream sessions from SQLite tracking DB."""
+        """Prune old dream sessions AND their associated insights from SQLite tracking DB.
+
+        Uses a correlated DELETE+subquery so backlogs of any size are safe;
+        the previous IN (?,?,?...) form would hit SQLITE_MAX_VARIABLE_NUMBER
+        on first cleanup of a long-lived MSSQL deployment.
+        """
         import sqlite3, time
         conn = sqlite3.connect(self._session_db)
         try:
             cutoff = time.time() - (keep_days * 86400)
+            # Insights first — SQLite has no FK cascade by default on this schema.
+            conn.execute(
+                "DELETE FROM dream_insights "
+                "WHERE session_id IN (SELECT id FROM dream_sessions WHERE started_at < ?)",
+                (cutoff,)
+            )
             count = conn.execute(
                 "DELETE FROM dream_sessions WHERE started_at < ?",
                 (cutoff,)
@@ -379,10 +458,21 @@ class CppDreamBackend(DreamBackend):
             conn.close()
 
     def prune_orphans(self) -> int:
-        """Skip — C++/MSSQL handles referential integrity."""
-        return 0
-
-
+        """Delete connections pointing to non-existent memories (MSSQL)."""
+        if not self._mssql_conn:
+            return 0
+        try:
+            cursor = self._mssql_conn.cursor()
+            cursor.execute("""
+                DELETE FROM connections
+                WHERE source_id NOT IN (SELECT id FROM memories)
+                   OR target_id NOT IN (SELECT id FROM memories)
+            """)
+            deleted = cursor.rowcount if hasattr(cursor, 'rowcount') else 0
+            return deleted
+        except Exception as e:
+            logger.debug("prune_orphans failed: %s", e)
+            return 0
 
     def add_insight(self, session_id: int, insight_type: str,
                     source_memory_id: int, content: str,
@@ -390,14 +480,16 @@ class CppDreamBackend(DreamBackend):
         """Store insight in lightweight SQLite."""
         import sqlite3, time
         conn = sqlite3.connect(self._session_db)
-        conn.execute(
-            "INSERT INTO dream_insights "
-            "(session_id, insight_type, source_memory_id, content, confidence, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (session_id, insight_type, source_memory_id, content, confidence, time.time())
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                "INSERT INTO dream_insights "
+                "(session_id, insight_type, source_memory_id, content, confidence, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (session_id, insight_type, source_memory_id, content, confidence, time.time())
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     def get_dream_stats(self) -> Dict[str, Any]:
         """Get dream stats from SQLite tracking + C++ graph stats."""

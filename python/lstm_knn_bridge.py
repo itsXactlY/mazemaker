@@ -23,10 +23,10 @@ from typing import Optional
 
 def _find_lib() -> str:
     candidates = [
-        Path(__file__).parent.parent / "build" / "libneural_memory.so",
-        Path.home() / "projects" / "neural-memory-adapter" / "build" / "libneural_memory.so",
-        Path("/usr/local/lib/libneural_memory.so"),
-        Path("/usr/lib/libneural_memory.so"),
+        Path(__file__).parent.parent / "build" / "libmazemaker.so",
+        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libmazemaker.so",
+        Path("/usr/local/lib/libmazemaker.so"),
+        Path("/usr/lib/libmazemaker.so"),
     ]
     for p in candidates:
         if p.exists():
@@ -35,8 +35,8 @@ def _find_lib() -> str:
     if lib:
         return lib
     raise FileNotFoundError(
-        "libneural_memory.so not found. Build first:\n"
-        "  cd ~/projects/neural-memory-adapter/build && cmake --build . -j$(nproc)"
+        "libmazemaker.so not found. Build first:\n"
+        "  cd ~/projects/mazemaker-adapter/build && cmake --build . -j$(nproc)"
     )
 
 
@@ -240,14 +240,31 @@ class LSTMPredictor:
         self._handle = new_handle
 
     def close(self):
-        """Destroy the LSTM predictor."""
+        """Destroy the LSTM predictor.
+
+        Tolerates a torn-down `self._lib` and a None `nm_lstm_destroy` —
+        during interpreter shutdown Python may have already nulled module
+        globals on ctypes objects we hold a reference to, so the destroy
+        call can vanish under our feet. Swallow that here so __del__
+        doesn't surface AttributeError noise during normal exit. The C++
+        side leak is irrelevant: the OS reclaims process memory.
+        """
         if getattr(self, '_handle', None):
-            self._lib.nm_lstm_destroy(self._handle)
+            lib = getattr(self, '_lib', None)
+            destroy = getattr(lib, 'nm_lstm_destroy', None) if lib else None
+            if destroy is not None:
+                try:
+                    destroy(self._handle)
+                except Exception:
+                    pass
             self._handle = None
 
     def __del__(self):
-        if getattr(self, '_handle', None):
-            self.close()
+        try:
+            if getattr(self, '_handle', None):
+                self.close()
+        except Exception:
+            pass
 
     def __enter__(self):
         return self
@@ -375,10 +392,21 @@ class KNNEngine:
         graph_arr = (ctypes.c_float * count)(*graph_scores)
         results_arr = (CKNNResult * k)()
 
-        # LSTM context pointer
+        # LSTM context pointer — defensively validate the dim before
+        # constructing the C array. ctypes.c_float * N silently pads with
+        # zeros when fewer values are passed and silently truncates when
+        # more are passed; either case feeds malformed memory into the
+        # C-side dot product. The C kernel reads embed_dim floats from
+        # the pointer, so an undersized buffer would also be a true OOB
+        # read into adjacent memory.
         ctx_ptr = None
         if lstm_context is not None:
-            ctx_ptr = (ctypes.c_float * self._embed_dim)(*lstm_context)
+            if len(lstm_context) != self._embed_dim:
+                # Drop bad context rather than risking corrupt scoring.
+                # The kNN call accepts a NULL pointer for \"no context\".
+                lstm_context = None
+            else:
+                ctx_ptr = (ctypes.c_float * self._embed_dim)(*lstm_context)
 
         n = self._lib.nm_knn_search(
             self._handle, query_arr, self._embed_dim,
@@ -410,18 +438,38 @@ class KNNEngine:
         """
         assert self._handle, "kNN engine not initialized"
         ctx_ptr = None
-        if lstm_context is not None:
+        if lstm_context is not None and len(lstm_context) == self._embed_dim:
             ctx_ptr = (ctypes.c_float * self._embed_dim)(*lstm_context)
+        # If the dim doesn't match, fall through with NULL context — same
+        # safety as search(): malformed contexts are dropped, never passed
+        # to the C kernel where they'd cause OOB reads or silent zero-pad.
         self._lib.nm_knn_adjust_weights(self._handle, ctx_ptr)
 
     def close(self):
-        """Destroy the kNN engine."""
-        if self._handle:
-            self._lib.nm_knn_destroy(self._handle)
+        """Destroy the kNN engine.
+
+        Same shutdown-safety as LSTMPredictor.close(): tolerate a torn-down
+        ctypes lib without surfacing AttributeError. Previously this called
+        self._lib.nm_knn_destroy unguarded and __del__ ran unconditionally,
+        so a stray reference held until exit could spam tracebacks during
+        interpreter teardown.
+        """
+        if getattr(self, '_handle', None):
+            lib = getattr(self, '_lib', None)
+            destroy = getattr(lib, 'nm_knn_destroy', None) if lib else None
+            if destroy is not None:
+                try:
+                    destroy(self._handle)
+                except Exception:
+                    pass
             self._handle = None
 
     def __del__(self):
-        self.close()
+        try:
+            if getattr(self, '_handle', None):
+                self.close()
+        except Exception:
+            pass
 
     def __enter__(self):
         return self

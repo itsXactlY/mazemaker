@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """neural_memory_production_upgrade.py — PoC → Production Upgrade
 
-Fixes database growth problems in Neural Memory SQLite without data loss.
+Fixes database growth problems in Mazemaker SQLite without data loss.
 
 What it does (in order):
   1. Backup database before any changes
@@ -407,7 +407,7 @@ def verify_integrity(conn: sqlite3.Connection) -> tuple[bool, str]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Neural Memory SQLite Production Upgrade — PoC → Production"
+        description="Mazemaker SQLite Production Upgrade — PoC → Production"
     )
     parser.add_argument(
         "--db", default=os.path.expanduser("~/.hermes/hermes-agent/plugins/memory/neural/neural_memory.db"),

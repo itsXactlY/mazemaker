@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-generate.py - Generate interactive Neural Memory dashboard HTML.
+generate.py - Generate interactive Mazemaker dashboard HTML.
 
 Reads from SQLite (default) or MSSQL and produces a self-contained
 interactive HTML file with 3D force graph + Plotly visualizations.
 
 Usage:
     python generate.py                          # SQLite, output ~/neural_memory_dashboard.html
-    python generate.py --mssql                  # MSSQL (NeuralMemory DB)
+    python generate.py --mssql                  # MSSQL (Mazemaker DB)
     python generate.py --db /path/to/memory.db  # Custom SQLite path
     python generate.py -o /tmp/dashboard.html   # Custom output path
     python generate.py --serve                  # Generate + serve via HTTPS (auto-cert)
@@ -54,7 +54,7 @@ def _download_js(url: str, cache_file: Path, label: str, min_size: int = 100_000
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        req = urllib.request.Request(url, headers={"User-Agent": "neural-memory-dashboard/3.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "mazemaker-dashboard/3.0"})
         with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
             js = resp.read().decode("utf-8")
     except Exception:
@@ -198,7 +198,7 @@ def read_sqlite(db_path: str) -> dict:
     }
 
 
-def read_mssql(server="localhost", database="NeuralMemory",
+def read_mssql(server="localhost", database="Mazemaker",
                username="SA", password=None) -> dict:
     """Extract visualization data from MSSQL."""
     try:
@@ -324,7 +324,7 @@ def generate_self_signed_cert(cert_path: str, key_path: str):
         "-pkeyopt", "ec_paramgen_curve:prime256v1",
         "-keyout", key_path, "-out", cert_path,
         "-days", "3650", "-nodes",
-        "-subj", "/CN=neural-memory-dashboard/O=NeuralMemory/C=DE",
+        "-subj", "/CN=mazemaker-dashboard/O=Mazemaker/C=DE",
         "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:0.0.0.0",
     ], capture_output=True, check=True)
     print(f"  Certificate: {cert_path}")
@@ -394,7 +394,7 @@ def serve_https(output_path: str, port: int):
     server.socket = ctx.wrap_socket(server.socket, server_side=True)
 
     print(f"\n{'='*60}")
-    print(f"  Neural Memory Dashboard — HTTPS")
+    print(f"  Mazemaker Dashboard — HTTPS")
     print(f"  https://localhost:{port}/{os.path.basename(output_path)}")
     print(f"  https://<your-ip>:{port}/{os.path.basename(output_path)}")
     print(f"")
@@ -410,11 +410,11 @@ def serve_https(output_path: str, port: int):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate Neural Memory Dashboard")
+    parser = argparse.ArgumentParser(description="Generate Mazemaker Dashboard")
     parser.add_argument("--db", default=DEFAULT_SQLITE, help="SQLite database path")
     parser.add_argument("--mssql", action="store_true", help="Use MSSQL instead of SQLite")
     parser.add_argument("--mssql-server", default="localhost")
-    parser.add_argument("--mssql-database", default="NeuralMemory")
+    parser.add_argument("--mssql-database", default="Mazemaker")
     parser.add_argument("--mssql-username", default="SA")
     parser.add_argument("--mssql-password", default=None, help="Or set MSSQL_PASSWORD env var")
     parser.add_argument("-o", "--output", default=os.path.expanduser("~/neural_memory_dashboard.html"))

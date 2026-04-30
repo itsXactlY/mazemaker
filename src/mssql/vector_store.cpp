@@ -3,7 +3,7 @@
 // Cosine similarity computed in C++ after fetching raw bytes.
 // Metadata stored as NVARCHAR(MAX) JSON.
 
-#include "neural/mssql.h"
+#include "mazemaker/mssql.h"
 
 #include <algorithm>
 #include <cmath>

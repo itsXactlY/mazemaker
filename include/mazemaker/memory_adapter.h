@@ -2,13 +2,13 @@
 // neural/memory_adapter.h - THE Public API
 // One header to rule them all
 
-#include "neural/vector.h"
-#include "neural/simd.h"
-#include "neural/hopfield.h"
-#include "neural/memory.h"
-#include "neural/graph.h"
+#include "mazemaker/vector.h"
+#include "mazemaker/simd.h"
+#include "mazemaker/hopfield.h"
+#include "mazemaker/memory.h"
+#include "mazemaker/graph.h"
 #ifdef USE_MSSQL
-#include "neural/mssql.h"
+#include "mazemaker/mssql.h"
 #endif
 
 #include <string>

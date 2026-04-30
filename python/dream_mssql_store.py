@@ -9,7 +9,7 @@ Credentials resolution order:
   1. Environment variables: MSSQL_SERVER, MSSQL_DATABASE, MSSQL_USERNAME, MSSQL_PASSWORD
   2. .env file in project or ~/.hermes/.env
   3. Config dict (from config.yaml)
-  4. Defaults (localhost, NeuralMemory, SA)
+  4. Defaults (localhost, Mazemaker, SA)
 """
 
 from __future__ import annotations
@@ -104,6 +104,12 @@ CREATE INDEX idx_dream_insights_session ON dream_insights(session_id);
 
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_dream_conn_history')
 CREATE INDEX idx_dream_conn_history ON connection_history(source_id, target_id);
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_dream_conn_history_changed_at')
+CREATE INDEX idx_dream_conn_history_changed_at ON connection_history(changed_at);
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_dream_sessions_started_at')
+CREATE INDEX idx_dream_sessions_started_at ON dream_sessions(started_at);
 """
 
 
@@ -125,7 +131,7 @@ class DreamMSSQLStore:
         # Fix IPv6 localhost issue — MSSQL only listens on IPv4
         if server == 'localhost':
             server = '127.0.0.1'
-        database = database or _env('MSSQL_DATABASE', 'NeuralMemory')
+        database = database or _env('MSSQL_DATABASE', 'Mazemaker')
         username = username or _env('MSSQL_USERNAME', 'SA')
         password = password or _env('MSSQL_PASSWORD', '')
         driver = driver or _env('MSSQL_DRIVER', '{ODBC Driver 18 for SQL Server}')
@@ -248,9 +254,28 @@ class DreamMSSQLStore:
                 break
         return results
 
+    @staticmethod
+    def _canon_pair(source_id: int, target_id: int):
+        """Canonicalise (source<target) and reject self-edges.
+
+        All MSSQL connection rows satisfy source<target (iter 36 add_bridge,
+        iter 50 add_connection, iter 61 migration). Strict-WHERE updates
+        without canonicalisation silently match nothing on (max, min)
+        input — same hazard fixed for dream_engine.py in iter 79.
+        """
+        if source_id == target_id:
+            return None
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
+        return source_id, target_id
+
     def strengthen_connection(self, source_id: int, target_id: int,
                                delta: float = 0.05) -> None:
         """Strengthen a connection by delta (capped at 1.0)."""
+        pair = self._canon_pair(source_id, target_id)
+        if pair is None:
+            return
+        source_id, target_id = pair
         self.conn.execute(
             "UPDATE connections SET weight = CASE "
             "WHEN weight + ? > 1.0 THEN 1.0 ELSE weight + ? END "
@@ -262,6 +287,10 @@ class DreamMSSQLStore:
     def weaken_connection(self, source_id: int, target_id: int,
                            delta: float = 0.01) -> None:
         """Weaken a connection by delta (floored at 0.0)."""
+        pair = self._canon_pair(source_id, target_id)
+        if pair is None:
+            return
+        source_id, target_id = pair
         self.conn.execute(
             "UPDATE connections SET weight = CASE "
             "WHEN weight - ? < 0.0 THEN 0.0 ELSE weight - ? END "
@@ -275,15 +304,23 @@ class DreamMSSQLStore:
         """Bulk strengthen connections. Returns count updated."""
         if not edges:
             return 0
+        canon = []
+        for src, tgt in edges:
+            pair = self._canon_pair(int(src), int(tgt))
+            if pair is None:
+                continue
+            canon.append((delta, delta, pair[0], pair[1]))
+        if not canon:
+            return 0
         cursor = self.conn.cursor()
         cursor.executemany(
             "UPDATE connections SET weight = CASE "
             "WHEN weight + ? > 1.0 THEN 1.0 ELSE weight + ? END "
             "WHERE source_id = ? AND target_id = ?",
-            [(delta, delta, src, tgt) for src, tgt in edges]
+            canon,
         )
         self.conn.commit()
-        return len(edges)
+        return len(canon)
 
     def batch_weaken_connections(self, threshold: float = 0.05,
                                   delta: float = 0.01) -> int:
@@ -299,18 +336,33 @@ class DreamMSSQLStore:
         return cursor.rowcount
 
     def add_bridge(self, source_id: int, target_id: int,
-                    weight: float = 0.3) -> None:
-        """Add a new bridge connection."""
-        # Check if exists
+                    weight: float = 0.3) -> bool:
+        """Add a new bridge connection. Returns True if newly inserted.
+
+        Canonicalises source<target so the row matches the invariant the
+        Python side enforces in SQLiteStore.add_connection. Without this
+        canonicalisation, the MSSQL connections table accumulated mixed-
+        orientation rows: an edge added by the application's auto_connect
+        path was always (min, max), but a bridge from REM could be
+        (max, min). Downstream queries that assume canonical form would
+        miss the bridge half the time. See iter 23 for the SQLite-side
+        twin of this fix.
+
+        Returns False on self-loop or pre-existing edge so the REM caller
+        can skip the misleading "0.0 → w" connection_history row.
+        """
+        if source_id == target_id:
+            return False
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
+        # Check if exists — only one orientation now, so the OR clause is gone.
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT id FROM connections "
-            "WHERE (source_id = ? AND target_id = ?) "
-            "OR (source_id = ? AND target_id = ?)",
-            source_id, target_id, target_id, source_id
+            "SELECT id FROM connections WHERE source_id = ? AND target_id = ?",
+            source_id, target_id,
         )
         if cursor.fetchone():
-            return
+            return False
         self.conn.execute(
             "MERGE connections AS target "
             "USING (VALUES (?, ?, ?)) AS source (source_id, target_id, weight) "
@@ -323,6 +375,7 @@ class DreamMSSQLStore:
             source_id, target_id, weight
         )
         self.conn.commit()
+        return True
 
     def prune_weak(self, threshold: float = 0.05) -> int:
         """Delete connections below threshold. Returns count deleted."""
@@ -338,7 +391,17 @@ class DreamMSSQLStore:
     def log_connection_change(self, source_id: int, target_id: int,
                                old_weight: float, new_weight: float,
                                reason: str) -> None:
-        """Log a connection weight change."""
+        """Log a connection weight change.
+
+        Canonicalises source<target so the MERGE upsert key matches the
+        connections-table invariant. Without this guard a caller passing
+        (high, low) would create a separate non-canonical history row
+        for what is logically the same edge — connection_history could
+        hold both orientations for the same edge and joins on
+        (source_id, target_id) would lose half.
+        """
+        if source_id > target_id:
+            source_id, target_id = target_id, source_id
         now = datetime.fromtimestamp(time.time())
         self.conn.execute(
             "MERGE connection_history AS target "

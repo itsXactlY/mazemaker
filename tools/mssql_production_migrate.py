@@ -2,7 +2,7 @@
 """
 mssql_production_migrate.py — MSSQL Production Migration & Verification
 
-Migrates Neural Memory MSSQL from legacy/V1 state to production-grade V2:
+Migrates Mazemaker MSSQL from legacy/V1 state to production-grade V2:
   1. Diagnose current state (tables, sizes, duplicates, orphans)
   2. Sync all SQLite databases into MSSQL (merge, don't overwrite)
   3. Deduplicate connections + connection_history
@@ -114,7 +114,7 @@ def get_mssql_connection(config_path: str = "~/.hermes/config.yaml"):
     mssql_cfg = config.get("memory", {}).get("neural", {}).get("dream", {}).get("mssql", {})
     pw = mssql_cfg.get("password", "")
     server = mssql_cfg.get("server", "127.0.0.1")
-    database = mssql_cfg.get("database", "NeuralMemory")
+    database = mssql_cfg.get("database", "Mazemaker")
 
     if not pw:
         # Try .env file
@@ -533,17 +533,17 @@ def migrate_v1_to_v2(conn, dry_run: bool = False) -> dict:
     if "NeuralMemory_old" in tables:
         mc.execute("SELECT COUNT(*) FROM NeuralMemory_old")
         nmo = mc.fetchone()[0]
-        mc.execute("SELECT COUNT(*) FROM NeuralMemory")
+        mc.execute("SELECT COUNT(*) FROM Mazemaker")
         nm = mc.fetchone()[0]
-        print(f"  NeuralMemory_old: {nmo:,} rows | NeuralMemory: {nm:,} rows")
+        print(f"  NeuralMemory_old: {nmo:,} rows | Mazemaker: {nm:,} rows")
         if nm >= nmo:
             if not dry_run:
                 mc.execute("DROP TABLE NeuralMemory_old")
                 conn.commit()
             stats["dropped"].append("NeuralMemory_old")
-            print(f"  ✓ Dropped NeuralMemory_old ({nmo:,} rows, data in NeuralMemory)")
+            print(f"  ✓ Dropped NeuralMemory_old ({nmo:,} rows, data in Mazemaker)")
         else:
-            print(f"  ✗ NeuralMemory_old has MORE rows than NeuralMemory — not dropping!")
+            print(f"  ✗ NeuralMemory_old has MORE rows than Mazemaker — not dropping!")
 
     # 2. GraphNodes (V1) → GraphNodes_v2
     if "GraphNodes" in tables and "GraphNodes_v2" in tables:
@@ -828,7 +828,7 @@ def main():
     parser.add_argument("--plugin-dir", default="~/.hermes/plugins/memory/neural/", help="Plugin directory")
     args = parser.parse_args()
 
-    banner("Neural Memory MSSQL Production Migration", "=")
+    banner("Mazemaker MSSQL Production Migration", "=")
     print(f"  Config: {args.config}")
     print(f"  SQLite: {args.sqlite_db}")
     print(f"  Dry-run: {args.dry_run}")

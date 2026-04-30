@@ -6,9 +6,9 @@
 #include <stddef.h>
 
 #ifdef _WIN32
-    #define NEURAL_API __declspec(dllexport)
+    #define MAZEMAKER_API __declspec(dllexport)
 #else
-    #define NEURAL_API __attribute__((visibility("default")))
+    #define MAZEMAKER_API __attribute__((visibility("default")))
 #endif
 
 #ifdef __cplusplus
@@ -18,7 +18,7 @@ extern "C" {
 // ============================================================================
 // Opaque handle
 // ============================================================================
-typedef void* NeuralMemoryHandle;
+typedef void* MazemakerHandle;
 
 // ============================================================================
 // Result structures
@@ -31,7 +31,7 @@ typedef struct {
     char     content[4096];
     float    similarity;
     float    salience;
-} NeuralMemoryResult;
+} MazemakerResult;
 
 typedef struct {
     size_t   episodic_count;
@@ -50,7 +50,7 @@ typedef struct {
     uint64_t total_retrieves;
     uint64_t total_searches;
     uint64_t total_consolidations;
-} NeuralMemoryStats;
+} MazemakerStats;
 
 // ============================================================================
 // Lifecycle
@@ -58,21 +58,21 @@ typedef struct {
 
 // Create a new adapter with default config (1024-dim vectors).
 // Returns NULL on failure.
-NEURAL_API NeuralMemoryHandle neural_memory_create(void);
+MAZEMAKER_API MazemakerHandle mazemaker_create(void);
 
 // Create with explicit vector dimension.
-NEURAL_API NeuralMemoryHandle neural_memory_create_dim(int vector_dim);
+MAZEMAKER_API MazemakerHandle mazemaker_create_dim(int vector_dim);
 
 // Destroy adapter and free resources.
-NEURAL_API void neural_memory_destroy(NeuralMemoryHandle handle);
+MAZEMAKER_API void mazemaker_destroy(MazemakerHandle handle);
 
 // ============================================================================
 // Core operations
 // ============================================================================
 
 // Store a vector. Returns memory ID (0 on failure).
-NEURAL_API uint64_t neural_memory_store(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API uint64_t mazemaker_store(
+    MazemakerHandle handle,
     const float* vec,
     int dim,
     const char* label,
@@ -80,8 +80,8 @@ NEURAL_API uint64_t neural_memory_store(
 );
 
 // Store text (uses internal text->embedding).
-NEURAL_API uint64_t neural_memory_store_text(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API uint64_t mazemaker_store_text(
+    MazemakerHandle handle,
     const char* text,
     const char* label
 );
@@ -89,8 +89,8 @@ NEURAL_API uint64_t neural_memory_store_text(
 // Retrieve top-k memories by vector similarity.
 // Writes up to k results into ids[] and scores[].
 // Returns actual number of results written.
-NEURAL_API int neural_memory_retrieve(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_retrieve(
+    MazemakerHandle handle,
     const float* vec,
     int dim,
     int k,
@@ -99,19 +99,19 @@ NEURAL_API int neural_memory_retrieve(
 );
 
 // Retrieve top-k with full result detail.
-// results must point to an array of at least k NeuralMemoryResult.
+// results must point to an array of at least k MazemakerResult.
 // Returns actual number of results written.
-NEURAL_API int neural_memory_retrieve_full(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_retrieve_full(
+    MazemakerHandle handle,
     const float* vec,
     int dim,
     int k,
-    NeuralMemoryResult* results
+    MazemakerResult* results
 );
 
 // Text-based search.
-NEURAL_API int neural_memory_search(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_search(
+    MazemakerHandle handle,
     const char* query,
     int k,
     uint64_t* ids,
@@ -119,10 +119,10 @@ NEURAL_API int neural_memory_search(
 );
 
 // Read a specific memory by ID. Returns 1 on success, 0 if not found.
-NEURAL_API int neural_memory_read(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_read(
+    MazemakerHandle handle,
     uint64_t id,
-    NeuralMemoryResult* result
+    MazemakerResult* result
 );
 
 // ============================================================================
@@ -130,8 +130,8 @@ NEURAL_API int neural_memory_read(
 // ============================================================================
 
 // Store a vector into NeuralMemory table + create GraphNode. Returns node ID.
-NEURAL_API uint64_t neural_memory_store_mssql(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API uint64_t mazemaker_store_mssql(
+    MazemakerHandle handle,
     const float* vec,
     int dim,
     const char* label,
@@ -139,8 +139,8 @@ NEURAL_API uint64_t neural_memory_store_mssql(
 );
 
 // Add an edge to GraphEdges. Returns 1 on success.
-NEURAL_API int neural_memory_add_edge(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_add_edge(
+    MazemakerHandle handle,
     uint64_t from_id,
     uint64_t to_id,
     float weight,
@@ -148,8 +148,8 @@ NEURAL_API int neural_memory_add_edge(
 );
 
 // Batch add edges. Returns number of edges added.
-NEURAL_API int neural_memory_batch_add_edges(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_batch_add_edges(
+    MazemakerHandle handle,
     const uint64_t* from_ids,
     const uint64_t* to_ids,
     const float* weights,
@@ -159,8 +159,8 @@ NEURAL_API int neural_memory_batch_add_edges(
 
 // Batch strengthen edges: update weight = min(weight + delta, 1.0).
 // from_ids/to_ids are parallel arrays of length count.
-NEURAL_API int neural_memory_batch_strengthen_edges(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_batch_strengthen_edges(
+    MazemakerHandle handle,
     const uint64_t* from_ids,
     const uint64_t* to_ids,
     int count,
@@ -169,8 +169,8 @@ NEURAL_API int neural_memory_batch_strengthen_edges(
 
 // Bulk weaken all edges: UPDATE GraphEdges SET weight = MAX(weight - delta, 0.0) WHERE weight > threshold.
 // Then prunes edges below threshold. Returns number of edges pruned.
-NEURAL_API int neural_memory_bulk_weaken_prune(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_bulk_weaken_prune(
+    MazemakerHandle handle,
     float delta,
     float threshold
 );
@@ -178,8 +178,8 @@ NEURAL_API int neural_memory_bulk_weaken_prune(
 // Get all edges for a node (from OR to). Writes up to max_edges into buffer.
 // Returns actual number of edges written.
 // edge_ids[2*i] = from_id, edge_ids[2*i+1] = to_id, weights[i] = weight
-NEURAL_API int neural_memory_get_edges(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_get_edges(
+    MazemakerHandle handle,
     uint64_t node_id,
     uint64_t* edge_ids,     // Must hold max_edges * 2 uint64_t
     float* weights,         // Must hold max_edges float
@@ -187,12 +187,12 @@ NEURAL_API int neural_memory_get_edges(
 );
 
 // Count edges in GraphEdges table.
-NEURAL_API int64_t neural_memory_count_edges(NeuralMemoryHandle handle);
+MAZEMAKER_API int64_t mazemaker_count_edges(MazemakerHandle handle);
 
 // Spreading activation via C++ (runs on GraphNodes/GraphEdges from MSSQL).
 // Returns number of activated nodes. Writes to node_ids[] and activations[].
-NEURAL_API int neural_memory_think(
-    NeuralMemoryHandle handle,
+MAZEMAKER_API int mazemaker_think_c(
+    MazemakerHandle handle,
     uint64_t start_id,
     int depth,
     uint64_t* node_ids,
@@ -205,27 +205,27 @@ NEURAL_API int neural_memory_think(
 // ============================================================================
 
 // Force consolidation pass. Returns number of memories consolidated.
-NEURAL_API size_t neural_memory_consolidate(NeuralMemoryHandle handle);
+MAZEMAKER_API size_t mazemaker_consolidate(MazemakerHandle handle);
 
 // Apply decay to all memories and edges.
-NEURAL_API void neural_memory_decay(NeuralMemoryHandle handle);
+MAZEMAKER_API void mazemaker_decay(MazemakerHandle handle);
 
 // Run link prediction. Returns number of new edges added.
-NEURAL_API size_t neural_memory_predict_links(NeuralMemoryHandle handle);
+MAZEMAKER_API size_t mazemaker_predict_links(MazemakerHandle handle);
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
-NEURAL_API void neural_memory_set_beta(NeuralMemoryHandle handle, float beta);
-NEURAL_API float neural_memory_get_beta(NeuralMemoryHandle handle);
-NEURAL_API void neural_memory_set_consolidation_threshold(NeuralMemoryHandle handle, float threshold);
+MAZEMAKER_API void mazemaker_set_beta(MazemakerHandle handle, float beta);
+MAZEMAKER_API float mazemaker_get_beta(MazemakerHandle handle);
+MAZEMAKER_API void mazemaker_set_consolidation_threshold(MazemakerHandle handle, float threshold);
 
 // ============================================================================
 // Statistics
 // ============================================================================
 
-NEURAL_API void neural_memory_stats(NeuralMemoryHandle handle, NeuralMemoryStats* stats);
+MAZEMAKER_API void mazemaker_stats_c(MazemakerHandle handle, MazemakerStats* stats);
 
 // ============================================================================
 // LSTM Predictor (opaque handle)
@@ -234,28 +234,28 @@ NEURAL_API void neural_memory_stats(NeuralMemoryHandle handle, NeuralMemoryStats
 typedef void* LSTMPredictorHandle;
 
 // Create LSTM predictor. Returns NULL on failure.
-NEURAL_API LSTMPredictorHandle nm_lstm_create(int input_dim, int hidden_dim);
+MAZEMAKER_API LSTMPredictorHandle nm_lstm_create(int input_dim, int hidden_dim);
 
 // Forward pass: predict next embedding from sequence.
 // sequence: float array of shape (seq_len * input_dim), row-major.
 // output: float array of length input_dim (written by function).
 // Returns 0 on success, -1 on error.
-NEURAL_API int nm_lstm_forward(LSTMPredictorHandle handle,
+MAZEMAKER_API int nm_lstm_forward(LSTMPredictorHandle handle,
                                 const float* sequence, int seq_len,
                                 float* output);
 
 // Train on one (sequence, target) pair. Returns MSE loss.
 // Returns -1.0f on error.
-NEURAL_API float nm_lstm_train(LSTMPredictorHandle handle,
+MAZEMAKER_API float nm_lstm_train(LSTMPredictorHandle handle,
                                 const float* sequence, int seq_len,
                                 const float* target, float lr);
 
 // Save/load weights. Returns 0 on success, -1 on error.
-NEURAL_API int nm_lstm_save(LSTMPredictorHandle handle, const char* path);
-NEURAL_API LSTMPredictorHandle nm_lstm_load(const char* path, int input_dim, int hidden_dim);
+MAZEMAKER_API int nm_lstm_save(LSTMPredictorHandle handle, const char* path);
+MAZEMAKER_API LSTMPredictorHandle nm_lstm_load(const char* path, int input_dim, int hidden_dim);
 
 // Destroy LSTM predictor.
-NEURAL_API void nm_lstm_destroy(LSTMPredictorHandle handle);
+MAZEMAKER_API void nm_lstm_destroy(LSTMPredictorHandle handle);
 
 // ============================================================================
 // kNN Engine (opaque handle)
@@ -274,7 +274,7 @@ typedef struct {
 } KNNCResult;
 
 // Create kNN engine. Returns NULL on failure.
-NEURAL_API KNNEngineHandle nm_knn_create(int embed_dim);
+MAZEMAKER_API KNNEngineHandle nm_knn_create(int embed_dim);
 
 // Search candidates with multi-signal scoring.
 // query: float array of length embed_dim
@@ -286,7 +286,7 @@ NEURAL_API KNNEngineHandle nm_knn_create(int embed_dim);
 // lstm_context: optional float array of length embed_dim (NULL to skip)
 // results: output KNNCResult array of length k (must be pre-allocated)
 // Returns actual number of results, -1 on error.
-NEURAL_API int nm_knn_search(KNNEngineHandle handle,
+MAZEMAKER_API int nm_knn_search(KNNEngineHandle handle,
                               const float* query, int embed_dim,
                               const float* candidates,
                               const uint64_t* candidate_ids,
@@ -299,11 +299,11 @@ NEURAL_API int nm_knn_search(KNNEngineHandle handle,
 
 // Adjust weights based on LSTM context.
 // lstm_context: optional (NULL to reset to defaults).
-NEURAL_API void nm_knn_adjust_weights(KNNEngineHandle handle,
+MAZEMAKER_API void nm_knn_adjust_weights(KNNEngineHandle handle,
                                        const float* lstm_context);
 
 // Destroy kNN engine.
-NEURAL_API void nm_knn_destroy(KNNEngineHandle handle);
+MAZEMAKER_API void nm_knn_destroy(KNNEngineHandle handle);
 
 #ifdef __cplusplus
 }

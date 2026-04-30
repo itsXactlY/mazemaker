@@ -1,6 +1,6 @@
 // neural/graph/knowledge_graph.cpp - Knowledge Graph Implementation
-#include "neural/graph.h"
-#include "neural/simd.h"
+#include "mazemaker/graph.h"
+#include "mazemaker/simd.h"
 #include <cassert>
 
 namespace neural {

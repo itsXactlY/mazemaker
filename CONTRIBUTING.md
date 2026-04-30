@@ -1,11 +1,11 @@
-# Contributing to Neural Memory Adapter
+# Contributing to Mazemaker Adapter
 
 ## Quick Start for Contributors
 
 ```bash
 # Clone
-git clone https://github.com/itsXactlY/neural-memory-adapter.git
-cd neural-memory-adapter
+git clone https://github.com/itsXactlY/mazemaker-adapter.git
+cd mazemaker-adapter
 
 # Install dev dependencies
 pip install sentence-transformers numpy pyodbc pytest
@@ -23,7 +23,7 @@ python3 test_suite.py
 ## Project Structure
 
 ```
-neural-memory-adapter/
+mazemaker-adapter/
 ├── include/neural/    # C++ headers (public API)
 ├── src/               # C++ implementation
 ├── python/            # Python bindings + client
@@ -36,7 +36,7 @@ neural-memory-adapter/
 
 ### Reporting Bugs
 
-1. Check existing [issues](https://github.com/itsXactlY/neural-memory-adapter/issues)
+1. Check existing [issues](https://github.com/itsXactlY/mazemaker-adapter/issues)
 2. Create a new issue with:
    - OS + Python version
    - Steps to reproduce
@@ -188,9 +188,9 @@ Modern Hopfield Networks are mathematically equivalent to Transformer attention 
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/itsXactlY/neural-memory-adapter/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/itsXactlY/neural-memory-adapter/discussions)
-- **Discord**: #neural-memory in Hermes Discord
+- **Issues**: [GitHub Issues](https://github.com/itsXactlY/mazemaker-adapter/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/itsXactlY/mazemaker-adapter/discussions)
+- **Discord**: #mazemaker in Hermes Discord
 
 ## License
 

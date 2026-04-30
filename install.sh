@@ -120,13 +120,28 @@ detect_pip() {
     PIP_ARGS=""
 
     if [ -f "$HERMES_AGENT/venv/bin/pip" ]; then
+        # Traditional pip-bundled venv.
         PIP="$HERMES_AGENT/venv/bin/pip"
         PYTHON="$HERMES_AGENT/venv/bin/python3"
         print_info "Using hermes-agent venv: $HERMES_AGENT/venv"
+    elif [ -f "$HERMES_AGENT/venv/bin/python3" ] && command -v uv &>/dev/null; then
+        # uv-managed venv: no pip inside, but `uv pip install --python <bin>`
+        # works against it. Hermes-agent's 3.14 transition produced this
+        # shape and the prior "No venv detected" fallback hit PEP 668 on
+        # Arch.
+        PYTHON="$HERMES_AGENT/venv/bin/python3"
+        PIP="uv pip"
+        PIP_ARGS="--python $PYTHON"
+        print_info "Using uv-managed hermes-agent venv: $HERMES_AGENT/venv"
     elif [ -n "$VIRTUAL_ENV" ] && [ -f "$VIRTUAL_ENV/bin/pip" ]; then
         PIP="$VIRTUAL_ENV/bin/pip"
         PYTHON="$VIRTUAL_ENV/bin/python3"
         print_info "Using active venv: $VIRTUAL_ENV"
+    elif [ -n "$VIRTUAL_ENV" ] && command -v uv &>/dev/null && [ -f "$VIRTUAL_ENV/bin/python3" ]; then
+        PYTHON="$VIRTUAL_ENV/bin/python3"
+        PIP="uv pip"
+        PIP_ARGS="--python $PYTHON"
+        print_info "Using uv-managed active venv: $VIRTUAL_ENV"
     else
         PIP="pip3"
         PIP_ARGS="--user"
@@ -336,9 +351,37 @@ cmd_install() {
         }
     fi
 
-    # Optional: sentence-transformers, pyodbc
-    $PYTHON -c "import sentence_transformers" 2>/dev/null && print_ok "sentence-transformers" || print_info "sentence-transformers: optional, install later"
+    # setuptools — Python 3.14 venvs no longer bundle it; pip itself relies on
+    # it for any future install (and the plugin's setup_fast.py imports it).
+    # Hermes 3.14 transition silently lacked it before this guard landed.
+    $PYTHON -c "import setuptools" 2>/dev/null && print_ok "setuptools" || {
+        print_info "Installing setuptools (required by pip on 3.14)..."
+        $PIP install $PIP_ARGS --quiet setuptools
+        print_ok "setuptools installed"
+    }
+
+    # hnswlib — without this, recall does brute-force cosine over every row
+    # in the DB. On a 2660-row store that's ~50s per recall. Promote from
+    # warning to install — the previous warning was easy to miss and showed
+    # up in production as recall timeouts.
+    $PYTHON -c "import hnswlib" 2>/dev/null && print_ok "hnswlib (ANN)" || {
+        print_info "Installing hnswlib (ANN — fixes brute-force recall slowdown)..."
+        $PIP install $PIP_ARGS --quiet hnswlib
+        print_ok "hnswlib installed"
+    }
+
+    # sentence-transformers — needed when retrieval_mode uses rerank=true
+    # (cross-encoder MiniLM-L-6-v2). Also the fallback embed backend if
+    # FastEmbed fails to load. Auto-install since both are common.
+    $PYTHON -c "import sentence_transformers" 2>/dev/null && print_ok "sentence-transformers" || {
+        print_info "Installing sentence-transformers (cross-encoder rerank + fallback embed)..."
+        $PIP install $PIP_ARGS --quiet sentence-transformers
+        print_ok "sentence-transformers installed"
+    }
+
+    # pyodbc — only needed for MSSQL mirror. Keep optional.
     $PYTHON -c "import pyodbc" 2>/dev/null && print_ok "pyodbc" || print_info "pyodbc: optional (MSSQL mirror)"
+    $PYTHON -c "import networkx" 2>/dev/null && print_ok "networkx (Louvain/PPR)" || print_warn "networkx missing — Louvain falls back to BFS components"
 
     # -------------------------------------------------------------------
     # Create symlinks
@@ -400,11 +443,13 @@ print('  Created')
     # -------------------------------------------------------------------
     CONFIG_FILE="$HOME/.hermes/config.yaml"
     if [ -f "$CONFIG_FILE" ]; then
-        if grep -q "provider: neural" "$CONFIG_FILE" 2>/dev/null; then
-            print_ok "config.yaml: neural provider configured"
-        else
-            print_info "Updating config.yaml..."
-            $PYTHON -c "
+        # Always update neural sub-config, even if provider is already neural.
+        # Jack-in-a-Box creates a default config before this installer runs; on
+        # low-RAM VMs that default may say fastembed while this installer has
+        # correctly selected hash. Checking only `provider: neural` leaves the
+        # wrong backend in place and breaks runtime imports.
+        print_info "Updating config.yaml..."
+        $PYTHON -c "
 import yaml, os
 with open('$CONFIG_FILE', 'r') as f:
     config = yaml.safe_load(f) or {}
@@ -413,10 +458,10 @@ config['memory']['provider'] = 'neural'
 config['memory'].setdefault('neural', {})
 config['memory']['neural']['db_path'] = '$DB_PATH'
 config['memory']['neural']['embedding_backend'] = '$EMBED_BACKEND'
+config['memory']['neural'].setdefault('use_cpp', False)
 with open('$CONFIG_FILE', 'w') as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-" 2>/dev/null && print_ok "config.yaml updated" || print_warn "Could not auto-update config.yaml"
-        fi
+" 2>/dev/null && print_ok "config.yaml updated (embedding_backend=$EMBED_BACKEND)" || print_warn "Could not auto-update config.yaml"
     fi
 
     # -------------------------------------------------------------------

@@ -1,6 +1,6 @@
 // benchmarks/bench_vector_ops.cpp - Vector Operations Benchmark
-#include "neural/simd.h"
-#include "neural/vector.h"
+#include "mazemaker/simd.h"
+#include "mazemaker/vector.h"
 #include <chrono>
 #include <iostream>
 #include <iomanip>

@@ -21,8 +21,8 @@ Plug it in, and your assistant gets a brain that:
 That's it. The rest of this README goes deeper the further you scroll.
 
 > **🌀 Don't want to install anything?** A managed hosted version is in the works:
-> **[mazemaker.dev](https://mazemaker.dev)** / **[mazemaker.online](https://mazemaker.online)**
-> — *Build the maze. Your agent finds the way.*  Sign up, point your agent at an MCP endpoint, done. (Both domains are placeholders until launch.)
+> **[mazemaker.online](https://mazemaker.online)** / **[mazemaker.dev](https://mazemaker.dev)**
+> — *Build the maze. Your agent finds the way.*  Sign up, point your agent at an MCP endpoint, done. (SANDBOX/PREVIEW until launch.)
 
 ---
 

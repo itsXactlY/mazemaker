@@ -91,9 +91,24 @@ class Memory:
         # Auto-detect MSSQL
         if use_mssql is None:
             use_mssql = bool(os.environ.get("MSSQL_SERVER") and os.environ.get("MSSQL_PASSWORD"))
-        
-        # Try MSSQL first
-        if use_mssql:
+
+        # Postgres dispatch (parallel to MSSQL — additive, not a replacement).
+        # Activated via MM_DB_BACKEND=postgres. The Postgres store plays the
+        # same graph-mirror role MSSQLStore does, so we hold a reference at
+        # _postgres_store and skip the MSSQL bring-up to avoid both running.
+        backend_choice = (os.environ.get("MM_DB_BACKEND") or "").strip().lower()
+        self._postgres_store = None
+        if backend_choice == "postgres":
+            try:
+                from postgres_store import PostgresStore
+                self._postgres_store = PostgresStore()
+                use_mssql = False  # Mutually exclusive: don't open both mirrors.
+                print(f"[neural] Postgres backend: {self._embedder.backend.__class__.__name__} ({self._dim}d)")
+            except Exception as e:
+                print(f"[neural] Postgres unavailable ({e}), falling back to SQLite")
+
+        # Try MSSQL (skipped if postgres path already opened)
+        if use_mssql and self._postgres_store is None:
             try:
                 from mssql_store import MSSQLStore
                 self._mssql_store = MSSQLStore()
@@ -963,6 +978,8 @@ class Memory:
     
     @property
     def backend(self) -> str:
+        if self._postgres_store:
+            return "postgres"
         if self._mssql_store:
             return "mssql"
         return self._embedder.backend.__class__.__name__

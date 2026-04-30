@@ -728,9 +728,19 @@ class Mazemaker:
             from embed_provider import EmbeddingProvider
             self.embedder = EmbeddingProvider(backend=embedding_backend)
 
-        if use_mssql:
+        # Backend dispatch. The original entry point is `use_mssql=True`
+        # which selects MSSQLStore as a graph mirror alongside the SQLite
+        # source-of-truth. To support pgvector deployments we add a
+        # parallel `MM_DB_BACKEND` env-var dispatch with the same role.
+        # Default remains SQLite. MSSQL paths are unchanged — excision
+        # is a follow-up after pgvector soak time.
+        backend_choice = (os.environ.get("MM_DB_BACKEND") or "").strip().lower()
+        if use_mssql or backend_choice == "mssql":
             from mssql_store import MSSQLStore
             self.store = MSSQLStore()
+        elif backend_choice == "postgres":
+            from postgres_store import PostgresStore
+            self.store = PostgresStore()
         else:
             self.store = SQLiteStore(db_path)
 

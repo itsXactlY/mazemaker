@@ -82,6 +82,34 @@ class SparseSearchTests(unittest.TestCase):
         self.assertEqual(self.mem.sparse_search(""), [])
         self.assertEqual(self.mem.sparse_search("   "), [])
 
+    def test_sparse_handles_multi_word_natural_language_queries(self) -> None:
+        """Caught post-AE-corpus-ingest 2026-05-01: sparse_search returned
+        0 hits for natural-language multi-word queries because FTS5
+        default whitespace-split treats them as implicit AND. Fix:
+        OR-join tokens after stopword filter. Verify by seeding 3 distinct
+        memories and confirming a multi-word query hits at least one."""
+        self.mem.remember("Lennar lot 27 needs GFCI on outdoor receptacles.",
+                          detect_conflicts=False)
+        self.mem.remember("Tito asked about permit jurisdiction for Aurora IL.",
+                          detect_conflicts=False)
+        self.mem.remember("QBO accounting workflow runs OAuth refresh nightly.",
+                          detect_conflicts=False)
+
+        # Multi-word natural-language query — should hit at least 1 result
+        results = self.mem.sparse_search(
+            "Which memories mention GFCI requirements for outdoor receptacles?",
+        )
+        self.assertGreater(len(results), 0,
+                           "FTS5 multi-word queries should not return empty "
+                           "(OR-join + stopword filter regression check)")
+        # The first memory should be top hit
+        self.assertEqual(results[0]["content"][:6], "Lennar")
+
+        # Stopword-only query should return empty (no real terms)
+        empty_results = self.mem.sparse_search("Find the and of for")
+        self.assertEqual(empty_results, [],
+                         "stopword-only query should return empty after filter")
+
     def test_entity_rows_not_indexed_in_fts5(self) -> None:
         """Phase 7 audit caught: entity rows shouldn't pollute the sparse
         index. mentions_entity flow creates 'Entity: X' content; that should

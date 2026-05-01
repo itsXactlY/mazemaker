@@ -918,10 +918,15 @@ class NeuralMemory:
         if not seeds:
             return []
 
-        # node_id -> max activation seen
+        # node_id -> max activation seen. Per Reviewer #1: defensively use
+        # .get() so malformed seed/edge dicts don't KeyError the whole
+        # traversal (e.g., partially-constructed entries from a future
+        # cross-encoder rerank step).
         activation: dict[int, float] = {}
         for seed in seeds:
-            sid = seed['id']
+            sid = seed.get('id')
+            if sid is None:
+                continue
             base = float(seed.get('similarity', seed.get('combined', 0.5)))
             activation[sid] = max(activation.get(sid, 0.0), base)
 
@@ -935,7 +940,11 @@ class NeuralMemory:
                     except Exception:
                         continue
                     for edge in edges:
-                        other = edge['target'] if edge['source'] == node_id else edge['source']
+                        src = edge.get('source')
+                        tgt = edge.get('target')
+                        if src is None or tgt is None:
+                            continue
+                        other = tgt if src == node_id else src
                         # get_connections() returns dict key 'type' (NOT 'edge_type')
                         et = edge.get('type') or edge.get('edge_type') or 'semantic_similar_to'
                         w = weights.get(et, 0.3)  # unknown edge-type baseline weight
@@ -1471,6 +1480,10 @@ class NeuralMemory:
 
         Returns stats dict with downweighted count.
         """
+        # Per Reviewer #1: race window between SELECT and UPDATE — concurrent
+        # writer could insert a third dup or shift salience between the two
+        # lock acquisitions. Merge into one with-block.
+        downweighted = 0
         with self.store._lock:
             groups = self.store.conn.execute(
                 "SELECT content, GROUP_CONCAT(id) FROM memories "
@@ -1478,8 +1491,6 @@ class NeuralMemory:
                 "  AND (kind IS NULL OR kind != 'entity') "
                 "GROUP BY content HAVING COUNT(*) > 1"
             ).fetchall()
-        downweighted = 0
-        with self.store._lock:
             for _content, ids_csv in groups:
                 ids = [int(x) for x in ids_csv.split(',')]
                 sal_rows = self.store.conn.execute(
@@ -1631,10 +1642,25 @@ class NeuralMemory:
                 )
                 self.store.conn.commit()
         elif mode == "delete":
+            # Per Reviewer #1: connections has FOREIGN KEY but no CASCADE
+            # and PRAGMA foreign_keys is never set ON. Hard-delete leaves
+            # dangling edges. Cascade manually within the same lock window.
             with self.store._lock:
+                self.store.conn.execute(
+                    "DELETE FROM connections "
+                    "WHERE source_id = ? OR target_id = ?",
+                    (memory_id, memory_id),
+                )
                 self.store.conn.execute(
                     "DELETE FROM memories WHERE id = ?", (memory_id,),
                 )
+                # Also clean FTS index (silent no-op if FTS5 unavailable).
+                try:
+                    self.store.conn.execute(
+                        "DELETE FROM memories_fts WHERE rowid = ?", (memory_id,),
+                    )
+                except sqlite3.OperationalError:
+                    pass
                 self.store.conn.commit()
         elif mode == "redact":
             with self.store._lock:

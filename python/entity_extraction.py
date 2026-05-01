@@ -36,10 +36,15 @@ _STOPWORDS: frozenset[str] = frozenset({
 
 
 # One or more consecutive capitalized words. Examples that match:
-#   "Sarah", "Lennar", "Lot 27" (won't match because Lot is followed by digit
-#   not by another capitalized word — fine; we don't need lot numbers as
-#   entities for v1).
-_ENTITY_PATTERN = re.compile(r"\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\b")
+#   "Sarah", "Lennar", "José", "Müller", "Iñaki Choudhury", "Lot Note".
+# Per Reviewer #1: extended ASCII to include Latin-1 supplement upper/lower
+# ranges so Spanish-crew accented names (José/Iñaki/Müller) surface as
+# entities. Cyrillic / Chinese / Greek not handled — out of scope for AE.
+_UPPER_CHAR = r"[A-ZÀ-ÖØ-Þ]"
+_LETTER_CHAR = r"[a-zA-ZÀ-ÖØ-öø-ÿ]"
+_ENTITY_PATTERN = re.compile(
+    rf"\b{_UPPER_CHAR}{_LETTER_CHAR}+(?:\s+{_UPPER_CHAR}{_LETTER_CHAR}+)*\b"
+)
 
 
 def extract_entities(text: str) -> list[str]:
@@ -85,8 +90,10 @@ class EntityRegistry:
 
     def _find_entity_row(self, name: str) -> Optional[dict[str, Any]]:
         """Case-insensitive lookup by label among kind='entity' rows."""
+        # Per Reviewer #1: previous version mutated conn.row_factory = None
+        # globally — defensive theater (the default IS None) that would
+        # silently break callers who set sqlite3.Row. Removed.
         with self.store._lock:
-            self.store.conn.row_factory = None  # plain tuples
             row = self.store.conn.execute(
                 "SELECT id, label, metadata_json FROM memories "
                 "WHERE kind = 'entity' AND LOWER(label) = LOWER(?) LIMIT 1",

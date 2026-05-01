@@ -235,12 +235,20 @@ def cmd_contradiction(args) -> int:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
+    # Per Reviewer #1: argparse top-level optional doesn't propagate to
+    # subparsers. We declare --db at BOTH levels so it works either side
+    # of the subcommand. Subparser default uses argparse.SUPPRESS so a
+    # non-provided subparser --db doesn't clobber the top-level value.
     p = argparse.ArgumentParser(prog="nm", description="neural-memory CLI")
     p.add_argument("--db", default=None, help="DB path override")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    db_parent = argparse.ArgumentParser(add_help=False)
+    db_parent.add_argument("--db", default=argparse.SUPPRESS,
+                            help="DB path override (subcommand-level)")
+
     # remember
-    r = sub.add_parser("remember", help="Store a new memory")
+    r = sub.add_parser("remember", help="Store a new memory", parents=[db_parent])
     r.add_argument("text")
     r.add_argument("--label", default="")
     r.add_argument("--kind", default=None)
@@ -252,7 +260,7 @@ def main() -> int:
     r.set_defaults(fn=cmd_remember)
 
     # recall
-    rc = sub.add_parser("recall", help="Semantic recall (Phase 7 typed)")
+    rc = sub.add_parser("recall", help="Semantic recall (Phase 7 typed)", parents=[db_parent])
     rc.add_argument("query")
     rc.add_argument("--k", type=int, default=5)
     rc.add_argument("--kind", default=None)
@@ -262,14 +270,14 @@ def main() -> int:
     rc.set_defaults(fn=cmd_recall)
 
     # sparse
-    sp = sub.add_parser("sparse", help="FTS5 sparse retrieval")
+    sp = sub.add_parser("sparse", help="FTS5 sparse retrieval", parents=[db_parent])
     sp.add_argument("query")
     sp.add_argument("--k", type=int, default=5)
     sp.add_argument("--format", choices=("compact", "json"), default="compact")
     sp.set_defaults(fn=cmd_sparse)
 
     # graph
-    g = sub.add_parser("graph", help="PPR graph search with intent weights")
+    g = sub.add_parser("graph", help="PPR graph search with intent weights", parents=[db_parent])
     g.add_argument("query")
     g.add_argument("--k", type=int, default=5)
     g.add_argument("--hops", type=int, default=2)
@@ -277,7 +285,7 @@ def main() -> int:
     g.set_defaults(fn=cmd_graph)
 
     # explain
-    e = sub.add_parser("explain", help="Recall with explanation paths")
+    e = sub.add_parser("explain", help="Recall with explanation paths", parents=[db_parent])
     e.add_argument("query")
     e.add_argument("--k", type=int, default=5)
     e.add_argument("--kind", default=None)
@@ -286,40 +294,40 @@ def main() -> int:
     e.set_defaults(fn=cmd_explain)
 
     # audit
-    a = sub.add_parser("audit", help="Phase 7 health audit")
+    a = sub.add_parser("audit", help="Phase 7 health audit", parents=[db_parent])
     a.set_defaults(fn=cmd_audit)
 
     # count
-    c = sub.add_parser("count", help="Memory + connection counts")
+    c = sub.add_parser("count", help="Memory + connection counts", parents=[db_parent])
     c.set_defaults(fn=cmd_count)
 
     # entities
-    en = sub.add_parser("entities", help="Top entities by mention frequency")
+    en = sub.add_parser("entities", help="Top entities by mention frequency", parents=[db_parent])
     en.add_argument("--top", type=int, default=10)
     en.add_argument("--format", choices=("compact", "json"), default="compact")
     en.set_defaults(fn=cmd_entities)
 
     # forget
-    f = sub.add_parser("forget", help="Soft-forget / redact / delete a memory")
+    f = sub.add_parser("forget", help="Soft-forget / redact / delete a memory", parents=[db_parent])
     f.add_argument("id", type=int)
     f.add_argument("--mode", choices=("background", "redact", "delete"),
                    default="background")
     f.set_defaults(fn=cmd_forget)
 
     # bench
-    b = sub.add_parser("bench", help="Run AE-domain bench")
+    b = sub.add_parser("bench", help="Run AE-domain bench", parents=[db_parent])
     b.add_argument("--mode", choices=("diagnostic", "scored"), default="diagnostic")
     b.add_argument("--category", default=None)
     b.add_argument("--k", type=int, default=10)
     b.set_defaults(fn=cmd_bench)
 
     # memify
-    m = sub.add_parser("memify", help="Run dream Memify hygiene pass")
+    m = sub.add_parser("memify", help="Run dream Memify hygiene pass", parents=[db_parent])
     m.add_argument("--decay", type=float, default=0.5)
     m.set_defaults(fn=cmd_memify)
 
     # contradiction
-    cd = sub.add_parser("contradiction", help="Run contradiction detection")
+    cd = sub.add_parser("contradiction", help="Run contradiction detection", parents=[db_parent])
     cd.add_argument("--threshold", type=float, default=0.4)
     cd.set_defaults(fn=cmd_contradiction)
 

@@ -38,13 +38,23 @@ class BgeM3Backend:
     dim = 1024  # BGE-M3 dense vector dimension
 
     def __init__(self) -> None:
+        # Per Reviewer #1: ImportError-only catch was insufficient.
+        # BGEM3FlagModel construction can raise OSError (missing weights),
+        # RuntimeError (CUDA mismatch), or HuggingFace network errors.
+        # All of these should signal "backend unavailable" — not propagate
+        # as uncaught exceptions through allow_missing=True callers.
         try:
             from FlagEmbedding import BGEM3FlagModel  # type: ignore
         except ImportError as exc:
             raise BackendUnavailable(
                 "BGE-M3 requires FlagEmbedding: pip install FlagEmbedding"
             ) from exc
-        self._model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=False)
+        try:
+            self._model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=False)
+        except Exception as exc:
+            raise BackendUnavailable(
+                f"BGE-M3 model load failed (network? CUDA? weights?): {exc}"
+            ) from exc
 
     def embed(self, text: str) -> list[float]:
         result = self._model.encode([text], return_dense=True,

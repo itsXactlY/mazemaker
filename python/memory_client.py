@@ -174,6 +174,7 @@ class SQLiteStore:
         valid_to: Optional[float] = None,
         transaction_time: Optional[float] = None,
         metadata: Optional[dict[str, Any]] = None,
+        salience: Optional[float] = None,
     ) -> int:
         blob = struct.pack(f'{len(embedding)}f', *embedding)
         if transaction_time is None:
@@ -193,6 +194,7 @@ class SQLiteStore:
             ("valid_to", valid_to),
             ("transaction_time", transaction_time),
             ("metadata_json", metadata_json),
+            ("salience", salience),
         ):
             if col_value is not None:
                 cols.append(col_name)
@@ -994,7 +996,8 @@ class NeuralMemory:
                  valid_from: Optional[float] = None,
                  valid_to: Optional[float] = None,
                  metadata: Optional[dict[str, Any]] = None,
-                 evidence_ids: Optional[list[int]] = None) -> int:
+                 evidence_ids: Optional[list[int]] = None,
+                 salience: Optional[float] = None) -> int:
         """Store a memory. Returns memory ID.
 
         If detect_conflicts=True, checks for existing memories about the same
@@ -1103,6 +1106,7 @@ class NeuralMemory:
             valid_from=valid_from,
             valid_to=valid_to,
             metadata=metadata,
+            salience=salience,
         )
 
         # Phase 7 Commit 3: extract entities from text + create mentions_entity edges.
@@ -1288,30 +1292,59 @@ class NeuralMemory:
         return max(SALIENCE_MIN, min(SALIENCE_MAX, eff))
 
     def recall(self, query: str, k: int = 5, temporal_weight: float = 0.2,
-               *, kind: Optional[str] = None) -> list[dict]:
+               *, kind: Optional[str] = None,
+               as_of: Optional[float] = None) -> list[dict]:
         """Retrieve memories related to query.
 
         Args:
             query: Search query
             k: Number of results
-            temporal_weight: Weight for recency scoring (0=pure similarity, 1=pure recency)
-            kind: Optional Phase 7 filter — when set, only return memories
-                  whose `kind` column matches (e.g., 'procedural', 'experience').
-                  When kind is set, the inner search over-fetches by 5x to
-                  compensate for filtering loss.
+            temporal_weight: Weight for recency scoring
+            kind: Optional Phase 7 kind filter
+            as_of: Optional bi-temporal point-in-time. When set, results are
+                   filtered to memories valid at as_of (delegates to the
+                   temporal channel + applies kind filter if both are set).
 
-        Returns list of {id, label, content, similarity, temporal_score, connections}.
+        Returns list of {id, label, content, similarity, temporal_score, ...}.
         """
-        if kind is None:
+        # Plain path: no Phase 7 filters — preserve pre-Phase-7 behavior.
+        if kind is None and as_of is None:
             return self._recall_inner(query, k, temporal_weight)
 
-        # Phase 7 Commit 4: over-fetch + post-filter by kind. The over-fetch
-        # compensates when many top candidates don't match the filter; if all
-        # filter out, the result list may legitimately be shorter than k.
+        # Over-fetch to compensate for filtering loss.
         raw = self._recall_inner(query, max(k * 5, 25), temporal_weight)
         if not raw:
             return []
-        return self._filter_by_kind(raw, kind)[:k]
+
+        # Apply kind filter if requested.
+        if kind is not None:
+            raw = self._filter_by_kind(raw, kind)
+
+        # Apply as_of validity filter if requested.
+        if as_of is not None and raw:
+            ids = [r['id'] for r in raw]
+            placeholders = ",".join("?" * len(ids))
+            with self.store._lock:
+                rows = self.store.conn.execute(
+                    f"SELECT id, valid_from, valid_to FROM memories "
+                    f"WHERE id IN ({placeholders})",
+                    tuple(ids),
+                ).fetchall()
+            validity = {r[0]: (r[1], r[2]) for r in rows}
+            raw = [
+                r for r in raw
+                if self._is_valid_at(*validity.get(r['id'], (None, None)), as_of=as_of)
+            ]
+
+        return raw[:k]
+
+    def scoring_config(self):
+        """Return the unified scoring config — final_authority and feature
+        list. Used to verify (per addendum acceptance test) that RRF is a
+        feature, never the final ranking law.
+        """
+        from scoring import ScoringConfig
+        return ScoringConfig()
 
     def _filter_by_kind(self, results: list[dict], kind: str) -> list[dict]:
         """Filter recall results to only memories whose `kind` column matches.

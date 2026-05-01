@@ -13,3 +13,4 @@ Makefile
 *.db
 .env
 backups/
+.DS_Store

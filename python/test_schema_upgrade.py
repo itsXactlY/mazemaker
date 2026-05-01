@@ -213,6 +213,80 @@ class SchemaUpgradeTests(unittest.TestCase):
         self.assertTrue(legacy_conn.issubset(after_conn),
                         f"legacy connection cols lost: {legacy_conn - after_conn}")
 
+    # ----- Defensive FTS cleanup (Phase 7 fix c2c2321) -----------------------
+    def test_ensure_fts5_cleans_entity_rows_defensively(self) -> None:
+        """Phase 7 fix c2c2321: SchemaUpgrade._ensure_fts5() must DELETE any
+        kind='entity' rows that snuck into memories_fts via a long-running
+        process holding stale memory_client.py in memory.
+
+        Simulate stale-code path: insert entity row + manually pollute FTS5.
+        Re-run SchemaUpgrade — defensive cleanup must remove the entity row."""
+        _create_legacy_schema(self.db)
+        SchemaUpgrade(str(self.db)).upgrade()  # first run: schema + FTS5 ready
+
+        with sqlite3.connect(str(self.db)) as conn:
+            cur = conn.execute(
+                "INSERT INTO memories (label, content, kind, salience) "
+                "VALUES (?, ?, ?, ?)",
+                ("Lennar", "Entity: Lennar", "entity", 1.0),
+            )
+            entity_id = cur.lastrowid
+            # Manually pollute FTS5 (simulating stale code path)
+            conn.execute(
+                "INSERT INTO memories_fts(rowid, content) VALUES (?, ?)",
+                (entity_id, "Entity: Lennar"),
+            )
+            conn.commit()
+            count_before = conn.execute(
+                "SELECT COUNT(*) FROM memories_fts WHERE rowid = ?", (entity_id,)
+            ).fetchone()[0]
+            self.assertEqual(count_before, 1)
+
+        # Re-run SchemaUpgrade — defensive cleanup fires
+        SchemaUpgrade(str(self.db)).upgrade()
+
+        with sqlite3.connect(str(self.db)) as conn:
+            count_after = conn.execute(
+                "SELECT COUNT(*) FROM memories_fts WHERE rowid = ?", (entity_id,)
+            ).fetchone()[0]
+            self.assertEqual(count_after, 0,
+                             "defensive _ensure_fts5 cleanup did not remove "
+                             "stale entity row from memories_fts")
+
+    def test_ensure_fts5_backfill_skips_entity_rows(self) -> None:
+        """Backfill must NOT add kind='entity' rows to memories_fts."""
+        _create_legacy_schema(self.db)
+        with sqlite3.connect(str(self.db)) as conn:
+            conn.execute(
+                "INSERT INTO memories (label, content, salience) VALUES (?, ?, ?)",
+                ("user-mem", "regular content", 1.0),
+            )
+            conn.execute("ALTER TABLE memories ADD COLUMN kind TEXT")
+            conn.execute(
+                "INSERT INTO memories (label, content, kind, salience) "
+                "VALUES (?, ?, ?, ?)",
+                ("Lennar", "Entity: Lennar", "entity", 1.0),
+            )
+            conn.commit()
+
+        SchemaUpgrade(str(self.db)).upgrade()
+
+        with sqlite3.connect(str(self.db)) as conn:
+            entity_in_fts = conn.execute(
+                "SELECT COUNT(*) FROM memories_fts m "
+                "JOIN memories mem ON mem.id = m.rowid "
+                "WHERE mem.kind = 'entity'"
+            ).fetchone()[0]
+            user_in_fts = conn.execute(
+                "SELECT COUNT(*) FROM memories_fts m "
+                "JOIN memories mem ON mem.id = m.rowid "
+                "WHERE mem.kind IS NULL OR mem.kind != 'entity'"
+            ).fetchone()[0]
+            self.assertEqual(entity_in_fts, 0,
+                             "kind-aware backfill must skip entity rows")
+            self.assertEqual(user_in_fts, 1,
+                             "user memory should be backfilled into FTS")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

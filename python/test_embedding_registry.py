@@ -82,12 +82,23 @@ class EmbeddingRegistryTests(unittest.TestCase):
         self.assertEqual(backend.__class__.__name__, "HashBackend")
 
     def test_explicit_name_overrides_env_var(self) -> None:
+        """Explicit name MUST win over env var. Per Reviewer #2 finding,
+        previous version of this test didn't actually assert override
+        behavior — only that something returned."""
         os.environ["NEURAL_MEMORY_EMBED_BACKEND"] = "hash"
-        backend = get_embedding_backend(name="default")
-        # Default may resolve to TfidfSvd / SentenceTransformer / Hash via auto
-        # — the assertion is that explicit name was honored, not env
-        # In auto-mode in this test env, TF-IDF is the likely pick
-        self.assertIsNotNone(backend)
+        # Get the env-only resolution first (should be HashBackend)
+        env_only = get_embedding_backend()
+        self.assertEqual(env_only.__class__.__name__, "HashBackend",
+                         "env var dispatch baseline broken")
+        # Now explicit override — should NOT be HashBackend (auto/default
+        # resolves via EmbeddingProvider's auto-detect, which prefers
+        # sentence-transformers > TF-IDF > Hash)
+        explicit = get_embedding_backend(name="default")
+        self.assertNotEqual(
+            explicit.__class__.__name__, "HashBackend",
+            "explicit name='default' did not override NEURAL_MEMORY_EMBED_BACKEND=hash; "
+            f"got {explicit.__class__.__name__}",
+        )
 
 
 if __name__ == "__main__":

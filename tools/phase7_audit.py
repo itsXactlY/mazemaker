@@ -160,6 +160,42 @@ def audit(db_path: str) -> dict:
         "above_1.5":  sal_buckets[4],
     }
 
+    # ---- dream_insights bloat detection ---------------------------------
+    # Caught 2026-05-01: add_insight() does unconditional INSERT, so every
+    # dream cycle re-emits the same bridge/cluster insights. Without a
+    # uniqueness guard the table grows linearly with cycle count × node count.
+    # Surface the duplication ratio + disk impact so future audits catch
+    # regressions before they hit GB-scale.
+    dream_present = bool(conn.execute(
+        "SELECT name FROM sqlite_master WHERE name = 'dream_insights'"
+    ).fetchone())
+    if dream_present:
+        total_insights = conn.execute(
+            "SELECT COUNT(*) FROM dream_insights"
+        ).fetchone()[0]
+        unique_insights = conn.execute(
+            "SELECT COUNT(*) FROM ("
+            "  SELECT 1 FROM dream_insights "
+            "  GROUP BY insight_type, source_memory_id, COALESCE(content,'')"
+            ")"
+        ).fetchone()[0]
+        dup_ratio = (
+            round(100.0 * (total_insights - unique_insights) / total_insights, 1)
+            if total_insights else 0.0
+        )
+        sessions = conn.execute(
+            "SELECT COUNT(*) FROM dream_sessions"
+        ).fetchone()[0] if conn.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'dream_sessions'"
+        ).fetchone() else 0
+        out["dream_insights"] = {
+            "total_rows": total_insights,
+            "unique_combos": unique_insights,
+            "duplicate_ratio_pct": dup_ratio,
+            "dream_sessions": sessions,
+            "bloat_flag": dup_ratio > 50.0,
+        }
+
     # ---- schema column sanity -------------------------------------------
     mem_cols = {r[1] for r in conn.execute("PRAGMA table_info(memories)")}
     conn_cols = {r[1] for r in conn.execute("PRAGMA table_info(connections)")}
@@ -244,6 +280,17 @@ def render_text(report: dict) -> str:
     lines.append(_section("Salience distribution"))
     for bucket, n in report["salience_distribution"].items():
         lines.append(f"  {bucket:12s} {n:6d}")
+
+    if "dream_insights" in report:
+        di = report["dream_insights"]
+        lines.append(_section("Dream insights bloat"))
+        lines.append(f"  total rows:        {di['total_rows']}")
+        lines.append(f"  unique combos:     {di['unique_combos']}")
+        lines.append(f"  duplicate ratio:   {di['duplicate_ratio_pct']}%")
+        lines.append(f"  dream sessions:    {di['dream_sessions']}")
+        if di["bloat_flag"]:
+            lines.append(f"  >> BLOAT FLAG: duplicate ratio > 50%; "
+                         f"add_insight() likely lacks idempotency guard")
 
     lines.append(_section("Phase 7 schema completeness"))
     sc = report["schema_phase7_completeness"]

@@ -1407,6 +1407,188 @@ class NeuralMemory:
         return ScoringConfig()
 
     # ------------------------------------------------------------------
+    # Phase 7 Commit 11: hybrid retrieval — Hindsight-shape candidate
+    # union + salience-weighted continuous final law
+    # ------------------------------------------------------------------
+
+    def hybrid_recall(self, query: str, k: int = 5,
+                     *,
+                     as_of: Optional[float] = None,
+                     kind: Optional[str] = None,
+                     hops: int = 2,
+                     pool_per_channel: int = 25,
+                     rerank: Optional[bool] = None) -> list[dict[str, Any]]:
+        """Multi-channel hybrid retrieval. Borrowed Hindsight's pool-union
+        shape (dense + sparse + graph + temporal candidates) but applied
+        the salience-weighted continuous scoring law instead of pure RRF.
+
+        Strategy:
+            1. Pool: union candidate IDs from up to 4 channels (each
+               returns up to `pool_per_channel` items).
+            2. Per-channel ranks → RRF feature (one of many features,
+               NOT the final authority).
+            3. Build CandidateFeatures(semantic, sparse, graph, temporal,
+               salience, confidence, rrf_feature).
+            4. Final score via scoring.score_candidate() with intent-aware
+               edge weights for the graph channel.
+            5. Optional cross-encoder rerank on top-N (uses self._rerank
+               flag if set; can override via rerank kwarg).
+            6. Apply kind/as_of post-filters if requested.
+            7. Return top k.
+
+        Path to Hindsight 0.92+ R@5 from current 0.53 baseline:
+            - Install FlagEmbedding for BGE-M3 hybrid embedding (~1GB)
+            - Enable cross-encoder rerank (sentence-transformers required)
+            - Label AE-domain ground truth
+            - Tune DEFAULT_WEIGHTS against labeled bench
+        Without those, this method ships the architectural unification —
+        same retrieval shape as Hindsight, different final-scoring law.
+        """
+        from scoring import CandidateFeatures, DEFAULT_WEIGHTS, score_candidate
+
+        # ---- Pool union from up to 4 channels --------------------------
+        per_channel_ranks: dict[str, dict[int, int]] = {}
+        per_channel_scores: dict[str, dict[int, float]] = {}
+
+        # Channel 1: dense semantic (use over-fetched recall for the pool)
+        dense_results = self._recall_inner(query, pool_per_channel)
+        per_channel_ranks["semantic"] = {
+            r["id"]: idx for idx, r in enumerate(dense_results)
+        }
+        per_channel_scores["semantic"] = {
+            r["id"]: float(r.get("similarity", 0.0)) for r in dense_results
+        }
+
+        # Channel 2: sparse FTS5
+        sparse_results = self.sparse_search(query, k=pool_per_channel)
+        per_channel_ranks["sparse"] = {
+            r["id"]: idx for idx, r in enumerate(sparse_results)
+        }
+        # FTS5 doesn't return numeric similarity in our wrapper; use
+        # rank-derived score (1.0 at top, decays linearly)
+        per_channel_scores["sparse"] = {
+            r["id"]: 1.0 - (idx / max(len(sparse_results), 1))
+            for idx, r in enumerate(sparse_results)
+        }
+
+        # Channel 3: graph PPR with intent-aware weights
+        graph_results = self.graph_search(query, k=pool_per_channel, hops=hops)
+        per_channel_ranks["graph"] = {
+            r["id"]: idx for idx, r in enumerate(graph_results)
+        }
+        per_channel_scores["graph"] = {
+            r["id"]: float(r.get("activation", 0.0)) for r in graph_results
+        }
+
+        # Channel 4: temporal validity (only if as_of given)
+        temporal_ids: set[int] = set()
+        if as_of is not None:
+            temporal_results = self.temporal_search(query, as_of=as_of,
+                                                    k=pool_per_channel)
+            per_channel_ranks["temporal"] = {
+                r["id"]: idx for idx, r in enumerate(temporal_results)
+            }
+            per_channel_scores["temporal"] = {
+                r["id"]: float(r.get("similarity", 0.0))
+                for r in temporal_results
+            }
+            temporal_ids = set(r["id"] for r in temporal_results)
+
+        # ---- Candidate union -------------------------------------------
+        candidate_ids = (
+            set(per_channel_ranks.get("semantic", {}).keys())
+            | set(per_channel_ranks.get("sparse", {}).keys())
+            | set(per_channel_ranks.get("graph", {}).keys())
+            | temporal_ids
+        )
+        if not candidate_ids:
+            return []
+
+        # ---- Fetch typed-row metadata in one batched query -------------
+        placeholders = ",".join("?" * len(candidate_ids))
+        with self.store._lock:
+            rows = self.store.conn.execute(
+                f"SELECT id, salience, confidence, kind, valid_from, valid_to "
+                f"FROM memories WHERE id IN ({placeholders})",
+                tuple(candidate_ids),
+            ).fetchall()
+        meta = {r[0]: {"salience": r[1] or 1.0, "confidence": r[2] or 1.0,
+                       "kind": r[3], "valid_from": r[4], "valid_to": r[5]}
+                for r in rows}
+
+        # ---- Apply kind / as_of post-filters at candidate level --------
+        if kind is not None:
+            candidate_ids = {cid for cid in candidate_ids
+                              if meta.get(cid, {}).get("kind") == kind}
+        if as_of is not None:
+            def _vp(cid: int) -> bool:
+                m = meta.get(cid, {})
+                return self._is_valid_at(m.get("valid_from"),
+                                          m.get("valid_to"), as_of=as_of)
+            candidate_ids = {cid for cid in candidate_ids if _vp(cid)}
+
+        # ---- RRF feature per candidate (rank-based, normalized) --------
+        # Bounded contribution; never the final authority.
+        K_RRF = 60.0
+        def _rrf(cid: int) -> float:
+            score = 0.0
+            for ch_ranks in per_channel_ranks.values():
+                if cid in ch_ranks:
+                    score += 1.0 / (K_RRF + ch_ranks[cid])
+            # Normalize by max possible (1/K_RRF * num_channels)
+            max_possible = (1.0 / K_RRF) * len(per_channel_ranks)
+            return score / max_possible if max_possible > 0 else 0.0
+
+        # ---- Continuous scoring (the final authority) ------------------
+        scored: list[tuple[int, float, dict]] = []
+        for cid in candidate_ids:
+            m = meta.get(cid, {})
+            features = CandidateFeatures(
+                memory_id=cid,
+                semantic_score=per_channel_scores.get("semantic", {}).get(cid, 0.0),
+                sparse_score=per_channel_scores.get("sparse", {}).get(cid, 0.0),
+                graph_score=per_channel_scores.get("graph", {}).get(cid, 0.0),
+                temporal_score=per_channel_scores.get("temporal", {}).get(cid, 0.0),
+                rrf_feature=_rrf(cid),
+                salience=float(m.get("salience", 1.0)),
+                confidence=float(m.get("confidence", 1.0)),
+            )
+            final = score_candidate(features, DEFAULT_WEIGHTS)
+            scored.append((cid, final, m))
+
+        scored.sort(key=lambda x: -x[1])
+
+        # ---- Optional cross-encoder rerank (Hindsight-style) -----------
+        use_rerank = rerank if rerank is not None else getattr(self, "_rerank", False)
+        if use_rerank and len(scored) > 0:
+            top_n = min(50, len(scored))
+            top_candidates = []
+            for cid, _final, _m in scored[:top_n]:
+                row = self.store.get(cid)
+                if row:
+                    row["_combined"] = _final
+                    top_candidates.append(row)
+            if top_candidates:
+                top_candidates = self._maybe_rerank(query, top_candidates)
+                # Splice reranked top back into scored in their new order
+                reranked_ids = [c["id"] for c in top_candidates]
+                tail_ids = [t[0] for t in scored[top_n:]]
+                ordered_ids = reranked_ids + tail_ids
+                id_to_meta = {t[0]: t for t in scored}
+                scored = [id_to_meta[i] for i in ordered_ids if i in id_to_meta]
+
+        # ---- Materialize top-k full memory rows ------------------------
+        results: list[dict[str, Any]] = []
+        for cid, final_score, _m in scored[:k]:
+            row = self.store.get(cid)
+            if row:
+                row["combined"] = round(final_score, 4)
+                row["channels"] = [ch for ch in per_channel_ranks
+                                    if cid in per_channel_ranks[ch]]
+                results.append(row)
+        return results
+
+    # ------------------------------------------------------------------
     # Phase 7 Commit 9: dream Memify + insight + contradiction hygiene
     # ------------------------------------------------------------------
 

@@ -216,6 +216,34 @@ def cmd_bench(args) -> int:
     return 0
 
 
+def cmd_hybrid(args) -> int:
+    """Multi-channel hybrid retrieval (Hindsight-shape candidate union +
+    salience-weighted continuous final scorer)."""
+    mem = _load(args.db)
+    as_of = _parse_as_of(args.as_of) if args.as_of else None
+    results = mem.hybrid_recall(
+        args.query,
+        k=args.k,
+        as_of=as_of,
+        kind=args.kind,
+        hops=args.hops,
+        rerank=args.rerank,
+    )
+    if args.format == "json":
+        print(json.dumps(results, indent=2, default=str))
+        return 0
+    if not results:
+        print("(no results)")
+        return 0
+    for r in results:
+        chs = ",".join(r.get("channels", []))
+        score = r.get("combined", 0.0)
+        label = (r.get("label") or "")[:30]
+        content = (r.get("content") or "")[:80]
+        print(f"  id={r['id']:5d}  score={score:.3f}  ch=[{chs:15s}]  [{label:30s}]  {content}")
+    return 0
+
+
 def cmd_memify(args) -> int:
     mem = _load(args.db)
     stats = mem.run_memify_once(decay_factor=args.decay)
@@ -320,6 +348,18 @@ def main() -> int:
     b.add_argument("--category", default=None)
     b.add_argument("--k", type=int, default=10)
     b.set_defaults(fn=cmd_bench)
+
+    # hybrid (Phase 7 Commit 11 — multi-channel union + continuous scorer)
+    h = sub.add_parser("hybrid", help="Hybrid retrieval (dense+sparse+graph[+temporal] union)", parents=[db_parent])
+    h.add_argument("query")
+    h.add_argument("--k", type=int, default=5)
+    h.add_argument("--kind", default=None)
+    h.add_argument("--as-of", dest="as_of", default=None)
+    h.add_argument("--hops", type=int, default=2)
+    h.add_argument("--rerank", action="store_true",
+                   help="Enable cross-encoder rerank on top-50 (requires sentence-transformers)")
+    h.add_argument("--format", choices=("compact", "json"), default="compact")
+    h.set_defaults(fn=cmd_hybrid)
 
     # memify
     m = sub.add_parser("memify", help="Run dream Memify hygiene pass", parents=[db_parent])

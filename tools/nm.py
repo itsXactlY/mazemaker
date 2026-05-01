@@ -56,11 +56,21 @@ def _parse_as_of(s: str | None) -> float | None:
 
 
 def _load(db_path: str | None):
+    """Load NeuralMemory; redirect embed-banner prints to stderr so stdout
+    stays clean for --format=json consumers."""
+    import contextlib
+    import io
     from memory_client import NeuralMemory  # noqa
     kwargs = {"embedding_backend": "auto", "use_cpp": False, "use_hnsw": False}
     if db_path:
         kwargs["db_path"] = db_path
-    return NeuralMemory(**kwargs)
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        mem = NeuralMemory(**kwargs)
+    # Forward captured banner to stderr so user still sees it
+    if captured.getvalue():
+        print(captured.getvalue(), end="", file=sys.stderr)
+    return mem
 
 
 def _print_results(results: list[dict], format_: str = "compact") -> None:

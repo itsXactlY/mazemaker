@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 """nm_digest.py — single-command status snapshot of neural-memory + bridge + repo.
 
 Built for cross-agent visibility. Anyone (NM lane / AE-builder lane / hermes /

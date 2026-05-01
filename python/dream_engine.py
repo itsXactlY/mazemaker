@@ -652,12 +652,18 @@ class DreamEngine:
         """Execute a full NREM → REM → Insight cycle."""
         with self._lock:
             start = time.time()
-            total_stats: Dict[str, Any] = {"nrem": {}, "rem": {}, "insights": {}}
+            total_stats: Dict[str, Any] = {
+                "nrem": {},
+                "rem": {},
+                "insights": {},
+                "self_image": {},
+            }
 
             try:
                 total_stats["nrem"] = self._phase_nrem()
                 total_stats["rem"] = self._phase_rem()
                 total_stats["insights"] = self._phase_insights()
+                total_stats["self_image"] = self._phase_self_image()
 
                 self._dream_count += 1
                 if self._memory:
@@ -671,13 +677,14 @@ class DreamEngine:
                 total_stats["dream_id"] = self._dream_count
 
                 logger.info(
-                    "Dream #%d complete: %.1fs | NREM: %d+/ %d- / %d pruned | REM: %d bridges | Insights: %d",
+                    "Dream #%d complete: %.1fs | NREM: %d+/ %d- / %d pruned | REM: %d bridges | Insights: %d | Self-image: %d",
                     self._dream_count, total_stats["duration"],
                     total_stats["nrem"].get("strengthened", 0),
                     total_stats["nrem"].get("weakened", 0),
                     total_stats["nrem"].get("pruned", 0),
                     total_stats["rem"].get("bridges", 0),
                     total_stats["insights"].get("insights", 0),
+                    total_stats["self_image"].get("insights", 0),
                 )
 
             except Exception as e:
@@ -858,14 +865,21 @@ class DreamEngine:
                     bridge_nodes.add(e["target_id"])
             stats["bridges"] = len(bridge_nodes)
 
-            # Create cluster insights
+            # Create cluster insights. D5: keep legacy dream_insights analytics rows,
+            # but also promote the logical insight into the retrievable memories
+            # surface via kind='dream_insight' + summarizes evidence edges.
             for i, comm in enumerate(communities):
-                if len(comm) < 3:
+                comm_ids = [
+                    int(mid) for mid in comm
+                    if self._memory_kind(int(mid)) not in {"dream_insight", "entity", "locus"}
+                ]
+                if len(comm_ids) < 2:
                     continue
-                theme = self._extract_theme(comm)
-                confidence = min(len(comm) / 10.0, 1.0)
-                content = f"Cluster of {len(comm)} related memories: {theme}"
-                self._backend.add_insight(session_id, "cluster", comm[0], content, confidence)
+                self._create_retrievable_insight(comm_ids)
+                theme = self._extract_theme(comm_ids)
+                confidence = min(len(comm_ids) / 10.0, 1.0)
+                content = f"Cluster of {len(comm_ids)} related memories: {theme}"
+                self._backend.add_insight(session_id, "cluster", comm_ids[0], content, confidence)
                 stats["insights"] += 1
 
             # Create bridge insights
@@ -878,6 +892,9 @@ class DreamEngine:
                 bridging_communities.discard(-1)
 
                 if len(bridging_communities) >= 2:
+                    if self._memory_kind(int(bnode)) in {"dream_insight", "entity", "locus"}:
+                        continue
+                    self._create_retrievable_insight([int(bnode)])
                     content = (
                         f"Bridge connecting {len(bridging_communities)} communities, "
                         f"memory #{bnode}"
@@ -892,7 +909,155 @@ class DreamEngine:
 
         return stats
 
+    def _phase_self_image(self) -> Dict[str, Any]:
+        """D5: synthesize self-image observations into retrievable insight nodes.
+
+        This phase is intentionally local-only: it reuses the existing
+        dream_insights table for analytics and NeuralMemory.create_insight_from_cluster()
+        for the production retrieval surface. No schema changes, no new storage API.
+        """
+        stats = {"processed": 0, "candidates": 0, "insights": 0}
+        session_id = self._backend.start_session("self_image")
+
+        try:
+            candidates = []
+            seen = set()
+            for mem in self._backend.get_recent_memories(self._max_memories):
+                mid = int(mem.get("id") or 0)
+                content = mem.get("content") or ""
+                if not mid or mid in seen:
+                    continue
+                if self._memory_kind(mid) in {"dream_insight", "entity", "locus"}:
+                    continue
+                stats["processed"] += 1
+                if self._is_self_image_candidate(content):
+                    candidates.append({"id": mid, "content": content})
+                    seen.add(mid)
+                if len(candidates) >= 8:
+                    break
+
+            stats["candidates"] = len(candidates)
+            if len(candidates) < 2:
+                self._backend.finish_session(session_id, stats)
+                return stats
+
+            source_ids = [c["id"] for c in candidates]
+            self._create_retrievable_insight(source_ids)
+            theme = self._extract_theme(source_ids)
+            content = (
+                f"Self-image insight from {len(source_ids)} operator/runtime memories: {theme}"
+            )
+            confidence = min(0.4 + (len(source_ids) * 0.1), 0.9)
+            self._backend.add_insight(
+                session_id,
+                "self_image",
+                source_ids[0],
+                content,
+                confidence,
+            )
+            stats["insights"] = 1
+            self._backend.finish_session(session_id, stats)
+
+        except Exception as e:
+            logger.debug("Self-image phase error: %s", e)
+
+        return stats
+
     # -- Helpers -------------------------------------------------------------
+
+    def _create_retrievable_insight(self, memory_ids: List[int]) -> int:
+        """Create a Phase-7 dream_insight memory node with summarizes edges.
+
+        Legacy dream_insights rows are not queried by recall; this helper bridges
+        dream synthesis into the actual NeuralMemory retrieval surface while
+        staying schema-clean. If an existing dream_insight already summarizes all
+        source ids, reuse it instead of creating another node every dream cycle.
+        """
+        source_ids = []
+        seen = set()
+        for mid in memory_ids:
+            try:
+                mid_i = int(mid)
+            except Exception:
+                continue
+            if mid_i > 0 and mid_i not in seen:
+                source_ids.append(mid_i)
+                seen.add(mid_i)
+        if not source_ids:
+            return 0
+        if not self._memory or not hasattr(self._memory, "create_insight_from_cluster"):
+            return 0
+
+        existing = self._existing_retrievable_insight(source_ids)
+        if existing:
+            return existing
+        try:
+            return int(self._memory.create_insight_from_cluster(source_ids) or 0)
+        except Exception as exc:
+            logger.debug("create_insight_from_cluster failed: %s", exc)
+            return 0
+
+    def _existing_retrievable_insight(self, source_ids: List[int]) -> int:
+        """Return an existing dream_insight node that summarizes all sources."""
+        if not self._memory or not hasattr(self._memory, "store"):
+            return 0
+        store = getattr(self._memory, "store", None)
+        conn = getattr(store, "conn", None)
+        lock = getattr(store, "_lock", None)
+        if conn is None or lock is None or not source_ids:
+            return 0
+        placeholders = ",".join("?" * len(source_ids))
+        sql = f"""
+            SELECT c.source_id
+            FROM connections c
+            JOIN memories m ON m.id = c.source_id
+            WHERE m.kind = 'dream_insight'
+              AND c.edge_type = 'summarizes'
+              AND c.target_id IN ({placeholders})
+            GROUP BY c.source_id
+            HAVING COUNT(DISTINCT c.target_id) >= ?
+            LIMIT 1
+        """
+        try:
+            with lock:
+                row = conn.execute(sql, tuple(source_ids) + (len(set(source_ids)),)).fetchone()
+            return int(row[0]) if row else 0
+        except Exception as exc:
+            logger.debug("retrievable insight lookup failed: %s", exc)
+            return 0
+
+    def _memory_kind(self, memory_id: int) -> str:
+        """Best-effort kind lookup for filtering overlay/self-generated nodes."""
+        if not self._memory or not hasattr(self._memory, "store"):
+            return ""
+        store = getattr(self._memory, "store", None)
+        conn = getattr(store, "conn", None)
+        lock = getattr(store, "_lock", None)
+        if conn is None or lock is None:
+            return ""
+        try:
+            with lock:
+                row = conn.execute("SELECT kind FROM memories WHERE id = ?", (memory_id,)).fetchone()
+            return (row[0] or "") if row else ""
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _is_self_image_candidate(content: str) -> bool:
+        """True when content describes the agent/system observing its own work."""
+        text = (content or "").lower()
+        if not text:
+            return False
+        actor_terms = (
+            "valiendo", "hermes", "claude code", "claude-code",
+            "operator canon", "runtime proof", "bridge ack", "i acked",
+            "i verified", "i patched", "my lane", "self-image",
+        )
+        action_terms = (
+            "verified", "patched", "ack", "checkpoint", "bridge",
+            "runtime", "canon", "handoff", "boundary", "proof", "no-send",
+        )
+        return any(term in text for term in actor_terms) and any(term in text for term in action_terms)
 
     def _extract_theme(self, node_ids: List[int]) -> str:
         """Extract common themes from node IDs (simple keyword frequency)."""

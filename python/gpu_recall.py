@@ -82,6 +82,29 @@ class GpuRecallEngine:
         self._loaded = True
         return True
 
+    def add_one(self, mem_id: int, label: str, content: str, embedding) -> None:
+        """Append one new memory to the in-GPU tensor. Called from
+        Mazemaker.remember() so newly-stored memories are searchable on
+        GPU immediately (no cache rebuild needed).
+
+        Embedding can be list[float], np.ndarray, or torch.Tensor.
+        """
+        if not self._loaded:
+            return
+        import torch
+        if not isinstance(embedding, torch.Tensor):
+            embedding = torch.tensor(embedding, device=self._device, dtype=torch.float32)
+        else:
+            embedding = embedding.to(self._device, dtype=torch.float32)
+        if embedding.dim() == 1:
+            embedding = embedding.unsqueeze(0)
+        self._emb_tensor = torch.cat([self._emb_tensor, embedding], dim=0)
+        # Invalidate normalised cache; recall() will recompute on next miss.
+        self._emb_tensor_normed = None
+        self._ids.append(int(mem_id))
+        self._labels.append(label or "")
+        self._contents.append(content or "")
+
     def recall(self, query: str, k: int = 5) -> list[dict]:
         """Search memories by semantic similarity.
 

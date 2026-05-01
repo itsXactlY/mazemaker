@@ -2,13 +2,12 @@
 """
 live_server.py — FastAPI WebSocket server for Mazemaker Live Dashboard.
 
-Auto-detects MSSQL (primary) vs SQLite (fallback). Reads config from
-~/.hermes/config.yaml for MSSQL credentials.
+Reads from the SQLite source-of-truth.
 
 Usage:
     python live_server.py                             # auto-detect DB
     python live_server.py --port 8443                 # custom port
-    python live_server.py --db /path/to/memory.db     # force SQLite
+    python live_server.py --db /path/to/memory.db     # custom SQLite path
     python live_server.py --no-tls                    # HTTP only
     python live_server.py --desktop-layer             # reduced logging
     python live_server.py --watch-interval 1          # poll every 1s
@@ -43,6 +42,31 @@ NODE_LIMIT     = 100   # top hub nodes to visualise
 EDGE_LIMIT     = 500   # max edges (by weight, descending)
 
 _DB_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="db-worker")
+
+# Per-process TTL cache for slow MSSQL aggregations. NeuralMemory has 696k
+# rows; the metadata_json LIKE-GROUP-BY scans them all (~1.4s) and the
+# distribution barely shifts between polls. Caching 60s drops the steady
+# state to ~150ms.
+_mssql_cache: dict = {}
+
+
+def _cache_get(key: str, ttl: float):
+    entry = _mssql_cache.get(key)
+    if entry is None:
+        return None
+    expires_at, value = entry
+    if time.time() > expires_at:
+        return None
+    return value
+
+
+def _cache_set(key: str, value, ttl: float) -> None:
+    _mssql_cache[key] = (time.time() + ttl, value)
+
+
+CACHE_TTL_CATS = 60.0      # categories — drift slowly
+CACHE_TTL_DIM  = 24*3600   # embedding_dim — only changes on model swap
+CACHE_TTL_NM_COUNT = 30.0  # NeuralMemory total count — bulk-archive, slow growth
 
 _metrics: dict = {
     "start_time":        time.time(),
@@ -90,30 +114,6 @@ def _ensure_libs() -> None:
             logger.info(f"  ✓ {filename} ({kb} KB)")
         except Exception as exc:
             logger.warning(f"  ✗ {filename}: {exc}")
-
-
-# ═══════════════════════════════════════════════════════════
-# Config loader
-# ═══════════════════════════════════════════════════════════
-
-def load_mssql_config() -> dict | None:
-    try:
-        import yaml
-        with open(CONFIG_PATH) as fh:
-            cfg = yaml.safe_load(fh)
-        mssql = cfg.get("memory", {}).get("neural", {}).get("dream", {}).get("mssql", {})
-        if not mssql.get("password"):
-            return None
-        return {
-            "server":   mssql.get("server",   "127.0.0.1"),
-            "database": mssql.get("database", "Mazemaker"),
-            "username": mssql.get("username", "SA"),
-            "password": mssql["password"],
-            "driver":   mssql.get("driver",   "{ODBC Driver 18 for SQL Server}"),
-        }
-    except Exception as exc:
-        logger.warning(f"Cannot read MSSQL config: {exc}")
-        return None
 
 
 # ═══════════════════════════════════════════════════════════
@@ -248,75 +248,119 @@ def _read_sqlite_body(conn, t0, db_path):
     }
 
 
-def read_mssql(mssql_cfg: dict) -> dict:
+def read_mssql(dsn: str) -> dict:
     import pyodbc
     t0 = time.perf_counter()
-    cs = (
-        f"DRIVER={mssql_cfg['driver']};"
-        f"SERVER={mssql_cfg['server']};"
-        f"DATABASE={mssql_cfg['database']};"
-        f"UID={mssql_cfg['username']};PWD={mssql_cfg['password']};"
-        "TrustServerCertificate=yes;Encrypt=no;"
-    )
-    conn = pyodbc.connect(cs, autocommit=True)
+    conn = pyodbc.connect(dsn, timeout=10)
     try:
-        return _read_mssql_body(conn, mssql_cfg, t0)
+        return _read_mssql_body(conn, t0, dsn)
     finally:
         conn.close()
 
 
-def _read_mssql_body(conn, mssql_cfg, t0):
+def _read_mssql_body(conn, t0, dsn):
+    """MSSQL-aware reader.
+
+    The MSSQL store has TWO memory tables:
+      * `NeuralMemory` (~696k rows) — bulk vector archive. surrogate_id pk,
+         metadata_json carries the label, NO content text column, no graph edges.
+      * `memories` (~25k rows) — legacy text-bearing slice whose ids are
+         the endpoints of the `connections` graph (~8k edges).
+
+    For the dashboard we want the BIG numbers from NeuralMemory (that's the
+    real "Wissen") but the graph viz from `memories`+`connections` (that's
+    where the edges live). We fold both into one payload so the user sees
+    the full picture without losing the live graph.
+    """
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT TOP 200 m.id, m.label, LEN(ISNULL(m.content,'')) AS clen,
-               m.salience, m.access_count,
-               ISNULL(o.out_degree, 0), ISNULL(i.in_degree, 0), ISNULL(o.avg_weight, 0)
-        FROM memories m
-        LEFT JOIN (SELECT source_id, COUNT(*) AS out_degree,
-                          AVG(CAST(weight AS FLOAT)) AS avg_weight
-                   FROM connections GROUP BY source_id) o ON m.id = o.source_id
-        LEFT JOIN (SELECT target_id, COUNT(*) AS in_degree
-                   FROM connections GROUP BY target_id) i ON m.id = i.target_id
-        ORDER BY (ISNULL(o.out_degree,0) + ISNULL(i.in_degree,0)) DESC
-    """)
-    nodes = []
-    for r in cur.fetchall():
-        lbl = r[1] or ""
-        nodes.append({
-            "id": r[0], "label": lbl[:50], "category": _categorize(lbl),
-            "content_length": r[2] or 0, "salience": r[3] or 1.0,
-            "access_count": r[4] or 0, "out_degree": r[5],
-            "in_degree": r[6], "total_degree": r[5] + r[6],
-            "avg_weight": round(r[7], 4),
-        })
+    # ── headline counts ──────────────────────────────────────────────────
+    n_nm = _cache_get("nm_count", CACHE_TTL_NM_COUNT)
+    if n_nm is None:
+        cur.execute("SELECT COUNT(*) FROM NeuralMemory")
+        n_nm = cur.fetchone()[0]
+        _cache_set("nm_count", n_nm, CACHE_TTL_NM_COUNT)
+    cur.execute("SELECT COUNT(*) FROM memories");            n_legacy = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM connections");         n_conn = cur.fetchone()[0]
+    # NeuralMemory.legacy_id loosely subsumes the `memories` table, so we
+    # report n_nm as the headline rather than paying for an exact dedupe
+    # subquery on every poll. ~3% overlap with `memories` is rounding error
+    # at this scale.
+    n_total = n_nm
 
-    hub_ids = [n["id"] for n in nodes[:NODE_LIMIT]]
-    id_list = ",".join(str(x) for x in hub_ids)
-    if id_list:
-        cur.execute(
-            f"SELECT TOP {EDGE_LIMIT} source_id, target_id, weight FROM connections "
-            f"WHERE source_id IN ({id_list}) AND target_id IN ({id_list}) "
-            f"ORDER BY weight DESC"
-        )
-        edges = [{"source": r[0], "target": r[1], "weight": round(r[2], 4)} for r in cur.fetchall()]
-    else:
-        edges = []
+    actual_dim = _cache_get("nm_dim", CACHE_TTL_DIM)
+    if actual_dim is None:
+        # No ORDER BY — any row's vector_dim is fine; sorting on a 696k
+        # table without a covering index costs ~2s.
+        cur.execute("SELECT TOP 1 vector_dim FROM NeuralMemory")
+        emb_row    = cur.fetchone()
+        actual_dim = emb_row[0] if emb_row else 1024
+        _cache_set("nm_dim", actual_dim, CACHE_TTL_DIM)
 
-    cur.execute("""
-        SELECT cat, COUNT(*) FROM (
-            SELECT CASE
-                WHEN label LIKE 'peer:%'                       THEN 'Peer'
-                WHEN label LIKE 'turn:%' OR label LIKE 'msg:%' THEN 'Conversation'
-                WHEN label LIKE 'session:%'                    THEN 'Session'
-                WHEN label LIKE 'doc:%'                        THEN 'Document'
-                WHEN label LIKE 'skill:%'                      THEN 'Skill'
-                ELSE 'Other'
-            END AS cat FROM memories
-        ) t GROUP BY cat ORDER BY COUNT(*) DESC
-    """)
-    categories = [{"name": r[0], "count": r[1]} for r in cur.fetchall()]
+    # ── categories: union over NeuralMemory.metadata_json + memories.label ─
+    # The NM scan is the slowest single query (~1.4s on 696k); cache 60s.
+    categories = _cache_get("nm_categories", CACHE_TTL_CATS)
+    if categories is None:
+        cur.execute("""
+            SELECT cat, COUNT(*) FROM (
+                SELECT CASE
+                    WHEN metadata_json LIKE '%"label":"peer:%'      THEN 'Peer'
+                    WHEN metadata_json LIKE '%"label":"msg:%'       THEN 'Conversation'
+                    WHEN metadata_json LIKE '%"label":"turn%'       THEN 'Conversation'
+                    WHEN metadata_json LIKE '%"label":"archive:%'   THEN 'Archive'
+                    WHEN metadata_json LIKE '%"label":"session:%'   THEN 'Session'
+                    WHEN metadata_json LIKE '%"label":"derived:%'   THEN 'Derived'
+                    WHEN metadata_json LIKE '%"label":"doc:%'       THEN 'Document'
+                    WHEN metadata_json LIKE '%"label":"skill:%'     THEN 'Skill'
+                    WHEN metadata_json LIKE '%"label":"test_%'      THEN 'Test/Bench'
+                    WHEN metadata_json LIKE '%"label":"bench-%'     THEN 'Test/Bench'
+                    WHEN metadata_json LIKE '%"label":"commit:%'    THEN 'Commit'
+                    WHEN metadata_json LIKE '%"label":"bug:%'       THEN 'Bug'
+                    WHEN metadata_json LIKE '%"label":"decision:%'  THEN 'Decision'
+                    WHEN metadata_json LIKE '%"label":"ops:%'       THEN 'Ops'
+                    WHEN metadata_json LIKE '%"label":"signal:%'    THEN 'Signal'
+                    WHEN metadata_json LIKE '%"label":"invariant:%' THEN 'Invariant'
+                    WHEN metadata_json LIKE '%"label":"fact:%'      THEN 'Fact'
+                    ELSE 'Other'
+                END AS cat FROM NeuralMemory
+            ) AS x GROUP BY cat ORDER BY COUNT(*) DESC
+        """)
+        cats_nm = {r[0]: r[1] for r in cur.fetchall()}
 
+        cur.execute("""
+            SELECT cat, COUNT(*) FROM (
+                SELECT CASE
+                    WHEN label LIKE 'peer:%'                              THEN 'Peer'
+                    WHEN label LIKE 'turn%' OR label LIKE 'msg:%'         THEN 'Conversation'
+                    WHEN label LIKE 'archive:%'                           THEN 'Archive'
+                    WHEN label LIKE 'session-summary' OR label LIKE 'session:%' THEN 'Session'
+                    WHEN label LIKE 'derived:%'                           THEN 'Derived'
+                    WHEN label LIKE 'doc:%'                               THEN 'Document'
+                    WHEN label LIKE 'skill:%'                             THEN 'Skill'
+                    WHEN label LIKE 'test_%' OR label LIKE 'bench-%'      THEN 'Test/Bench'
+                    WHEN label LIKE 'commit:%'                            THEN 'Commit'
+                    WHEN label LIKE 'bug:%'                               THEN 'Bug'
+                    WHEN label LIKE 'decision:%'                          THEN 'Decision'
+                    WHEN label LIKE 'ops:%'                               THEN 'Ops'
+                    WHEN label LIKE 'signal:%'                            THEN 'Signal'
+                    WHEN label LIKE 'invariant:%'                         THEN 'Invariant'
+                    WHEN label LIKE 'fact:%'                              THEN 'Fact'
+                    WHEN label LIKE 'pre-compress'                        THEN 'Session'
+                    WHEN label LIKE '%-msg' OR label LIKE 'asst-msg' OR label LIKE 'user-msg' THEN 'Conversation'
+                    ELSE 'Other'
+                END AS cat FROM memories
+            ) AS x GROUP BY cat
+        """)
+        cats_legacy = {r[0]: r[1] for r in cur.fetchall()}
+
+        merged = dict(cats_nm)
+        for k, v in cats_legacy.items():
+            merged[k] = merged.get(k, 0) + v
+        categories = [{"name": k, "count": v} for k, v in
+                      sorted(merged.items(), key=lambda kv: -kv[1])]
+        _cache_set("nm_categories", categories, CACHE_TTL_CATS)
+
+    # ── connection-weight distribution (only graph edges that exist) ─────
     cur.execute("""
         SELECT bucket, COUNT(*) FROM (
             SELECT CASE
@@ -326,58 +370,184 @@ def _read_mssql_body(conn, mssql_cfg, t0):
                 WHEN weight >= 0.2 THEN 'Weak (0.2-0.4)'
                 ELSE 'Very Weak (0-0.2)'
             END AS bucket FROM connections
-        ) t GROUP BY bucket
+        ) AS x GROUP BY bucket
     """)
     weights = [{"bucket": r[0], "count": r[1]} for r in cur.fetchall()]
 
-    cur.execute("SELECT COUNT(*) FROM memories");    n_mem  = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM connections"); n_conn = cur.fetchone()[0]
+    # ── graph viz: top hub nodes from `memories` (only place with edges) ─
+    cur.execute(f"""
+        SELECT TOP {NODE_LIMIT * 5}
+               m.id, m.label, m.content, m.salience, m.access_count, m.created_at,
+               COALESCE(out_d.out_degree, 0),
+               COALESCE(in_d.in_degree,  0),
+               COALESCE(out_d.avg_weight, 0)
+        FROM memories m
+        LEFT JOIN (SELECT source_id, COUNT(*) AS out_degree, AVG(weight) AS avg_weight
+                   FROM connections GROUP BY source_id) out_d ON m.id = out_d.source_id
+        LEFT JOIN (SELECT target_id, COUNT(*) AS in_degree
+                   FROM connections GROUP BY target_id) in_d ON m.id = in_d.target_id
+        ORDER BY (COALESCE(out_d.out_degree,0) + COALESCE(in_d.in_degree,0)) DESC
+    """)
+    nodes = []
+    for r in cur.fetchall():
+        lbl = r[1] or ""
+        created_at = r[5].timestamp() if r[5] else 0
+        nodes.append({
+            "id": r[0], "label": lbl[:50], "category": _categorize(lbl),
+            "content_length": len(r[2]) if r[2] else 0,
+            "salience": r[3] or 1.0, "access_count": r[4] or 0,
+            "created_at": created_at,
+            "out_degree": r[6], "in_degree": r[7], "total_degree": r[6] + r[7],
+            "avg_weight": round(r[8], 4),
+        })
 
-    n_dreams = 0
+    hub_ids = [n["id"] for n in nodes[:NODE_LIMIT]]
+    if hub_ids:
+        placeholders = ",".join("?" * len(hub_ids))
+        cur.execute(
+            f"SELECT TOP {int(EDGE_LIMIT)} source_id, target_id, weight FROM connections "
+            f"WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders}) "
+            f"ORDER BY weight DESC",
+            hub_ids + hub_ids,
+        )
+        edges = [{"source": r[0], "target": r[1], "weight": round(r[2], 4)} for r in cur.fetchall()]
+    else:
+        edges = []
+
+    # ── dream sessions (MSSQL schema differs from SQLite) ────────────────
+    dream_sessions: list[dict] = []
     try:
-        cur.execute("SELECT COUNT(*) FROM dream_sessions"); n_dreams = cur.fetchone()[0]
+        cur.execute("""
+            SELECT id, phase, started_at, finished_at,
+                   memories_processed, connections_strengthened, connections_pruned,
+                   bridges_found, insights_created
+            FROM dream_sessions ORDER BY started_at
+        """)
+        for r in cur.fetchall():
+            stats_blob = json.dumps({
+                "memories_processed":       r[4],
+                "connections_strengthened": r[5],
+                "connections_pruned":       r[6],
+                "bridges_found":            r[7],
+                "insights_created":         r[8],
+            })
+            dream_sessions.append({
+                "id": r[0], "phase": r[1],
+                "started_at":   r[2].timestamp() if r[2] else 0,
+                "completed_at": r[3].timestamp() if r[3] else 0,
+                "stats":        stats_blob,
+            })
+    except Exception as exc:
+        logger.debug(f"dream_sessions skipped: {exc}")
+
+    # ── extras (footer/sidebar context) ──────────────────────────────────
+    extras = {
+        "neuralmemory_rows": n_nm,
+        "legacy_memories_rows": n_legacy,
+    }
+    try:
+        cur.execute("SELECT COUNT(*) FROM connection_history")
+        extras["connection_history_rows"] = cur.fetchone()[0]
     except Exception:
         pass
-
-    cur.execute("SELECT TOP 1 vector_dim FROM memories WHERE embedding IS NOT NULL")
-    dr  = cur.fetchone()
-    dim = dr[0] if dr else 1024
+    try:
+        cur.execute("SELECT COUNT(*) FROM dream_insights")
+        extras["dream_insights_rows"] = cur.fetchone()[0]
+    except Exception:
+        pass
 
     ms = round((time.perf_counter() - t0) * 1000, 2)
     _metrics["db_query_ms"] = ms
     return {
         "nodes": nodes, "edges": edges,
         "categories": categories, "weights": weights,
+        "dream_sessions": dream_sessions,
         "stats": {
-            "memories": n_mem, "connections": n_conn,
-            "embedding_dim": dim, "source": "MSSQL",
-            "path": f"{mssql_cfg['server']}/{mssql_cfg['database']}",
-            "dream_sessions": n_dreams, "query_ms": ms,
+            "memories": n_total, "connections": n_conn,
+            "embedding_dim": actual_dim, "source": "MSSQL",
+            "path": "mssql://NeuralMemory@127.0.0.1:1433", "query_ms": ms,
+            **extras,
         },
     }
 
 
+def _build_mssql_dsn(args) -> str | None:
+    """Resolve MSSQL DSN from --mssql-dsn or the hermes config backup."""
+    if args.mssql_dsn:
+        return args.mssql_dsn
+    # Fall back to the pre-flip backup, since the live config got scrubbed.
+    backup = os.path.expanduser("~/.hermes/config.yaml.backup-pre-mcp-flip-20260501-005028")
+    if not os.path.exists(backup):
+        return None
+    try:
+        import yaml
+        with open(backup) as f:
+            cfg = yaml.safe_load(f)
+        m = cfg.get("memory", {}).get("neural", {}).get("dream", {}).get("mssql")
+        if not m:
+            return None
+        return (
+            f"DRIVER={m['driver']};SERVER={m['server']},1433;DATABASE={m['database']};"
+            f"UID={m['username']};PWD={m['password']};"
+            "TrustServerCertificate=yes;Encrypt=optional"
+        )
+    except Exception as exc:
+        logger.warning(f"could not parse mssql config from backup: {exc}")
+        return None
+
+
+_OFFLINE_SNAPSHOT = {
+    "nodes": [], "edges": [],
+    "categories": [], "weights": [],
+    "dream_sessions": [],
+    "stats": {
+        "memories": 0, "connections": 0,
+        "embedding_dim": 0, "source": "offline",
+        "path": "", "query_ms": 0,
+    },
+}
+
+
+def _safe_read(read_fn, label: str) -> dict:
+    """Wrap a backend read so DB outages degrade to the offline snapshot
+    rather than crash the service. The poll loop will keep retrying."""
+    try:
+        return read_fn()
+    except Exception as exc:
+        logger.warning(f"{label} unreachable, serving offline snapshot: {exc}")
+        snap = dict(_OFFLINE_SNAPSHOT)
+        snap["stats"] = dict(_OFFLINE_SNAPSHOT["stats"])
+        snap["stats"]["source"] = f"{label} (offline)"
+        snap["stats"]["error"]  = str(exc)[:200]
+        return snap
+
+
 def load_data(args) -> tuple[dict, callable]:
-    mssql_cfg = None if args.db else load_mssql_config()
-    if mssql_cfg:
-        try:
-            data = read_mssql(mssql_cfg)
-            s = data["stats"]
-            logger.info(f"MSSQL: {s['memories']}M  {s['connections']}C  ({s['query_ms']}ms)")
-            _metrics["db_source"] = "MSSQL"
-            return data, lambda: read_mssql(mssql_cfg)
-        except Exception as exc:
-            logger.warning(f"MSSQL failed ({exc}), falling back to SQLite")
+    if args.source == "mssql":
+        dsn = _build_mssql_dsn(args)
+        if not dsn:
+            logger.error("--source=mssql but no DSN found (tried --mssql-dsn + hermes backup)")
+            sys.exit(1)
+        read_fn = lambda: read_mssql(dsn)
+        data = _safe_read(read_fn, "MSSQL")
+        s = data["stats"]
+        extras_str = " ".join(f"{k}={v}" for k, v in s.items() if k.endswith("_rows"))
+        logger.info(f"MSSQL: {s['memories']}M  {s['connections']}C  ({s['query_ms']}ms)  {extras_str}")
+        _metrics["db_source"] = "MSSQL"
+        return data, lambda: _safe_read(read_fn, "MSSQL")
 
     db_path = args.db or DEFAULT_SQLITE
+    read_fn = lambda: read_sqlite(db_path)
     if not os.path.exists(db_path):
-        logger.error(f"Database not found: {db_path}")
-        sys.exit(1)
-    data = read_sqlite(db_path)
+        logger.warning(f"Database not found: {db_path} — serving offline snapshot")
+        _metrics["db_source"] = "SQLite"
+        return _safe_read(lambda: (_ for _ in ()).throw(FileNotFoundError(db_path)), "SQLite"), \
+               lambda: _safe_read(read_fn, "SQLite")
+    data = _safe_read(read_fn, "SQLite")
     s = data["stats"]
     logger.info(f"SQLite: {s['memories']}M  {s['connections']}C  ({s['query_ms']}ms)")
     _metrics["db_source"] = "SQLite"
-    return data, lambda: read_sqlite(db_path)
+    return data, lambda: _safe_read(read_fn, "SQLite")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -733,6 +903,10 @@ def main():
 
     parser = argparse.ArgumentParser(description="Mazemaker Live Dashboard Server")
     parser.add_argument("--db",             default=None,  help="Force SQLite path")
+    parser.add_argument("--source",         default="sqlite", choices=("sqlite", "mssql"),
+                        help="Which backend to read from")
+    parser.add_argument("--mssql-dsn",      default=None,
+                        help="Full pyodbc connection string; falls back to hermes config backup")
     parser.add_argument("--port",           type=int,      default=8443)
     parser.add_argument("--host",           default="0.0.0.0")
     parser.add_argument("--no-tls",         action="store_true")

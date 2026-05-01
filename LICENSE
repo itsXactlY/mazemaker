@@ -1,21 +1,102 @@
-MIT License
+# Mazemaker — License
 
-Copyright (c) 2026 itsXactlY
+Copyright © 2026 itsXactlY (aLca / info@mazemaker.dev).
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Mazemaker is offered under a **dual-license** model.  You may use,
+copy, modify, and distribute Mazemaker under EITHER of the following,
+at your choice:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+  (a) the **GNU Affero General Public License, version 3** (AGPLv3),
+      as published by the Free Software Foundation, OR
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+  (b) the **PolyForm Noncommercial License 1.0.0**.
+
+A separate **commercial license** is available for use that does not
+satisfy either of those two — see "Commercial use" below.
+
+The full texts are bundled with this distribution:
+
+| Option | File |
+|--------|------|
+| AGPLv3                      | [`LICENSE-AGPL-3.0.txt`](./LICENSE-AGPL-3.0.txt) |
+| PolyForm Noncommercial 1.0.0| [`LICENSE-POLYFORM-NC-1.0.0.md`](./LICENSE-POLYFORM-NC-1.0.0.md) |
+
+---
+
+## Which license should I pick?
+
+### AGPLv3 — when you want OSS terms
+
+Pick AGPLv3 if you want a standard, OSI-approved open-source license.
+
+You may use, modify, run, host, and offer Mazemaker as a service —
+**but the AGPLv3 will require you to release the entire source code of
+your service stack**, including any modifications, to your users
+under the same AGPLv3 terms.  This is the same copyleft mechanism that
+projects like Plausible Analytics, Mastodon, and Nextcloud use.
+
+If you are building open-source software and willing to license your
+own work under the AGPLv3, this is the path for you.
+
+### PolyForm Noncommercial 1.0.0 — when you want a permissive feel without copyleft
+
+Pick PolyForm Noncommercial if you want to use Mazemaker for any
+**noncommercial purpose** (research, education, hobby projects,
+charitable / public-research / government use, personal study) without
+the AGPLv3's copyleft obligations.  No source-disclosure requirement.
+
+The full noncommercial / personal / fair-use definitions are in the
+license text (see file above).  In short: if you are not selling, not
+operating a paid service, and not using it in the operations of a
+for-profit enterprise, you are covered by PolyForm Noncommercial.
+
+### Commercial use
+
+Use that does not fit AGPLv3 (because you are unwilling or unable to
+release your source under the AGPLv3) and does not fit PolyForm
+Noncommercial (because the use is commercial in nature) **requires a
+separate commercial license** from the copyright holder.
+
+To inquire about a commercial license, contact:
+
+> **info@mazemaker.dev**
+
+A commercial license can be drafted to fit specific needs (single
+deployment, multi-tenant SaaS, white-label OEM use, embedding in a
+commercial product, etc.).  It removes both AGPLv3's copyleft and
+PolyForm's noncommercial limit.
+
+---
+
+## Patent grant
+
+Both AGPLv3 (§ 11) and PolyForm Noncommercial 1.0.0 ("Patent License")
+include patent grants from the licensor.  Both also include patent
+defense / retaliation clauses that terminate your patent license if
+you sue the licensor (or contributors) for patent infringement related
+to Mazemaker.
+
+## Trademark
+
+"Mazemaker" is a trademark of itsXactlY (aLca).  The licenses above
+grant copyright and patent rights, but **do not grant trademark
+rights** beyond what is necessary to identify Mazemaker as the origin
+of the work (nominative fair use).  You may not use the Mazemaker
+name, logo, or other branding to endorse or promote derivative works
+or services without separate written permission.
+
+## Historical note
+
+Earlier versions of Mazemaker (prior to 2026-05-01) were distributed
+under the MIT License.  The original MIT text is preserved in
+[`LICENSE.MIT-historical`](./LICENSE.MIT-historical) for reference.
+The MIT License remains valid for any code obtained under it before
+that date, but **all source under the current and future versions is
+governed exclusively by the dual-license + commercial-license model
+described above.**
+
+## No warranty
+
+To the maximum extent permitted by applicable law, Mazemaker is
+provided "as is" without warranty of any kind.  See the warranty
+sections in the chosen license file for full disclaimer text.

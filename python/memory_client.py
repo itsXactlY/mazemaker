@@ -244,8 +244,7 @@ class SQLiteStore:
         # arbitrary orientation. Without this sweep, `WHERE source_id=? AND
         # target_id=?` lookups miss the legacy rows half the time and
         # downstream code (recall connection rendering, in-memory graph
-        # hydration) sees inconsistent state. Mirrors the iter 61 MSSQL
-        # migration on the SQLite side.
+        # hydration) sees inconsistent state.
         try:
             # Step 1: when a non-canonical row has a canonical twin, lift the
             # canonical row's weight to MAX(both) so we don't lose the
@@ -703,7 +702,6 @@ class Mazemaker:
         self,
         db_path: str | Path = DB_PATH,
         embedding_backend: str = "auto",
-        use_mssql: bool = False,
         use_cpp: bool = True,
         embedder=None,
         retrieval_mode: str = "semantic",
@@ -728,9 +726,12 @@ class Mazemaker:
             from embed_provider import EmbeddingProvider
             self.embedder = EmbeddingProvider(backend=embedding_backend)
 
-        if use_mssql:
-            from mssql_store import MSSQLStore
-            self.store = MSSQLStore()
+        # Backend dispatch. SQLite is the default; MM_DB_BACKEND=postgres
+        # opts in to the Postgres + pgvector store.
+        backend_choice = (os.environ.get("MM_DB_BACKEND") or "").strip().lower()
+        if backend_choice == "postgres":
+            from postgres_store import PostgresStore
+            self.store = PostgresStore()
         else:
             self.store = SQLiteStore(db_path)
 
@@ -849,15 +850,50 @@ class Mazemaker:
                 logging.getLogger(__name__).warning("C++ bridge unavailable, falling back to Python: %s", e)
                 self._cpp = None
 
+        # GPU recall engine — loud logging on every step so silent CPU
+        # fallbacks become visible. Per "GPU > CPU IMMER" policy:
+        #   1. cache present → load
+        #   2. cache absent → auto-build, retry load
+        #   3. anything fails → log loudly so it never silently degrades
         self._gpu = None
         if Path(db_path) == DB_PATH:
+            import logging
+            _glog = logging.getLogger(__name__)
             try:
                 from gpu_recall import GpuRecallEngine
-                self._gpu = GpuRecallEngine()
-                if not self._gpu.load(embed_fn=self.embedder.embed):
-                    self._gpu = None
-            except Exception:
-                self._gpu = None
+                eng = GpuRecallEngine()
+                if eng.load(embed_fn=self.embedder.embed):
+                    self._gpu = eng
+                    _glog.info(
+                        "GPU recall ARMED: %d vectors on %s",
+                        eng._emb_tensor.shape[0] if eng._emb_tensor is not None else 0,
+                        eng._device,
+                    )
+                else:
+                    _glog.warning("GPU recall cache absent — auto-building from %s", db_path)
+                    try:
+                        from build_gpu_cache import build  # type: ignore[import]
+                        from pathlib import Path as _P
+                        build(_P(db_path), _P.home() / ".neural_memory" / "gpu_cache")
+                        if eng.load(embed_fn=self.embedder.embed):
+                            self._gpu = eng
+                            _glog.info(
+                                "GPU recall ARMED post-build: %d vectors",
+                                eng._emb_tensor.shape[0] if eng._emb_tensor is not None else 0,
+                            )
+                        else:
+                            _glog.error(
+                                "GPU recall STILL not loaded after build — recall WILL run on CPU/numpy"
+                            )
+                    except Exception as exc_b:
+                        _glog.error(
+                            "GPU recall auto-build FAILED — recall WILL run on CPU/numpy: %s",
+                            exc_b,
+                        )
+            except Exception as exc:
+                _glog.error(
+                    "GPU recall init FAILED — recall WILL run on CPU/numpy: %s", exc
+                )
 
         self._graph_nodes: dict[int, dict] = {}
         # Counter set by _load_from_store; surfaced via stats() so operators
@@ -905,19 +941,11 @@ class Mazemaker:
         therefore harmless; only an actual mismatch against a
         previously-pinned fingerprint produces dim_locked=False.
 
-        Stores without db_meta support (currently MSSQLStore) get a
-        \"locked-on-current-backend\" result so writes proceed. The earlier
-        \"return False\" here was a critical regression: it tripped the
-        remember() dim_locked guard on every MSSQL write, blocking the
-        entire MSSQL deployment path. The one-model invariant on MSSQL
-        is enforced server-side via the schema's vector_dim column
-        (and ultimately by the ONE-MODEL discipline of the ops team)
-        rather than by a Python-side fingerprint.
+        Stores without db_meta support get a \"locked-on-current-backend\"
+        result so writes proceed; the one-model invariant on those stores
+        is enforced server-side via the schema's vector_dim column.
         """
         if not hasattr(self.store, "get_meta"):
-            # MSSQLStore: no Python-side fingerprint, but writes are not
-            # blocked. The \"\" reason field stays empty so stats() shows
-            # mismatch_reason=None.
             return True, ""
         stored = self.store.get_meta("embed_fingerprint")
         if stored is None:
@@ -989,8 +1017,8 @@ class Mazemaker:
                 node_s.setdefault("connections", {})[tgt] = w
                 node_t.setdefault("connections", {})[src] = w
         else:
-            # MSSQL store path (no get_all_connections) — fall back to the
-            # per-memory query so behaviour is preserved on non-SQLite backends.
+            # Non-SQLite store path (no get_all_connections) — fall back to
+            # the per-memory query so behaviour is preserved.
             for mem in all_mems:
                 self._refresh_connections(mem["id"])
 
@@ -1248,6 +1276,22 @@ class Mazemaker:
             except Exception:
                 pass
         self._hnsw_dirty = True
+
+        # GPU recall hot-path append — keeps the in-GPU tensor in sync with
+        # the SQLite write so new memories are GPU-searchable immediately
+        # (no manual cache rebuild). Silent no-op if _gpu is unloaded.
+        if self._gpu is not None:
+            try:
+                self._gpu.add_one(mem_id, label, text, embedding)
+            except Exception:
+                # Don't break a remember() call if the GPU side glitches —
+                # the SQLite write already succeeded; the cache will heal
+                # on next process restart (auto-build).
+                import logging
+                logging.getLogger(__name__).warning(
+                    "GPU recall add_one failed for mem_id=%s; cache now stale "
+                    "until next rebuild", mem_id, exc_info=True,
+                )
 
         if auto_connect:
             self._auto_connect(mem_id, embedding, text)

@@ -175,6 +175,7 @@ class SQLiteStore:
         transaction_time: Optional[float] = None,
         metadata: Optional[dict[str, Any]] = None,
         salience: Optional[float] = None,
+        procedural_score: Optional[float] = None,
     ) -> int:
         blob = struct.pack(f'{len(embedding)}f', *embedding)
         if transaction_time is None:
@@ -195,6 +196,7 @@ class SQLiteStore:
             ("transaction_time", transaction_time),
             ("metadata_json", metadata_json),
             ("salience", salience),
+            ("procedural_score", procedural_score),
         ):
             if col_value is not None:
                 cols.append(col_name)
@@ -1085,7 +1087,8 @@ class NeuralMemory:
                  valid_to: Optional[float] = None,
                  metadata: Optional[dict[str, Any]] = None,
                  evidence_ids: Optional[list[int]] = None,
-                 salience: Optional[float] = None) -> int:
+                 salience: Optional[float] = None,
+                 procedural_score: Optional[float] = None) -> int:
         """Store a memory. Returns memory ID.
 
         If detect_conflicts=True, checks for existing memories about the same
@@ -1118,6 +1121,17 @@ class NeuralMemory:
         # Auto-classify kind from text when caller did not specify.
         if kind is None:
             kind = classify_memory_kind(text, metadata=metadata)
+
+        # Phase 7.5-α: auto-populate procedural_score so the unified scorer's
+        # procedural channel actually contributes to ranking. Pre-fix the
+        # column was always NULL → 0.0 in scorer features, which made
+        # `+ w_procedural * f.procedural_score` always 0. Baseline 0.7 for
+        # kind='procedural'; None (NULL) for everything else. Future
+        # refinement: compute from text features (imperative-verb ratio,
+        # code-block density, list-shape, etc.). Backfill for existing
+        # procedural rows is one-shot via tools/backfill_procedural_score.py.
+        if procedural_score is None and kind == "procedural":
+            procedural_score = 0.7
 
         embedding = self.embedder.embed(text)
         
@@ -1207,6 +1221,7 @@ class NeuralMemory:
             valid_to=valid_to,
             metadata=metadata,
             salience=salience,
+            procedural_score=procedural_score,
         )
 
         # Phase 7 Commit 3: extract entities from text + create mentions_entity edges.

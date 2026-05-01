@@ -36,8 +36,10 @@ sys.path.insert(0, str(_ROOT / "python"))
 
 # Canonical source roots, in priority order.
 _AE_OPERATOR_SKILL = Path("/Users/tito/.hermes/skills/angels-electric/AE_OPERATOR_SKILL.md")
+_AE_SKILL_DIR = Path("/Users/tito/.hermes/skills/angels-electric")  # SKILL.md + references/
 _LANGGRAPH_KERNEL = Path("/Users/tito/lWORKSPACEl/Projects/AngelsElectric/LangGraph/context-kernel")
 _CLAUDE_MEMORY = Path("/Users/tito/.claude/projects/-Users-tito/memory")
+_VALIENDO_HANDOFFS = Path("/Users/tito/.hermes/artifacts/valiendo/handoffs")
 
 # Memory-file kind heuristics (file-name prefix → memory kind).
 _MEMORY_PREFIX_TO_KIND = {
@@ -133,6 +135,28 @@ def _gather_sources() -> list[dict]:
             "default_kind": "procedural",
             "origin_system": "ae",
         })
+
+    # Other docs in ae skill directory (SKILL.md + references/)
+    if _AE_SKILL_DIR.exists():
+        for p in sorted(_AE_SKILL_DIR.rglob("*.md")):
+            if p == _AE_OPERATOR_SKILL:
+                continue  # already added
+            sources.append({
+                "path": p,
+                "source_label": "ae_skill_other",
+                "default_kind": "procedural",
+                "origin_system": "ae",
+            })
+
+    # Valiendo handoffs (durable transition records)
+    if _VALIENDO_HANDOFFS.exists():
+        for p in sorted(_VALIENDO_HANDOFFS.glob("*.md")):
+            sources.append({
+                "path": p,
+                "source_label": "valiendo_handoffs",
+                "default_kind": "experience",  # transition events
+                "origin_system": "hermes",
+            })
 
     # LangGraph context-kernel docs (architecture / canonical references)
     if _LANGGRAPH_KERNEL.exists():

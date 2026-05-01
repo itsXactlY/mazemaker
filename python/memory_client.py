@@ -1346,6 +1346,193 @@ class NeuralMemory:
         from scoring import ScoringConfig
         return ScoringConfig()
 
+    # ------------------------------------------------------------------
+    # Phase 7 Commit 9: dream Memify + insight + contradiction hygiene
+    # ------------------------------------------------------------------
+
+    _CONTRADICTION_STOPWORDS = frozenset({
+        "is", "are", "was", "were", "the", "a", "an", "and", "or", "but",
+        "of", "to", "in", "on", "at", "for", "with", "by", "from", "as",
+        "be", "been", "being", "do", "does", "did", "have", "has", "had",
+        "this", "that", "these", "those", "it", "its",
+    })
+
+    def get_memory(self, memory_id: int) -> Optional[dict[str, Any]]:
+        """Return memory row including salience + kind + content. Convenience
+        wrapper around store.get() that adds the typed/scoring fields."""
+        with self.store._lock:
+            row = self.store.conn.execute(
+                "SELECT id, label, content, salience, access_count, kind, "
+                "confidence, valid_from, valid_to, transaction_time, "
+                "origin_system, source FROM memories WHERE id = ?",
+                (memory_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "label": row[1], "content": row[2],
+            "salience": row[3], "access_count": row[4], "kind": row[5],
+            "confidence": row[6], "valid_from": row[7], "valid_to": row[8],
+            "transaction_time": row[9], "origin_system": row[10],
+            "source": row[11],
+        }
+
+    def get_edges(self, memory_id: int) -> list[dict[str, Any]]:
+        """Return edges touching memory_id. Maps get_connections's 'type'
+        key to 'edge_type' for forward-compat with addendum tests."""
+        edges = self.store.get_connections(memory_id, include_expired=True)
+        out = []
+        for e in edges:
+            out.append({
+                "source_id": e["source"],
+                "target_id": e["target"],
+                "weight": e["weight"],
+                "edge_type": e.get("type") or "similar",
+                "valid_from": e.get("valid_from"),
+                "valid_to": e.get("valid_to"),
+            })
+        return out
+
+    def has_edge(self, source_id: int, target_id: int,
+                 edge_type: Optional[str] = None) -> bool:
+        """True if an edge exists between source and target. If edge_type is
+        given, additionally require matching type. Direction-insensitive."""
+        sql = (
+            "SELECT 1 FROM connections "
+            "WHERE ((source_id = ? AND target_id = ?) "
+            "    OR (source_id = ? AND target_id = ?))"
+        )
+        params: list[Any] = [source_id, target_id, target_id, source_id]
+        if edge_type is not None:
+            sql += " AND edge_type = ?"
+            params.append(edge_type)
+        sql += " LIMIT 1"
+        with self.store._lock:
+            row = self.store.conn.execute(sql, tuple(params)).fetchone()
+        return row is not None
+
+    def run_memify_once(self, decay_factor: float = 0.5) -> dict[str, int]:
+        """Detect exact-content duplicates and downweight salience of all
+        but the highest-salience copy. Per handoff sec 9.4 — dream Memify
+        does not hard-delete; it downweights with provenance.
+
+        Returns stats dict with downweighted count.
+        """
+        with self.store._lock:
+            groups = self.store.conn.execute(
+                "SELECT content, GROUP_CONCAT(id) FROM memories "
+                "WHERE content IS NOT NULL "
+                "  AND (kind IS NULL OR kind != 'entity') "
+                "GROUP BY content HAVING COUNT(*) > 1"
+            ).fetchall()
+        downweighted = 0
+        with self.store._lock:
+            for _content, ids_csv in groups:
+                ids = [int(x) for x in ids_csv.split(',')]
+                sal_rows = self.store.conn.execute(
+                    f"SELECT id, salience FROM memories "
+                    f"WHERE id IN ({','.join('?' * len(ids))})",
+                    tuple(ids),
+                ).fetchall()
+                max_id = max(sal_rows, key=lambda r: r[1] or 0)[0]
+                for mid, _sal in sal_rows:
+                    if mid == max_id:
+                        continue
+                    self.store.conn.execute(
+                        "UPDATE memories SET salience = salience * ? WHERE id = ?",
+                        (decay_factor, mid),
+                    )
+                    downweighted += 1
+            self.store.conn.commit()
+        return {"duplicates_downweighted": downweighted}
+
+    def create_insight_from_cluster(self, memory_ids: list[int]) -> int:
+        """Create a dream_insight node summarizing the cluster + add
+        summarizes edges back to source memories (evidence-attached).
+
+        Per handoff sec 9.3: dream insights MUST have evidence edges,
+        never free-floating.
+        """
+        if not memory_ids:
+            return 0
+        with self.store._lock:
+            rows = self.store.conn.execute(
+                f"SELECT content FROM memories "
+                f"WHERE id IN ({','.join('?' * len(memory_ids))})",
+                tuple(memory_ids),
+            ).fetchall()
+        contents = [r[0] or "" for r in rows]
+        summary = "Insight from cluster: " + " | ".join(c[:80] for c in contents[:3])
+        insight_id = self.remember(
+            summary,
+            label="dream-insight",
+            detect_conflicts=False,
+            kind="dream_insight",
+            origin_system="dream_engine",
+        )
+        for mid in memory_ids:
+            try:
+                self.store.add_connection(
+                    insight_id, mid, weight=1.0, edge_type="summarizes",
+                )
+            except Exception:
+                pass
+        return insight_id
+
+    @classmethod
+    def _content_jaccard(cls, a: str, b: str) -> float:
+        """Word-level Jaccard similarity, lowercased + stopword-filtered."""
+        if not a or not b:
+            return 0.0
+        wa = {w for w in a.lower().split() if w not in cls._CONTRADICTION_STOPWORDS}
+        wb = {w for w in b.lower().split() if w not in cls._CONTRADICTION_STOPWORDS}
+        if not wa or not wb:
+            return 0.0
+        inter = wa & wb
+        union = wa | wb
+        return len(inter) / len(union)
+
+    def run_contradiction_detection_once(self,
+                                          jaccard_threshold: float = 0.4) -> dict[str, int]:
+        """Detect pairs where one memory's validity ends before another's
+        begins AND they have substantial content overlap. Adds contradicts
+        edges (does NOT delete or modify memories — H6/H19 invariant).
+
+        Per addendum lines 498-503 + handoff sec 9.4.
+        """
+        with self.store._lock:
+            rows = self.store.conn.execute(
+                "SELECT id, content, valid_from, valid_to FROM memories "
+                "WHERE (kind IS NULL OR kind != 'entity') "
+                "  AND content IS NOT NULL"
+            ).fetchall()
+        edges_added = 0
+        # Compare pairs where one has a valid_to and another has valid_from
+        # strictly greater. O(n^2) but acceptable for AE scale (1k-10k memories).
+        items = [(r[0], r[1] or "", r[2], r[3]) for r in rows]
+        for old in items:
+            old_id, old_content, _ovf, ovt = old
+            if ovt is None:
+                continue
+            for new in items:
+                new_id, new_content, nvf, _nvt = new
+                if new_id == old_id or nvf is None:
+                    continue
+                if nvf <= ovt:
+                    continue
+                if self._content_jaccard(old_content, new_content) < jaccard_threshold:
+                    continue
+                if self.has_edge(old_id, new_id, edge_type="contradicts"):
+                    continue
+                try:
+                    self.store.add_connection(
+                        old_id, new_id, weight=1.0, edge_type="contradicts",
+                    )
+                    edges_added += 1
+                except Exception:
+                    pass
+        return {"contradiction_edges_added": edges_added}
+
     def _filter_by_kind(self, results: list[dict], kind: str) -> list[dict]:
         """Filter recall results to only memories whose `kind` column matches.
 

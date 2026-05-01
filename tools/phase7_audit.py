@@ -328,9 +328,22 @@ def render_text(report: dict) -> str:
             lines.append(f"  {name:35s} {count if count is not None else '?':>8}{tag}")
         if report["phase7_unwired_features"]:
             lines.append(f"")
-            lines.append(f"  >> {len(report['phase7_unwired_features'])} features shipped but unwired:")
+            lines.append(f"  >> {len(report['phase7_unwired_features'])} features with 0 DB rows:")
             for name in report["phase7_unwired_features"]:
                 lines.append(f"     - {name}")
+
+    # Phase 7.5 call-site wiring status (manually tracked; bumps when
+    # subphases ship). DB-row counts above measure data presence; this
+    # section measures whether the scorer's call-site actually reads each
+    # field. Both must be true for a feature to influence rankings.
+    lines.append(_section("Phase 7.5 call-site wiring status"))
+    lines.append(f"  α  procedural_score read in scorer        SHIPPED 2026-05-01")
+    lines.append(f"  β  entity_score from mentions_entity edges  SHIPPED 2026-05-01")
+    lines.append(f"  γ  stale_penalty from age                   SHIPPED 2026-05-01")
+    lines.append(f"  δ  contradiction_penalty from edges         SHIPPED 2026-05-01")
+    lines.append(f"  ε  locus_score / valid_to                   DEFERRED (AE-coordinated)")
+    lines.append(f"  Coverage: integration test suite")
+    lines.append(f"  python/test_phase7_5_wiring_integration.py  6 contracts")
 
     if "dream_insights" in report:
         di = report["dream_insights"]

@@ -1564,13 +1564,15 @@ class NeuralMemory:
         with self.store._lock:
             rows = self.store.conn.execute(
                 f"SELECT id, salience, confidence, kind, valid_from, valid_to, "
-                f"       procedural_score "
+                f"       procedural_score, last_reinforced_at, created_at "
                 f"FROM memories WHERE id IN ({placeholders})",
                 tuple(candidate_ids),
             ).fetchall()
         meta = {r[0]: {"salience": r[1] or 1.0, "confidence": r[2] or 1.0,
                        "kind": r[3], "valid_from": r[4], "valid_to": r[5],
-                       "procedural_score": r[6] or 0.0}
+                       "procedural_score": r[6] or 0.0,
+                       "last_reinforced_at": r[7],
+                       "created_at": r[8]}
                 for r in rows}
 
         # ---- Phase 7.5-β: per-candidate entity_score ------------------
@@ -1637,6 +1639,20 @@ class NeuralMemory:
         scored: list[tuple[int, float, dict]] = []
         for cid in candidate_ids:
             m = meta.get(cid, {})
+            # Phase 7.5-γ: stale_penalty for memories not reinforced/accessed
+            # in a long time. Mild discount; capped at 0.3 to avoid
+            # dominating the formula. Uses last_reinforced_at if set,
+            # else falls back to created_at. Caught 2026-05-01: scoring's
+            # stale_penalty was always 0 because the call site never
+            # computed it.
+            ref_ts = m.get("last_reinforced_at") or m.get("created_at") or 0.0
+            try:
+                age_days = max((time.time() - float(ref_ts)) / 86400.0, 0.0)
+            except (TypeError, ValueError):
+                age_days = 0.0
+            # Linear ramp from 0 (fresh) to 0.3 (90+ days untouched)
+            stale_penalty = min(age_days / 300.0, 0.3) if age_days > 30 else 0.0
+
             features = CandidateFeatures(
                 memory_id=cid,
                 semantic_score=per_channel_scores.get("semantic", {}).get(cid, 0.0),
@@ -1645,6 +1661,7 @@ class NeuralMemory:
                 temporal_score=per_channel_scores.get("temporal", {}).get(cid, 0.0),
                 procedural_score=float(m.get("procedural_score") or 0.0),
                 entity_score=float(entity_score_by_id.get(cid, 0.0)),
+                stale_penalty=stale_penalty,
                 rrf_feature=_rrf(cid),
                 salience=float(m.get("salience", 1.0)),
                 confidence=float(m.get("confidence", 1.0)),

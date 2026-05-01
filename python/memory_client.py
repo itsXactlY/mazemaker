@@ -1563,12 +1563,14 @@ class NeuralMemory:
         placeholders = ",".join("?" * len(candidate_ids))
         with self.store._lock:
             rows = self.store.conn.execute(
-                f"SELECT id, salience, confidence, kind, valid_from, valid_to "
+                f"SELECT id, salience, confidence, kind, valid_from, valid_to, "
+                f"       procedural_score "
                 f"FROM memories WHERE id IN ({placeholders})",
                 tuple(candidate_ids),
             ).fetchall()
         meta = {r[0]: {"salience": r[1] or 1.0, "confidence": r[2] or 1.0,
-                       "kind": r[3], "valid_from": r[4], "valid_to": r[5]}
+                       "kind": r[3], "valid_from": r[4], "valid_to": r[5],
+                       "procedural_score": r[6] or 0.0}
                 for r in rows}
 
         # ---- Apply kind / as_of post-filters at candidate level --------
@@ -1604,6 +1606,7 @@ class NeuralMemory:
                 sparse_score=per_channel_scores.get("sparse", {}).get(cid, 0.0),
                 graph_score=per_channel_scores.get("graph", {}).get(cid, 0.0),
                 temporal_score=per_channel_scores.get("temporal", {}).get(cid, 0.0),
+                procedural_score=float(m.get("procedural_score") or 0.0),
                 rrf_feature=_rrf(cid),
                 salience=float(m.get("salience", 1.0)),
                 confidence=float(m.get("confidence", 1.0)),

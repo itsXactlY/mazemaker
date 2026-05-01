@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""Phase 7 health audit — read-only inspection of how a live neural-memory
+DB exercises the typed/entity/scoring features added in Sprint 2 Phase 7.
+
+Reports:
+  - Memory counts by kind (catches "everything classified as 'unknown'" drift)
+  - Top entities by mention frequency
+  - mentions_entity / derived_from / contradicts edge counts
+  - Validity-window coverage (how many memories have valid_from/valid_to set)
+  - Memify duplicate candidates (does NOT apply downweight)
+  - Contradiction candidates (does NOT add edges)
+  - Locus overlay coverage
+  - FTS5 index sync sanity check
+  - Salience distribution
+  - Schema column presence sanity
+
+Default DB: ~/.neural_memory/memory.db. Override with --db.
+
+Usage:
+    python3 tools/phase7_audit.py
+    python3 tools/phase7_audit.py --db /path/to/memory.db
+    python3 tools/phase7_audit.py --json /tmp/phase7_audit.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sqlite3
+import sys
+from collections import Counter
+from pathlib import Path
+
+
+def _section(title: str) -> str:
+    return f"\n=== {title} ===\n"
+
+
+def audit(db_path: str) -> dict:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    out: dict = {"db_path": db_path}
+
+    # ---- counts by kind --------------------------------------------------
+    kind_counts = dict(conn.execute(
+        "SELECT COALESCE(kind, '<NULL>'), COUNT(*) FROM memories GROUP BY kind"
+    ).fetchall())
+    out["memories_by_kind"] = kind_counts
+    out["memories_total"] = sum(kind_counts.values())
+
+    # ---- entity stats -----------------------------------------------------
+    entities = conn.execute(
+        "SELECT id, label, metadata_json FROM memories "
+        "WHERE kind = 'entity' ORDER BY id"
+    ).fetchall()
+    entity_freqs = []
+    for e in entities:
+        meta = json.loads(e["metadata_json"]) if e["metadata_json"] else {}
+        entity_freqs.append({
+            "id": e["id"],
+            "label": e["label"],
+            "frequency": meta.get("frequency", 0),
+            "last_seen": meta.get("last_seen"),
+        })
+    entity_freqs.sort(key=lambda x: -x["frequency"])
+    out["entity_count"] = len(entity_freqs)
+    out["top_entities"] = entity_freqs[:10]
+
+    # ---- edge type breakdown ---------------------------------------------
+    edge_breakdown = dict(conn.execute(
+        "SELECT COALESCE(edge_type, '<NULL>'), COUNT(*) FROM connections "
+        "GROUP BY edge_type ORDER BY COUNT(*) DESC"
+    ).fetchall())
+    out["edges_by_type"] = edge_breakdown
+    out["edges_total"] = sum(edge_breakdown.values())
+
+    # ---- validity coverage -----------------------------------------------
+    vfm = conn.execute(
+        "SELECT COUNT(*) FROM memories WHERE valid_from IS NOT NULL"
+    ).fetchone()[0]
+    vtm = conn.execute(
+        "SELECT COUNT(*) FROM memories WHERE valid_to IS NOT NULL"
+    ).fetchone()[0]
+    out["validity_coverage"] = {
+        "memories_with_valid_from": vfm,
+        "memories_with_valid_to": vtm,
+        "memories_total": out["memories_total"],
+    }
+
+    # ---- memify duplicate candidates -------------------------------------
+    dupe_groups = conn.execute(
+        "SELECT content, COUNT(*) AS n FROM memories "
+        "WHERE (kind IS NULL OR kind != 'entity') AND content IS NOT NULL "
+        "GROUP BY content HAVING n > 1 ORDER BY n DESC"
+    ).fetchall()
+    out["memify_duplicate_groups"] = len(dupe_groups)
+    out["memify_top_duplicates"] = [
+        {"content_excerpt": (row["content"] or "")[:120], "count": row["n"]}
+        for row in dupe_groups[:5]
+    ]
+    out["memify_extra_rows_if_applied"] = sum(row["n"] - 1 for row in dupe_groups)
+
+    # ---- contradiction candidates ----------------------------------------
+    pairs = conn.execute(
+        "SELECT a.id AS a_id, a.content AS a_content, a.valid_to AS a_valid_to, "
+        "       b.id AS b_id, b.content AS b_content, b.valid_from AS b_valid_from "
+        "FROM memories a, memories b "
+        "WHERE a.valid_to IS NOT NULL AND b.valid_from IS NOT NULL "
+        "  AND a.valid_to < b.valid_from "
+        "  AND a.id != b.id "
+        "  AND (a.kind IS NULL OR a.kind != 'entity') "
+        "  AND (b.kind IS NULL OR b.kind != 'entity')"
+    ).fetchall()
+    out["contradiction_candidates_by_validity"] = len(pairs)
+
+    # ---- locus overlay ---------------------------------------------------
+    locus_count = conn.execute(
+        "SELECT COUNT(*) FROM memories WHERE kind = 'locus'"
+    ).fetchone()[0]
+    located_in_count = conn.execute(
+        "SELECT COUNT(*) FROM connections WHERE edge_type = 'located_in'"
+    ).fetchone()[0]
+    out["locus_overlay"] = {
+        "locus_nodes": locus_count,
+        "located_in_edges": located_in_count,
+    }
+
+    # ---- FTS5 sync check -------------------------------------------------
+    fts_present = bool(conn.execute(
+        "SELECT name FROM sqlite_master WHERE name = 'memories_fts'"
+    ).fetchone())
+    out["fts5"] = {"index_present": fts_present}
+    if fts_present:
+        fts_rows = conn.execute("SELECT COUNT(*) FROM memories_fts").fetchone()[0]
+        non_entity_memories = conn.execute(
+            "SELECT COUNT(*) FROM memories "
+            "WHERE content IS NOT NULL "
+            "  AND (kind IS NULL OR kind != 'entity')"
+        ).fetchone()[0]
+        out["fts5"]["fts_row_count"] = fts_rows
+        out["fts5"]["expected_indexed_count"] = non_entity_memories
+        out["fts5"]["sync_delta"] = fts_rows - non_entity_memories
+
+    # ---- salience distribution -------------------------------------------
+    sal_buckets = conn.execute(
+        "SELECT "
+        "  SUM(CASE WHEN salience IS NULL THEN 1 ELSE 0 END), "
+        "  SUM(CASE WHEN salience < 0.5 THEN 1 ELSE 0 END), "
+        "  SUM(CASE WHEN salience >= 0.5 AND salience < 1.0 THEN 1 ELSE 0 END), "
+        "  SUM(CASE WHEN salience >= 1.0 AND salience < 1.5 THEN 1 ELSE 0 END), "
+        "  SUM(CASE WHEN salience >= 1.5 THEN 1 ELSE 0 END) "
+        "FROM memories"
+    ).fetchone()
+    out["salience_distribution"] = {
+        "null":       sal_buckets[0],
+        "below_0.5":  sal_buckets[1],
+        "0.5_to_1.0": sal_buckets[2],
+        "1.0_to_1.5": sal_buckets[3],
+        "above_1.5":  sal_buckets[4],
+    }
+
+    # ---- schema column sanity -------------------------------------------
+    mem_cols = {r[1] for r in conn.execute("PRAGMA table_info(memories)")}
+    conn_cols = {r[1] for r in conn.execute("PRAGMA table_info(connections)")}
+    expected_mem = {"kind", "confidence", "transaction_time", "valid_from",
+                    "valid_to", "metadata_json", "memory_visibility",
+                    "pin_state", "decay_rate", "reuse_count",
+                    "last_reinforced_at", "extracted_entities_json",
+                    "locus_id", "procedural_score", "origin_system", "source"}
+    expected_conn = {"edge_type", "confidence", "valid_from", "valid_to",
+                     "transaction_time", "salience", "evidence_count",
+                     "metadata_json", "origin_system", "last_strengthened_at"}
+    out["schema_phase7_completeness"] = {
+        "memories_phase7_cols_present": len(expected_mem & mem_cols),
+        "memories_phase7_cols_expected": len(expected_mem),
+        "memories_missing": sorted(expected_mem - mem_cols),
+        "connections_phase7_cols_present": len(expected_conn & conn_cols),
+        "connections_phase7_cols_expected": len(expected_conn),
+        "connections_missing": sorted(expected_conn - conn_cols),
+    }
+
+    conn.close()
+    return out
+
+
+def render_text(report: dict) -> str:
+    lines: list[str] = []
+    lines.append(f"Phase 7 Audit Report")
+    lines.append(f"DB: {report['db_path']}")
+    lines.append(f"Total memories: {report['memories_total']}")
+    lines.append(f"Total edges: {report['edges_total']}")
+
+    lines.append(_section("Memories by kind"))
+    for kind, n in sorted(report["memories_by_kind"].items(),
+                          key=lambda x: -x[1]):
+        lines.append(f"  {kind:25s} {n:6d}")
+
+    lines.append(_section("Top entities by frequency"))
+    for e in report["top_entities"]:
+        lines.append(f"  freq={e['frequency']:4d}  id={e['id']:5d}  "
+                     f"{e['label'][:60]}")
+    if not report["top_entities"]:
+        lines.append("  (none)")
+
+    lines.append(_section("Edges by type"))
+    for et, n in sorted(report["edges_by_type"].items(), key=lambda x: -x[1]):
+        lines.append(f"  {et:30s} {n:7d}")
+
+    lines.append(_section("Validity coverage"))
+    vc = report["validity_coverage"]
+    lines.append(f"  memories with valid_from: "
+                 f"{vc['memories_with_valid_from']:5d} / {vc['memories_total']}")
+    lines.append(f"  memories with valid_to:   "
+                 f"{vc['memories_with_valid_to']:5d} / {vc['memories_total']}")
+
+    lines.append(_section("Memify duplicate candidates"))
+    lines.append(f"  duplicate groups: {report['memify_duplicate_groups']}")
+    lines.append(f"  rows downweighted if applied: "
+                 f"{report['memify_extra_rows_if_applied']}")
+    for d in report["memify_top_duplicates"]:
+        lines.append(f"    x{d['count']}  {d['content_excerpt'][:100]}")
+
+    lines.append(_section("Contradiction candidates by validity sequence"))
+    lines.append(f"  pairs (validity-only signal): "
+                 f"{report['contradiction_candidates_by_validity']}")
+
+    lines.append(_section("Locus overlay"))
+    lo = report["locus_overlay"]
+    lines.append(f"  locus nodes:       {lo['locus_nodes']}")
+    lines.append(f"  located_in edges:  {lo['located_in_edges']}")
+
+    lines.append(_section("FTS5 index"))
+    fts = report["fts5"]
+    if fts["index_present"]:
+        lines.append(f"  index present:           yes")
+        lines.append(f"  fts row count:           {fts['fts_row_count']}")
+        lines.append(f"  expected indexed count:  {fts['expected_indexed_count']}")
+        lines.append(f"  sync delta:              {fts['sync_delta']}  "
+                     f"(0 = perfect sync; nonzero = drift)")
+    else:
+        lines.append(f"  NOT PRESENT — FTS5 unavailable on this build")
+
+    lines.append(_section("Salience distribution"))
+    for bucket, n in report["salience_distribution"].items():
+        lines.append(f"  {bucket:12s} {n:6d}")
+
+    lines.append(_section("Phase 7 schema completeness"))
+    sc = report["schema_phase7_completeness"]
+    lines.append(f"  memories cols:    "
+                 f"{sc['memories_phase7_cols_present']}/{sc['memories_phase7_cols_expected']}")
+    if sc["memories_missing"]:
+        lines.append(f"  memories missing: {sc['memories_missing']}")
+    lines.append(f"  connections cols: "
+                 f"{sc['connections_phase7_cols_present']}/{sc['connections_phase7_cols_expected']}")
+    if sc["connections_missing"]:
+        lines.append(f"  connections missing: {sc['connections_missing']}")
+
+    return "\n".join(lines) + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--db", default=str(Path.home() / ".neural_memory" / "memory.db"))
+    parser.add_argument("--json", default=None,
+                        help="JSON output path (in addition to human-readable)")
+    args = parser.parse_args()
+
+    if not Path(args.db).exists():
+        print(f"DB not found: {args.db}", file=sys.stderr)
+        return 1
+
+    report = audit(args.db)
+    print(render_text(report))
+
+    if args.json:
+        Path(args.json).write_text(json.dumps(report, indent=2))
+        print(f"JSON report written to {args.json}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

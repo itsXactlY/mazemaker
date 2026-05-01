@@ -82,6 +82,19 @@ class SparseSearchTests(unittest.TestCase):
         self.assertEqual(self.mem.sparse_search(""), [])
         self.assertEqual(self.mem.sparse_search("   "), [])
 
+    def test_entity_rows_not_indexed_in_fts5(self) -> None:
+        """Phase 7 audit caught: entity rows shouldn't pollute the sparse
+        index. mentions_entity flow creates 'Entity: X' content; that should
+        NOT match sparse_search queries."""
+        self.mem.remember("Lennar lot 27 needs panels.", detect_conflicts=False)
+        # An entity 'Lennar' was auto-created via process_memory.
+        # Its content is 'Entity: Lennar'. Verify it is NOT in FTS5.
+        rows = self.mem.store.conn.execute(
+            "SELECT COUNT(*) FROM memories_fts WHERE content LIKE 'Entity:%'"
+        ).fetchone()
+        self.assertEqual(rows[0], 0,
+                         "entity rows must not be indexed in FTS5")
+
 
 class TemporalSearchTests(unittest.TestCase):
     def setUp(self) -> None:

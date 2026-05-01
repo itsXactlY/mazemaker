@@ -211,13 +211,17 @@ class SQLiteStore:
             new_id = cur.lastrowid
             # Phase 7 Commit 5: sync FTS5 index for sparse retrieval. Silent
             # no-op if memories_fts wasn't created (SQLite without FTS5 support).
-            try:
-                self.conn.execute(
-                    "INSERT INTO memories_fts(rowid, content) VALUES (?, ?)",
-                    (new_id, content),
-                )
-            except sqlite3.OperationalError:
-                pass
+            # Skip kind='entity' rows — entities are derived nodes, not user
+            # memories; indexing their "Entity: X" content adds sparse-search
+            # noise without value. Caught by phase7_audit.py FTS5 sync delta.
+            if kind != "entity":
+                try:
+                    self.conn.execute(
+                        "INSERT INTO memories_fts(rowid, content) VALUES (?, ?)",
+                        (new_id, content),
+                    )
+                except sqlite3.OperationalError:
+                    pass
             self.conn.commit()
             return new_id
     

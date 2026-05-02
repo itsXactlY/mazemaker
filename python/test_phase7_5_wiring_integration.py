@@ -85,27 +85,32 @@ class ScoringFormulaWiringTests(unittest.TestCase):
                         "score than contradiction_penalty=0.0")
 
     def test_combined_wired_features_compose_correctly(self) -> None:
-        # All four wiring fixes interact correctly in the formula
+        # All four wiring fixes interact correctly in the formula. Use
+        # assertAlmostEqual on the exact expected delta — catches weight
+        # or formula regressions that sign-only tests would miss.
         f0 = self._baseline()
         f1 = self._baseline()
-        # Apply two boosts and two penalties
         f1.procedural_score = 0.7
         f1.entity_score = 0.6
         f1.stale_penalty = 0.1
         f1.contradiction_penalty = 0.05
         s0 = score_candidate(f0, DEFAULT_WEIGHTS)
         s1 = score_candidate(f1, DEFAULT_WEIGHTS)
-        # Boosts (procedural 0.05*0.7 + entity 0.10*0.6 = 0.035 + 0.060 = 0.095)
-        # outweigh penalties (0.10 + 0.05 = 0.15) — wait, penalties are
-        # subtracted directly without weight multiplication. Let me recompute:
+        # Compute expected delta via the formula:
+        #   base += w_procedural * proc + w_entity * entity
+        #   base *= salience * confidence (both 1.0 in baseline)
+        #   final -= stale_penalty + contradiction_penalty
         # boosts: 0.05*0.7 + 0.10*0.6 = 0.035 + 0.060 = 0.095
-        # boosts × salience × confidence (both 1.0) = 0.095
-        # then minus stale 0.1 + contradiction 0.05 = -0.15
-        # net delta = 0.095 - 0.15 = -0.055 (negative)
-        # So s1 should be LESS than s0.
-        self.assertLess(s1, s0,
-                        "combined boosts (~0.095) exceeded by combined "
-                        "penalties (~0.15) → net negative")
+        # penalties: -(0.1 + 0.05) = -0.15
+        # delta = 0.095 - 0.15 = -0.055
+        expected_delta = (
+            (DEFAULT_WEIGHTS["procedural"] * 0.7
+             + DEFAULT_WEIGHTS["entity"] * 0.6)
+            - (0.1 + 0.05)
+        )
+        self.assertAlmostEqual(s1 - s0, expected_delta, places=6,
+                               msg="composition formula deviated from "
+                                   f"expected delta {expected_delta}")
 
     def test_zero_baseline_unchanged(self) -> None:
         # Sanity: baseline scoring is deterministic and produces identical

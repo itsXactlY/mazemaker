@@ -229,6 +229,57 @@ def record_financial_event(
     )
 
 
+def recall_for_dashboard(
+    mem: Any,
+    query: str,
+    *,
+    k: int = 5,
+    kind: Optional[str] = None,
+    as_of: Optional[float] = None,
+) -> list[dict]:
+    """Bench-validated recall config for AE dashboard surfaces (/m2 etc.).
+
+    Encapsulates the configuration empirically validated 2026-05-01 to
+    produce R@5=0.82 on the AE-domain bench (passing the 0.76 threshold).
+    Drop-in replacement for raw mem.recall() / mem.hybrid_recall() in
+    dashboard-side code.
+
+    Config:
+      - hybrid_recall (multi-channel: dense + sparse + graph + temporal
+        + entity boost + procedural boost + locus boost + stale/contradict
+        penalties). All Phase 7.5 wirings active.
+      - rerank=True. The English-trained cross-encoder will auto-skip for
+        Spanish queries (per _should_skip_rerank heuristic) so Spanish
+        crew messages fall back to dense+sparse instead of getting
+        mis-ranked.
+
+    Args:
+      mem: NeuralMemory instance
+      query: free-text question (English or Spanish)
+      k: top-K to return (default 5; empirically the bench-passing window)
+      kind: optional filter by memory kind ('procedural', 'experience',
+        'world', 'dream_insight', etc.)
+      as_of: bi-temporal cutoff (unix ts); recalls memories valid at that
+        moment
+
+    Returns: list of result dicts with `combined`, `channels`, `_trace`
+    fields per hybrid_recall's contract.
+
+    Use-case guidance:
+      - Per-customer / per-job lookups: use kind='experience' filter
+      - SOP / how-to questions: use kind='procedural' filter
+      - "What does the system know about X" → no kind filter
+      - Time-boxed audit / 'as of last Tuesday': pass as_of=<unix_ts>
+      - For pure conversation/free-text retrieval where raw semantic is
+        enough → call mem.sparse_search() instead (faster, no rerank load)
+
+    Cross-references:
+      reference_ae_domain_bench_first_empirical_2026-05-01.md (validation)
+      reference_neural_memory_ae_usage_patterns.md (recipes)
+    """
+    return mem.hybrid_recall(query, k=k, kind=kind, as_of=as_of, rerank=True)
+
+
 def initialize_ae_locus_overlay(mem: Any) -> dict[str, int]:
     """Idempotently create AE's standard locus rooms. Call once at AE
     bootstrap; safe to re-run (create_locus dedupes by label)."""
@@ -250,4 +301,5 @@ __all__ = [
     "record_invoice_status_change",
     "record_financial_event",
     "initialize_ae_locus_overlay",
+    "recall_for_dashboard",
 ]

@@ -143,6 +143,27 @@ else
     fi
 fi
 
+# 6b. Hermes plugin symlink integrity — closes the 7-day silent
+# staleness vector caught by Tito's brief 2026-05-02 (commit 704aae6).
+# 6 files in hermes-plugin/ MUST be symlinks to ../python/ versions,
+# not concrete copies. If any becomes a real file again (e.g., someone
+# mistakes a symlink for stale code and replaces it), the next Hermes
+# restart silently reverts to Phase-pre-7 code.
+PLUGIN_DIR="/Users/tito/lWORKSPACEl/research/neural-memory/hermes-plugin"
+EXPECTED_SYMLINKS="memory_client.py dream_engine.py mssql_store.py embed_provider.py neural_memory.py cpp_bridge.py"
+broken_links=()
+for f in $EXPECTED_SYMLINKS; do
+    p="${PLUGIN_DIR}/${f}"
+    if [ ! -L "$p" ]; then
+        broken_links+=("$f")
+    fi
+done
+if [ "${#broken_links[@]}" -gt 0 ]; then
+    ISSUES+=("CRITICAL: hermes-plugin symlink(s) corrupted (now concrete files): ${broken_links[*]} — Hermes will silently revert to stale code on next restart. Re-symlink via: cd $PLUGIN_DIR && for f in ${broken_links[*]}; do mv \$f \$f.bak && ln -s ../python/\$f \$f; done")
+else
+    HEALTHY+=("hermes-plugin symlinks (6/6 intact)")
+fi
+
 # 6. Substrate growth check (every run, vs prev snapshot)
 DB_PATH="${HOME}/.neural_memory/memory.db"
 if [ -f "$DB_PATH" ]; then

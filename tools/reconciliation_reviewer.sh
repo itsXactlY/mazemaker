@@ -194,8 +194,10 @@ CODEX_RC=$?
 if [ "$CODEX_RC" = "0" ] && [ "$(wc -c < "${OUT}.partial" 2>/dev/null || echo 0)" -gt 500 ]; then
     mv "${OUT}.partial" "$OUT"
     echo "[$(date)] reconciliation review landed at ${OUT}" >> "$LOG_FILE"
+    exit 0
 else
+    # Surface failure to launchd via nonzero exit (was masking failures with
+    # unconditional exit 0). Caught by codex-resolver 2026-05-02.
     echo "[$(date)] FAILED reconciliation review (codex_rc=$CODEX_RC, body=$(wc -c < "${OUT}.partial" 2>/dev/null || echo 0)b) — keeping .partial for diagnosis" >> "$LOG_FILE"
+    exit 1
 fi
-
-exit 0

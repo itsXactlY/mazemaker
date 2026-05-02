@@ -52,6 +52,7 @@ else
 fi
 
 REVIEWED=0
+FAILED=0
 for SHA in $NEW_COMMITS; do
     SHORT=$(git rev-parse --short "$SHA")
     SUBJECT=$(git log -1 --pretty=format:%s "$SHA")
@@ -87,13 +88,19 @@ After your review, if the commit added new BEHAVIOR (function, branch, edge case
         echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S %Z')"
         echo ""
     } > "${OUT}.partial"
-    "$CODEX_BIN" exec \
-        --model "$MODEL" \
-        --sandbox read-only \
-        --cd "$REPO_DIR" \
-        "$PROMPT" \
-        >> "${OUT}.partial" 2>> "$LOG_FILE"
-    CODEX_RC=$?
+    # Wrap codex in if/then to capture RC under set -euo pipefail
+    # (bare `cmd; rc=$?` would terminate script on cmd failure before rc=$? runs).
+    # Caught by codex-resolver 2026-05-02 — second-order bug in my own fix.
+    if "$CODEX_BIN" exec \
+            --model "$MODEL" \
+            --sandbox read-only \
+            --cd "$REPO_DIR" \
+            "$PROMPT" \
+            >> "${OUT}.partial" 2>> "$LOG_FILE"; then
+        CODEX_RC=0
+    else
+        CODEX_RC=$?
+    fi
 
     # Header alone is ~150 bytes; require >500 bytes to count as real review body
     if [ "$CODEX_RC" = "0" ] && [ "$(wc -c < "${OUT}.partial" 2>/dev/null || echo 0)" -gt 500 ]; then
@@ -102,8 +109,16 @@ After your review, if the commit added new BEHAVIOR (function, branch, edge case
         REVIEWED=$((REVIEWED + 1))
     else
         echo "[$(date)] FAILED review for $SHORT (codex_rc=$CODEX_RC, body=$(wc -c < "${OUT}.partial" 2>/dev/null || echo 0)b) — keeping .partial for diagnosis" >> "$LOG_FILE"
+        FAILED=1
     fi
 done
 
-echo "$CURRENT_HEAD" > "$STATE_FILE"
-echo "[$(date)] Reviewed $REVIEWED commits; state updated to $CURRENT_HEAD" >> "$LOG_FILE"
+# Only advance the cursor if NO commits failed — otherwise next run rescans
+# the failed commit so we don't lose review continuity.
+if [ "$FAILED" = "0" ]; then
+    echo "$CURRENT_HEAD" > "$STATE_FILE"
+    echo "[$(date)] Reviewed $REVIEWED commits; state updated to $CURRENT_HEAD" >> "$LOG_FILE"
+else
+    echo "[$(date)] Reviewed $REVIEWED commits; failures occurred; state remains at ${LAST_SHA:-<unset>} for retry" >> "$LOG_FILE"
+    exit 1
+fi

@@ -135,8 +135,10 @@ RC=${PIPESTATUS[0]}
 
 # Bridge FYI — non-fatal if it fails (script doesn't depend on bridge being up)
 if [ "$BRIDGE_FYI" = "1" ] && [ -x "$(command -v node)" ] && [ -f "$BRIDGE_CLI" ]; then
-    # First-line-of-output summary; fall back to "(no output)"
-    SUMMARY=$(grep -v '^$' "$OUT" | grep -v '^#' | grep -v '^\*\*' | head -1 | head -c 200)
+    # First-line summary from CODEX OUTPUT section only (was previously
+    # picking up prompt text — bug caught by orchestrator first synth
+    # 2026-05-02). Bracket on '## Codex output' start + '---' end markers.
+    SUMMARY=$(awk '/^## Codex output/{flag=1; next} /^---$/{if (flag) exit} flag && NF && !/^#/ && !/^\*\*/' "$OUT" | head -1 | head -c 200)
     [ -z "$SUMMARY" ] && SUMMARY="(no output)"
     BODY="Codex subagent run finished.
 Lane: ${LANE}

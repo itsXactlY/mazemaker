@@ -138,6 +138,19 @@ _CONTRACTS = [
      "Phase 7 unified-graph donor-organ architecture",
      "_hybrid_recall_p50_perf",
      None),
+    # 2026-05-02 perf cliff regression guard: AccessLogger telemetry
+    # caught graph_search(hops=2) at 181s (3 minutes) on long abstract
+    # queries against 12k-mem / 3.7M-edge substrate. Root cause was per-
+    # node SQL in BFS frontier expansion; fixed via batched
+    # get_connections in commit b2bda67 (now ~10s). This contract
+    # catches regressions of either the hops=1 fast path (must stay
+    # under 5s) OR a future architectural cliff where hops=2 silently
+    # blows up again (must stay under 30s — 3× the post-fix observed
+    # 8.69s, well under the prior 181s pathology).
+    ("perf — graph_search hops=2 < 30s (cliff regression guard)",
+     "Phase 7 unified-graph donor-organ architecture",
+     "_graph_search_hops2_perf",
+     None),
 ]
 
 
@@ -234,6 +247,28 @@ def main() -> int:
                             "label": "sanity_check"}]
             except Exception as e:
                 print(f"        dream_insight path raised: {e}")
+                results = []
+        elif channel == "_graph_search_hops2_perf":
+            # 2026-05-02 perf cliff regression guard. Single-trial graph
+            # search at hops=2 must stay under 30s (post-fix observed
+            # 8.69s; prior pathology was 181s before commit b2bda67's
+            # batched get_connections). Single trial is enough — we're
+            # catching architectural cliffs not statistical jitter.
+            import time as _time
+            try:
+                t0 = _time.perf_counter()
+                _ = mem.graph_search(query, k=10, hops=2)
+                elapsed_ms = (_time.perf_counter() - t0) * 1000.0
+                threshold_ms = 30_000.0
+                if elapsed_ms < threshold_ms:
+                    results = [{"id": -4,
+                                "content": f"hops=2 t={elapsed_ms:.0f}ms (under {threshold_ms:.0f}ms)",
+                                "label": "sanity_check"}]
+                else:
+                    print(f"        hops=2 t={elapsed_ms:.0f}ms exceeds {threshold_ms:.0f}ms threshold — perf cliff regression?")
+                    results = []
+            except Exception as e:
+                print(f"        graph_search(hops=2) raised: {e}")
                 results = []
         elif channel == "_hybrid_recall_p50_perf":
             # Phase 7.5 perf regression guard: 5-trial hybrid_recall p50

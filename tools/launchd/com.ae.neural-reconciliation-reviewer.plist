@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.ae.neural-reconciliation-reviewer.plist — backward-looking sonnet review
+
+  Per Tito 2026-05-02: forward-looking per-commit reviewer covers new ships;
+  this covers EXISTING code/docs/handoffs/commits for drift, regression,
+  staleness, code smells. Samples one of {commit, memory, module, handoff}
+  every 60 min, dispatches sonnet, saves findings.
+
+  Install:
+    cp tools/launchd/com.ae.neural-reconciliation-reviewer.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ae.neural-reconciliation-reviewer.plist
+
+  Cost: ~24 sonnet dispatches/day (1 per hour).
+  Output: ~/.neural_memory/reconciliation-reviews/<ts>-<type>-<key>.md
+  Logs:   ~/.neural_memory/logs/reconciliation-reviewer.log
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ae.neural-reconciliation-reviewer</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/tito/lWORKSPACEl/research/neural-memory/tools/reconciliation_reviewer.sh</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/tito/.neural_memory/logs/reconciliation-reviewer.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/tito/.neural_memory/logs/reconciliation-reviewer.stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key><string>/Users/tito</string>
+        <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

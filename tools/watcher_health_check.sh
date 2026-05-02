@@ -86,6 +86,17 @@ else
     HEALTHY+=("neural-observer (${A}s ago)")
 fi
 
+# 2b. Reconciliation reviewer (60min cadence; allow 3× = 3h staleness)
+F="${HOME}/.neural_memory/logs/reconciliation-reviewer.log"
+A=$(mtime_age "$F")
+if [ "$A" -lt 0 ]; then
+    HEALTHY+=("reconciliation-reviewer (not yet fired)")
+elif [ "$A" -gt 10800 ]; then
+    ISSUES+=("STALE: reconciliation-reviewer last fired ${A}s ago (expected ≤ 10800s)")
+else
+    HEALTHY+=("reconciliation-reviewer (${A}s ago)")
+fi
+
 # 3. Vault status sync (daily; allow 36h)
 F="${HOME}/.neural_memory/logs/vault-status.stdout.log"
 A=$(mtime_age "$F")

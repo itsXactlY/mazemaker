@@ -1,0 +1,170 @@
+#!/bin/bash
+# reconciliation_reviewer.sh — backward-looking sonnet reviewer
+#
+# Per Tito 2026-05-02: "MAKE SURE YOUR REVIEWERS ARE UP BEHIND YOU AT ALL
+# TIMES. AS WELL AS REVIEWERS THAT GO BACK AND LOOK AT EXISTING STUFF AND
+# RECONCILE/REVIEW IT FOR CODE ERRORS OR RECONCILE W LATEST THINGS"
+#
+# Per-commit reviewer (com.ae.neural-memory-per-commit-review) covers
+# FORWARD: every new NM commit gets reviewed within 5 min.
+#
+# This script covers BACKWARD: every 60 min, samples one of:
+#   1. A random commit from last 30 days (verify claims still hold)
+#   2. A random project memory entry (check for stale claims)
+#   3. A random older python module (look for code smells / drift)
+#   4. A random handoff doc (check for stale architectural claims)
+#
+# Sonnet dispatched with a verify-this prompt; findings saved to
+# ~/.neural_memory/reconciliation-reviews/ with timestamp + sample-key.
+#
+# Schedule: every 60 min via com.ae.neural-reconciliation-reviewer.plist
+
+set -uo pipefail
+
+REPO_DIR="/Users/tito/lWORKSPACEl/research/neural-memory"
+FINDINGS_DIR="${HOME}/.neural_memory/reconciliation-reviews"
+LOG_FILE="${HOME}/.neural_memory/logs/reconciliation-reviewer.log"
+CLAUDE_BIN="/Users/tito/.local/bin/claude"
+
+mkdir -p "$FINDINGS_DIR" "$(dirname "$LOG_FILE")"
+
+cd "$REPO_DIR" || exit 1
+
+TS=$(date "+%Y%m%d-%H%M%S")
+
+# Pick one of 4 sample types via $RANDOM mod 4
+SAMPLE_TYPE=$((RANDOM % 4))
+
+case "$SAMPLE_TYPE" in
+    0)  # COMMIT — pick random commit from last 30 days
+        COMMITS=$(git log --since="30 days ago" --pretty=format:%H 2>/dev/null)
+        if [ -z "$COMMITS" ]; then
+            echo "[$(date)] no commits in last 30 days — skipping" >> "$LOG_FILE"
+            exit 0
+        fi
+        # Random pick
+        SHA=$(echo "$COMMITS" | gshuf -n 1 2>/dev/null || echo "$COMMITS" | awk 'BEGIN{srand()} {a[NR]=$0} END{print a[int(rand()*NR)+1]}')
+        SHORT=$(git rev-parse --short "$SHA")
+        SUBJECT=$(git log -1 --pretty=format:%s "$SHA")
+        OUT="${FINDINGS_DIR}/${TS}-commit-${SHORT}.md"
+
+        PROMPT="You are a reconciliation reviewer for the neural-memory project at ${REPO_DIR}.
+
+Your job: verify that an OLDER commit's claims still hold against the CURRENT codebase. Look for drift, regression, or stale assertions.
+
+Target commit: ${SHA}
+Subject: ${SUBJECT}
+
+Steps:
+1. Run \`git show --stat ${SHA}\` then \`git show ${SHA}\` to see what changed
+2. For each non-trivial claim in the commit message, verify it's still true:
+   - If it added a function/file, does it still exist?
+   - If it claimed a fix, has the bug pattern been re-introduced?
+   - If it claimed perf numbers, do those numbers still hold (within reason)?
+   - If it claimed behavior X, does grep/Read confirm X is still wired?
+3. Look for files that have been MODIFIED since this commit and check if the modifications break the commit's claims
+4. Report under 200 words. Use [verified-now] for confirmed-still-holds, [drift] for stale claims, [regression] for re-introduced bugs.
+
+Save your full report to ${OUT}."
+        ;;
+
+    1)  # MEMORY — pick random project memory entry
+        MEMORY_DIR="${HOME}/.claude/projects/-Users-tito/memory"
+        FILES=$(ls "${MEMORY_DIR}"/project_*.md "${MEMORY_DIR}"/feedback_*.md 2>/dev/null)
+        if [ -z "$FILES" ]; then
+            echo "[$(date)] no project/feedback memory files — skipping" >> "$LOG_FILE"
+            exit 0
+        fi
+        FILE=$(echo "$FILES" | gshuf -n 1 2>/dev/null || echo "$FILES" | awk 'BEGIN{srand()} {a[NR]=$0} END{print a[int(rand()*NR)+1]}')
+        BNAME=$(basename "$FILE" .md)
+        OUT="${FINDINGS_DIR}/${TS}-memory-${BNAME}.md"
+
+        PROMPT="You are a reconciliation reviewer for the neural-memory project + the claude-memory system.
+
+Your job: check whether claims in this memory file have gone STALE against current state.
+
+Target memory file: ${FILE}
+
+Steps:
+1. Read the file
+2. For each non-trivial factual claim (file paths, system names, line numbers, behaviors, project status), verify it's still true via grep/Read
+3. Check git log to see if the underlying systems have changed since the memory was written
+4. Report under 200 words. Use [verified-now] / [drift] / [stale] tags.
+5. If the file should be UPDATED to reflect current state, suggest the specific edit.
+
+Save full report to ${OUT}."
+        ;;
+
+    2)  # MODULE — pick random python module in NM repo
+        MODULES=$(find python -name '*.py' -not -name 'test_*' -not -path '*/.*' 2>/dev/null)
+        if [ -z "$MODULES" ]; then
+            echo "[$(date)] no python modules — skipping" >> "$LOG_FILE"
+            exit 0
+        fi
+        MODULE=$(echo "$MODULES" | gshuf -n 1 2>/dev/null || echo "$MODULES" | awk 'BEGIN{srand()} {a[NR]=$0} END{print a[int(rand()*NR)+1]}')
+        BNAME=$(basename "$MODULE" .py)
+        OUT="${FINDINGS_DIR}/${TS}-module-${BNAME}.md"
+
+        PROMPT="You are a code-archaeology reviewer for the neural-memory project at ${REPO_DIR}.
+
+Your job: review an EXISTING module for code smells, dead code, drift from current patterns, or things that LATER commits may have invalidated.
+
+Target module: ${MODULE}
+
+Steps:
+1. Read the file (use offset/limit if large)
+2. Look for:
+   - Dead code (functions/imports never used)
+   - Inconsistencies with newer patterns elsewhere in the codebase
+   - Comments referencing files/concepts that no longer exist
+   - Defensive patterns that are now redundant given recent fixes
+   - Magic numbers / hard-coded paths that should be constants
+   - Test coverage gaps for critical-path code
+3. Cross-check against git log of this file to see what's changed recently
+4. Report under 200 words. Tag findings: [smell] / [dead] / [drift] / [coverage-gap].
+
+Save full report to ${OUT}."
+        ;;
+
+    3)  # HANDOFF — pick random Valiendo handoff or context-kernel checkpoint
+        HANDOFFS=$(ls "${HOME}"/.hermes/artifacts/valiendo/handoffs/*.md 2>/dev/null | head -50)
+        if [ -z "$HANDOFFS" ]; then
+            echo "[$(date)] no handoffs — skipping" >> "$LOG_FILE"
+            exit 0
+        fi
+        HANDOFF=$(echo "$HANDOFFS" | gshuf -n 1 2>/dev/null || echo "$HANDOFFS" | awk 'BEGIN{srand()} {a[NR]=$0} END{print a[int(rand()*NR)+1]}')
+        BNAME=$(basename "$HANDOFF" .md)
+        OUT="${FINDINGS_DIR}/${TS}-handoff-${BNAME}.md"
+
+        PROMPT="You are a cross-lane reconciliation reviewer for the AE/neural-memory project.
+
+Your job: a Valiendo handoff document made claims about cross-lane state. Verify those claims hold against CURRENT state of all lanes (LangGraph, neural-memory, hermes-skills).
+
+Target handoff: ${HANDOFF}
+
+Steps:
+1. Read the handoff
+2. For each architectural / source-landed / runtime-loaded claim, verify it holds:
+   - If a service was claimed running, check launchctl/ps
+   - If a route/endpoint was claimed live, look for it in source
+   - If a substrate state was claimed, query the relevant DB
+   - If a commit was referenced, check git log
+3. Note any DRIFT (claim was true, no longer is) or PROOF GAPS (claim that was always partial)
+4. Report under 200 words. Use [verified-now] / [drift] / [proof-gap] / [superseded].
+
+Save full report to ${OUT}."
+        ;;
+esac
+
+echo "[$(date)] type=${SAMPLE_TYPE} dispatching reconciliation review → ${OUT}" >> "$LOG_FILE"
+"$CLAUDE_BIN" -p \
+    --model claude-sonnet-4-6 \
+    "$PROMPT" \
+    > "${OUT}.transcript" 2>> "$LOG_FILE" \
+    || echo "[$(date)] WARN: reconciliation review exited non-zero" >> "$LOG_FILE"
+
+if [ -f "$OUT" ]; then
+    echo "[$(date)] reconciliation review landed at ${OUT}" >> "$LOG_FILE"
+fi
+
+exit 0

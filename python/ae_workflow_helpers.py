@@ -293,6 +293,259 @@ def initialize_ae_locus_overlay(mem: Any) -> dict[str, int]:
     }
 
 
+# --------------------------------------------------------------------------
+# Lookup-before-create helpers (for Hermes-via-chat workflow per aux-builder
+# msg_9cb0c42a 2026-05-02). Hermes can answer "do I already have this?"
+# without QBO round-trip on every chat turn.
+# --------------------------------------------------------------------------
+
+def record_customer(
+    mem: Any,
+    *,
+    name: str,
+    qbo_id: Optional[str] = None,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    addresses: Optional[list[str]] = None,
+    source: str = "qbo",
+    notes: Optional[str] = None,
+) -> int:
+    """Record a customer entity. Use recall_customer_by_name first to
+    avoid duplicates. Returns memory id of the (new or existing) row.
+
+    For lookup-before-create: caller does
+        existing = recall_customer_by_name(mem, name=name)
+        if existing: return existing[0]['id']
+        return record_customer(mem, name=name, ...)
+    """
+    metadata = {
+        "qbo_id": qbo_id,
+        "email": email,
+        "phone": phone,
+        "addresses": addresses or [],
+        "source": source,
+    }
+    if notes:
+        metadata["notes"] = notes
+    body_parts = [name]
+    if email: body_parts.append(f"<{email}>")
+    if phone: body_parts.append(f"({phone})")
+    if addresses: body_parts.append(", ".join(addresses))
+    return mem.remember(
+        " ".join(body_parts),
+        label=f"customer:{name}",
+        kind="entity",
+        source=source,
+        origin_system="ae",
+        valid_from=_time.time(),
+        metadata=metadata,
+    )
+
+
+def record_template(
+    mem: Any,
+    *,
+    template_id: str,
+    name: str,
+    job_type: str,  # "remodel" | "production"
+    line_items: list[dict[str, Any]],
+    base_pricing: Optional[dict[str, Any]] = None,
+    extra_metadata: Optional[dict[str, Any]] = None,
+) -> int:
+    """Record an estimate template (reusable line-item bundle indexed by
+    job_type). Used by recall_template_for_job to seed new estimates.
+
+    line_items: each dict has at minimum {sku, description, qty, unit}.
+    base_pricing: customer-side defaults (markup, etc.).
+    """
+    metadata = {
+        "template_id": template_id,
+        "job_type": job_type,
+        "line_item_count": len(line_items),
+        "line_items": line_items,
+    }
+    if base_pricing:
+        metadata["base_pricing"] = base_pricing
+    if extra_metadata:
+        metadata.update(extra_metadata)
+    return mem.remember(
+        f"Template '{name}' ({job_type}, {len(line_items)} items)",
+        label=f"template:{template_id}",
+        kind="procedural",
+        source="manual",
+        origin_system="ae",
+        valid_from=_time.time(),
+        metadata=metadata,
+    )
+
+
+def record_estimate(
+    mem: Any,
+    *,
+    estimate_id: str,
+    customer_id: str,
+    template_id: Optional[str],
+    line_items_customer_pricing: list[dict[str, Any]],
+    line_items_internal_cost: list[dict[str, Any]],
+    status: str = "draft",
+    total_amount: Optional[float] = None,
+    extra_metadata: Optional[dict[str, Any]] = None,
+) -> int:
+    """Record an estimate with DUAL pricing (customer-facing + internal cost).
+    Both stored as metadata so Hermes can show either to the right audience.
+    Status: draft | sent | accepted | declined | invoiced.
+    """
+    metadata = {
+        "estimate_id": estimate_id,
+        "customer_id": customer_id,
+        "template_id": template_id,
+        "line_items_customer": line_items_customer_pricing,
+        "line_items_internal": line_items_internal_cost,
+        "status": status,
+        "total_amount": total_amount,
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
+    return mem.remember(
+        f"Estimate {estimate_id} for customer {customer_id} "
+        f"({status}, ${total_amount or '?'})",
+        label=f"estimate:{estimate_id}",
+        kind="experience",
+        source="dashboard",
+        origin_system="ae",
+        valid_from=_time.time(),
+        metadata=metadata,
+    )
+
+
+def record_lead(
+    mem: Any,
+    *,
+    source: str,  # "angi" | "thumbtack" | "hd_pro_referral" | "google_verified" | "email"
+    contact: dict[str, Any],
+    intent: str,
+    raw_data: Optional[dict[str, Any]] = None,
+    auto_check_existing: bool = True,
+) -> dict[str, Any]:
+    """Record a new lead. Auto-flags if a customer with same name/phone/email
+    already exists (returns {"id": <new_lead_id>, "duplicate_customer_id": <existing>}).
+
+    contact: {name?, email?, phone?, address?}.
+    """
+    name = contact.get("name", "")
+    duplicate = None
+    if auto_check_existing and name:
+        existing = recall_customer_by_name(mem, name=name, k=1)
+        if existing:
+            duplicate = existing[0].get("id")
+    metadata = {
+        "lead_source": source,
+        "contact": contact,
+        "intent": intent,
+        "duplicate_customer_id": duplicate,
+    }
+    if raw_data:
+        metadata["raw_data"] = raw_data
+    body = f"Lead from {source}: {name or '(no name)'} — {intent}"
+    if duplicate:
+        body += f" [duplicate of customer:{duplicate}]"
+    mid = mem.remember(
+        body,
+        label=f"lead:{source}:{name or 'unknown'}",
+        kind="experience",
+        source=source,
+        origin_system="ae",
+        valid_from=_time.time(),
+        metadata=metadata,
+    )
+    return {"id": mid, "duplicate_customer_id": duplicate}
+
+
+def recall_customer_by_name(
+    mem: Any,
+    *,
+    name: str,
+    fuzzy: bool = True,
+    k: int = 5,
+) -> list[dict[str, Any]]:
+    """Look up customer entity by name. fuzzy=True uses hybrid_recall (semantic
+    similarity catches "Sarah J", "Sarah Jones", "Sara Jones"); fuzzy=False
+    requires exact label match via sparse_search."""
+    if fuzzy:
+        return mem.hybrid_recall(name, k=k, kind="entity", rerank=True)
+    return mem.sparse_search(f"customer:{name}", k=k)
+
+
+def recall_template_for_job(
+    mem: Any,
+    *,
+    job_type: str,
+    segment: Optional[str] = None,
+    k: int = 5,
+) -> list[dict[str, Any]]:
+    """Find templates indexed by job_type ('remodel' | 'production') with
+    optional segment filter (e.g., 'kitchen', 'bathroom', 'service-call').
+    Returns templates ranked by hybrid retrieval."""
+    query_parts = [f"template {job_type}"]
+    if segment:
+        query_parts.append(segment)
+    return mem.hybrid_recall(" ".join(query_parts), k=k, kind="procedural", rerank=True)
+
+
+def recall_estimates_for_customer(
+    mem: Any,
+    *,
+    customer_id: str,
+    status: Optional[str] = None,
+    k: int = 10,
+    days: int = 365,
+) -> list[dict[str, Any]]:
+    """Get this customer's estimates (optionally filtered by status). Looks
+    back `days` days via temporal search on bi-temporal valid_from.
+    """
+    query = f"estimate customer {customer_id}"
+    if status:
+        query += f" {status}"
+    cutoff = _time.time() - (days * 86400)
+    results = mem.hybrid_recall(query, k=k, kind="experience", as_of=None, rerank=True)
+    # Post-filter by metadata customer_id + status (hybrid is fuzzy by content)
+    out = []
+    for r in results:
+        md = r.get("metadata") or {}
+        if md.get("customer_id") != customer_id:
+            continue
+        if status and md.get("status") != status:
+            continue
+        if r.get("valid_from", 0) < cutoff:
+            continue
+        out.append(r)
+    return out[:k]
+
+
+def recall_recent_leads(
+    mem: Any,
+    *,
+    source: Optional[str] = None,
+    days: int = 7,
+    k: int = 20,
+) -> list[dict[str, Any]]:
+    """Get recent leads (optionally filtered by source). Default last 7 days."""
+    query = f"lead {source}" if source else "lead recent"
+    cutoff = _time.time() - (days * 86400)
+    results = mem.hybrid_recall(query, k=k * 2, kind="experience", rerank=True)
+    out = []
+    for r in results:
+        md = r.get("metadata") or {}
+        if "lead_source" not in md:
+            continue
+        if source and md.get("lead_source") != source:
+            continue
+        if r.get("valid_from", 0) < cutoff:
+            continue
+        out.append(r)
+    return out[:k]
+
+
 __all__ = [
     "record_customer_interaction",
     "record_job_event",
@@ -302,4 +555,13 @@ __all__ = [
     "record_financial_event",
     "initialize_ae_locus_overlay",
     "recall_for_dashboard",
+    # Lookup-before-create helpers (aux-builder msg_9cb0c42a 2026-05-02)
+    "record_customer",
+    "record_template",
+    "record_estimate",
+    "record_lead",
+    "recall_customer_by_name",
+    "recall_template_for_job",
+    "recall_estimates_for_customer",
+    "recall_recent_leads",
 ]

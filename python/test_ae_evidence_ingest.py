@@ -243,6 +243,64 @@ class AEEvidenceIngestContractTests(unittest.TestCase):
                 quote_source_path="/x",
             )
 
+    # ------------------------------------------------------------ no-supersession
+    def test_evidence_helpers_preserve_multiple_rows_without_supersession(self) -> None:
+        """Repeated evidence inserts MUST NOT collapse through conflict
+        detection — each evidence record is its own bi-temporal row.
+        Caught by per-commit reviewer of d410019.
+        """
+        mid1 = record_evidence_artifact(
+            self.mem, evidence_type="estimate_event",
+            capability_id="ITEM-9", source_system="ae_dashboard",
+            source_path="/path/A", content="estimate sent to alice",
+            source_record_id="A",
+        )
+        # Same capability_id + similar content — would normally trigger
+        # supersession via detect_conflicts. Must NOT here.
+        mid2 = record_evidence_artifact(
+            self.mem, evidence_type="estimate_event",
+            capability_id="ITEM-9", source_system="ae_dashboard",
+            source_path="/path/B", content="estimate sent to alice (resend)",
+            source_record_id="B",
+        )
+        # Both rows should exist independently
+        self.assertNotEqual(mid1, mid2)
+        m1 = self.mem.get_memory(mid1)
+        m2 = self.mem.get_memory(mid2)
+        self.assertIsNotNone(m1, "first evidence row was superseded — contract violation")
+        self.assertIsNotNone(m2, "second evidence row missing")
+        # Neither should have valid_to set (no supersession applied)
+        self.assertIsNone(m1.get("valid_to"),
+                          "first evidence got valid_to set without explicit caller intent")
+
+    def test_wa_same_second_ids_do_not_collide(self) -> None:
+        """Two WA messages in same thread within one second must have
+        distinct provenance — content hash + microsecond ts ensures
+        uniqueness. Caught by per-commit reviewer of d410019.
+        """
+        ts = 1717350000.5  # half-second precision
+        mid1 = record_wa_crew_event(
+            self.mem, capability_id="X", thread_id="t",
+            sender="m", raw_text="message one", ts=ts,
+        )
+        mid2 = record_wa_crew_event(
+            self.mem, capability_id="X", thread_id="t",
+            sender="m", raw_text="message two", ts=ts,  # SAME ts
+        )
+        self.assertNotEqual(mid1, mid2,
+                            "WA messages with same ts collided on memory id")
+        import json
+        md1 = json.loads(self.mem.get_memory(mid1)["metadata_json"])
+        md2 = json.loads(self.mem.get_memory(mid2)["metadata_json"])
+        # Both rows persisted distinctly via record_evidence_artifact's
+        # detect_conflicts=False contract. Provenance via different content
+        # is guaranteed by the new content_hash component of source_record_id.
+        self.assertEqual(md1["thread_id"], md2["thread_id"])
+        # Verify the labels differ (which they do via source_record_id differing)
+        self.assertNotEqual(self.mem.get_memory(mid1)["label"],
+                            self.mem.get_memory(mid2)["label"],
+                            "WA labels collided despite different content")
+
     # ------------------------------------------------------------ enums
     def test_privacy_class_enum_is_immutable(self) -> None:
         """Defines the canonical 5 privacy classes — additions require a

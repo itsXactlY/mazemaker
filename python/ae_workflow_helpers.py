@@ -694,6 +694,11 @@ def record_evidence_artifact(
             metadata.setdefault(k, v)
 
     label = f"evidence:{evidence_type}:{capability_id}:{source_record_id or 'unkeyed'}"
+    # detect_conflicts=False is the bi-temporal audit contract: every evidence
+    # record is preserved as its own row. Supersession (valid_to set) is an
+    # explicit caller decision, not an implicit conflict-detection side-effect.
+    # Caught by per-commit reviewer of d410019. Matches record_invoice_status_change
+    # pattern (also bi-temporal, also detect_conflicts=False).
     return mem.remember(
         content,
         label=label,
@@ -704,6 +709,7 @@ def record_evidence_artifact(
         valid_from=valid_from if valid_from is not None else _time.time(),
         valid_to=valid_to,
         metadata=metadata,
+        detect_conflicts=False,
     )
 
 
@@ -765,16 +771,24 @@ def record_wa_crew_event(
     if normalized_text:
         extra["normalized_text"] = normalized_text
 
+    # Provenance keys: thread_id + microsecond ts + content hash. Two
+    # WA messages in the same thread within one second would collide on
+    # int(ts) alone (caught by per-commit reviewer of d410019). Microsecond
+    # resolution + 8-char content hash makes collision practically impossible.
+    import hashlib
+    content_hash = hashlib.md5(raw_text.encode("utf-8")).hexdigest()[:8]
+    ts_us = int(ts * 1_000_000)  # microsecond precision
+    record_id = f"{thread_id}:{ts_us}:{content_hash}"
     return record_evidence_artifact(
         mem,
         evidence_type="wa_crew_message",
         capability_id=capability_id,
         source_system="hermes_wa_bridge",
-        source_path=f"wa_bridge:{thread_id}:{int(ts)}",
+        source_path=f"wa_bridge:{record_id}",
         content=content,
         privacy_class=privacy_class,
         confidence=0.95 if delivery_status == "read" else 0.85,
-        source_record_id=f"{thread_id}:{int(ts)}",
+        source_record_id=record_id,
         valid_from=ts,
         consumer_hint=consumer_hint,
         extra_metadata=extra,

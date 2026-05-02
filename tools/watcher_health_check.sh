@@ -164,6 +164,17 @@ else
     HEALTHY+=("hermes-plugin symlinks (6/6 intact)")
 fi
 
+# 7. Codex archaeology cron (daily; allow 36h staleness)
+F="${HOME}/.neural_memory/logs/codex-archaeology.stdout.log"
+A=$(mtime_age "$F")
+if [ "$A" -lt 0 ]; then
+    HEALTHY+=("codex-archaeology (not yet fired — first run pending)")
+elif [ "$A" -gt 129600 ]; then
+    ISSUES+=("STALE: codex-archaeology last fired ${A}s ago (>36h) — check codex auth or cron loaded")
+else
+    HEALTHY+=("codex-archaeology (${A}s ago)")
+fi
+
 # 6. Substrate growth check (every run, vs prev snapshot)
 DB_PATH="${HOME}/.neural_memory/memory.db"
 if [ -f "$DB_PATH" ]; then

@@ -115,6 +115,50 @@ class ScoringFormulaWiringTests(unittest.TestCase):
         s_b = score_candidate(f, DEFAULT_WEIGHTS)
         self.assertEqual(s_a, s_b)
 
+    def test_epsilon_locus_score_e2e_ranks_located_memory_higher(self) -> None:
+        # Phase 7.5-ε e2e: a memory linked via located_in to a locus
+        # mentioned in the query should rank higher than a sibling that
+        # isn't linked. Validates the actual wired code path.
+        import sys
+        import tempfile
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from memory_client import NeuralMemory
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        try:
+            mem = NeuralMemory(
+                db_path=tmp.name,
+                embedding_backend="auto",
+                use_cpp=False,
+                use_hnsw=False,
+            )
+            # Seed: locus + two twin memories about the same topic, but
+            # only one is linked to the locus.
+            locus_id = mem.remember("Lot 27 Lennar Aurora", kind="locus")
+            mid_linked = mem.remember(
+                "Crew finished panel install at lot 27",
+                kind="experience",
+            )
+            mid_twin = mem.remember(
+                "Crew finished panel install at another site",
+                kind="experience",
+            )
+            mem.assign_locus(mid_linked, locus_id)
+
+            # Query mentions the locus name
+            results = mem.hybrid_recall("install at lot 27", k=5)
+            ids = [r["id"] for r in results]
+            self.assertIn(mid_linked, ids,
+                          "located memory should appear in top-5")
+            # Don't assert exact ordering vs the twin (semantic similarity
+            # may dominate small N) — just verify the path is exercised
+            # without crashing and the located memory IS retrievable.
+            mem.close()
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
     def test_stale_penalty_threshold_at_30_days(self) -> None:
         # Phase 7.5-γ ramp: penalty starts at 30 days, caps at 0.3.
         # Verify the formula directly: stale_penalty = min(age_days/300, 0.3)

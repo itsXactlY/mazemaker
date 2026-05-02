@@ -232,7 +232,10 @@ def _gather_sources() -> list[dict]:
                         continue
                     sources.append({
                         "path": p,
-                        "source_label": "onedrive_" + sub.split("/")[0].lower().lstrip("_"),
+                        # Normalize: strip leading _, lowercase, replace
+                        # spaces with _ (round-5 archaeologist B2:
+                        # "onedrive_workflow sop" had literal space)
+                        "source_label": "onedrive_" + sub.split("/")[0].lower().lstrip("_").replace(" ", "_"),
                         "default_kind": "world",  # SOPs / references
                         "origin_system": "ae",
                     })

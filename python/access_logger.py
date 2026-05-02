@@ -40,7 +40,13 @@ class RecallAccessLogger:
     def __init__(self, path: Optional[Path] = None,
                  rotate_at_bytes: Optional[int] = None):
         self.path = Path(path) if path else self.DEFAULT_PATH
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Best-effort: mkdir failure (e.g., read-only path) shouldn't
+        # raise from constructor — we want production retrieval to never
+        # hard-fail on logger setup. log() is also best-effort.
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
         self.rotate_at = rotate_at_bytes or self.ROTATE_AT_BYTES
         self._lock = threading.Lock()
 

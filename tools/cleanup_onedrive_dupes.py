@@ -50,6 +50,11 @@ def main() -> int:
 
     # Find dup groups: same content_hash within same source_label.
     # content_hash is in metadata_json.
+    # Reviewer-round-6 fix 2026-05-02: filter NULL hashes BEFORE GROUP BY.
+    # Without this, all rows missing content_hash get lumped into one
+    # "NULL group" and treated as duplicates — would silently delete
+    # distinct content. Live 2026-05-02 run was lucky (all rows had
+    # hashes); future re-runs against partially-tagged sources unsafe.
     rows = conn.execute(
         f"""
         SELECT
@@ -58,6 +63,7 @@ def main() -> int:
           COUNT(*) AS n
         FROM memories
         WHERE JSON_EXTRACT(metadata_json, '$.source_label') = ?
+          AND JSON_EXTRACT(metadata_json, '$.content_hash') IS NOT NULL
         GROUP BY h
         HAVING n > 1
         """,

@@ -702,19 +702,24 @@ class NeuralMemory:
         try:
             # Init max_elements with generous headroom before loading
             self._hnsw_capacity = max(expected_count * 3 // 2, 1024)
-            # Skip re-load if already populated and matches expected count.
-            # Re-loading into a populated index triggers a benign hnswlib
-            # warning ("Calling load_index for an already inited index. Old
-            # index is being deallocated.") that's harmless but noisy in
-            # plugin-reuse + g55-mirror cron contexts.
+            # Skip re-load if already populated AND matches expected count
+            # AND disk file hasn't been written by another process since
+            # we last loaded it. Without the mtime check, a separate
+            # process (MCP server, ingest cron, bench) that persists new
+            # HNSW state would be ignored — we'd silently serve stale
+            # dense results. Reviewer-round-6 fix 2026-05-02.
             try:
                 current = self._hnsw.get_current_count()
-                if current > 0 and current == expected_count:
-                    self._hnsw_count = current
+                disk_mtime = p.stat().st_mtime
+                if (current > 0
+                        and current == expected_count
+                        and current == getattr(self, "_hnsw_count", 0)
+                        and getattr(self, "_hnsw_mtime", None) == disk_mtime):
                     return True
             except Exception:
                 pass  # Index not init'd yet — proceed with load
             self._hnsw.load_index(str(p), max_elements=self._hnsw_capacity)
+            self._hnsw_mtime = p.stat().st_mtime  # track disk state
             loaded = self._hnsw.get_current_count()
             if loaded != expected_count:
                 import logging

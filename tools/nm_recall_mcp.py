@@ -51,10 +51,13 @@ def _get_mem():
     global _mem
     if _mem is None:
         from memory_client import NeuralMemory
+        # Reviewer-round-6 fix 2026-05-02: use_hnsw=True is required for
+        # bench-validated R@5=0.82 perf. Without HNSW, every dense channel
+        # call linear-scans 12k+ memories per query, blowing up p50.
         _mem = NeuralMemory(
             embedding_backend="auto",
             use_cpp=False,
-            use_hnsw=False,
+            use_hnsw=True,
         )
     return _mem
 

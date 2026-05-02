@@ -105,7 +105,8 @@ def _mrr(retrieved_ids: list[int], gt_ids: list[int]) -> float:
     return 0.0
 
 
-def run_scored(mem, queries: list[dict], k: int = 10) -> dict:
+def run_scored(mem, queries: list[dict], k: int = 10,
+              rerank: bool = False) -> dict:
     """Run scored mode against ground_truth_ids. Reports per-category metrics
     + global metrics + threshold pass/fail.
 
@@ -115,12 +116,17 @@ def run_scored(mem, queries: list[dict], k: int = 10) -> dict:
     plain recall() which only exercises the dense channel — my Phase 7.5
     boosts couldn't surface the doctrinal chunks above conversation-turn
     noise without the entity/procedural/locus signal active.
+
+    rerank: pass-through to hybrid_recall's cross-encoder rerank stage.
+    Off by default; on for "path to 0.92 R@5" runs. First measurement
+    2026-05-01: rerank=off gave global R@5=0.26 (R@10=0.71). Without rerank,
+    labeled IDs retrieve in top-10 but rank 6-10 instead of 1-5.
     """
     by_cat: dict[str, list[dict]] = defaultdict(list)
     for q in queries:
         if not q["ground_truth_ids"]:
             continue
-        retrieved = mem.hybrid_recall(q["query"], k=k)
+        retrieved = mem.hybrid_recall(q["query"], k=k, rerank=rerank)
         rids = [r["id"] for r in retrieved]
         by_cat[q["category"]].append({
             "id": q["id"],
@@ -174,6 +180,9 @@ def main() -> int:
                         help="Run only one category")
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--embedding-backend", default="auto")
+    parser.add_argument("--rerank", action="store_true",
+                        help="Enable cross-encoder rerank in scored mode "
+                             "(per the path-to-0.92 docstring)")
     parser.add_argument("--out", default=None,
                         help="JSON output path; stdout if omitted")
     args = parser.parse_args()
@@ -192,7 +201,8 @@ def main() -> int:
         if args.mode == "diagnostic":
             result = run_diagnostic(mem, queries, k=args.k)
         else:
-            result = run_scored(mem, queries, k=args.k)
+            result = run_scored(mem, queries, k=args.k,
+                                rerank=args.rerank)
     finally:
         try:
             mem.close()

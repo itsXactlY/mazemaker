@@ -48,14 +48,15 @@ if [ "$RC" -ne 0 ]; then
     exit "$RC"
 fi
 
-# Pull latest R@5 from the JSON report. The bench writes result.global_r@5
-# (note the @ symbol — needs dict-key access, not attribute). Bug caught by
-# per-commit reviewer of b0b71cf: original 'overall.recall_at_5' lookup
-# returned NA every time so regression-alert never fired.
+# Pull latest R@5 from the JSON report. run_ae_domain_bench.py:168-177
+# returns top-level 'global_r@5' (with @ symbol — needs dict-key access).
+# The earlier 'overall.recall_at_5' was wrong; first attempted fix to
+# result.global_r@5 was ALSO wrong (matched a wrapper-format artifact
+# at ae-domain-2026-05-02-070800.json, not the actual scored-mode output).
 LATEST_R5=$("$PY" -c "
 import json
 d = json.load(open('${OUT}'))
-print(d.get('result', {}).get('global_r@5', 'NA'))
+print(d.get('global_r@5', 'NA'))
 " 2>/dev/null)
 
 # Find previous AE-domain run for delta comparison.
@@ -65,7 +66,7 @@ if [ -n "$PREV" ] && [ "$LATEST_R5" != "NA" ]; then
     PREV_R5=$("$PY" -c "
 import json
 d = json.load(open('${PREV}'))
-print(d.get('result', {}).get('global_r@5', 'NA'))
+print(d.get('global_r@5', 'NA'))
 " 2>/dev/null)
     log "R@5: latest=${LATEST_R5} prev=${PREV_R5} (prev=${PREV})"
 

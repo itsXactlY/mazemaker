@@ -182,6 +182,33 @@ def proc_section() -> str:
     return "\n".join(interesting[:8]) if interesting else "  (none of interest running)"
 
 
+def bench_history_section() -> str:
+    """Surface recent bench-history entries — R@5 trajectory over time."""
+    bench_dir = Path.home() / ".neural_memory" / "bench-history"
+    if not bench_dir.exists():
+        return "  (no bench-history dir)"
+    entries = sorted(bench_dir.glob("smoke-*.json"))[-5:]  # last 5
+    if not entries:
+        return "  (no smoke-*.json entries)"
+    lines = ["  date          R@1   R@5   R@10  MRR    p50    p95"]
+    for path in entries:
+        try:
+            data = json.loads(path.read_text())
+            ts = path.stem.replace("smoke-", "")[:10]
+            lines.append(
+                f"  {ts}  "
+                f"{data.get('recall@1', 0):.2f}  "
+                f"{data.get('recall@5', 0):.2f}  "
+                f"{data.get('recall@10', 0):.2f}  "
+                f"{data.get('mrr', 0):.3f}  "
+                f"{int(data.get('latency_p50_ms', 0)):>4}ms "
+                f"{int(data.get('latency_p95_ms', 0)):>5}ms"
+            )
+        except Exception as e:
+            lines.append(f"  {path.name}: parse error ({e})")
+    return "\n".join(lines)
+
+
 def scoring_weights_section() -> str:
     """Surface DEFAULT_WEIGHTS so operators can see channel balance."""
     try:
@@ -286,6 +313,8 @@ def main() -> int:
     print(repo_section())
     print(_section("Live DB"))
     print(db_section())
+    print(_section("Bench history (last 5)"))
+    print(bench_history_section())
     print(_section("Scoring weights (DEFAULT_WEIGHTS)"))
     print(scoring_weights_section())
     print(_section("Phase 7.5 wiring"))

@@ -1732,7 +1732,15 @@ class NeuralMemory:
             return candidates
         if not (force or self._rerank):
             return candidates
-        if self._should_skip_rerank(query):
+        # Use original query for skip-detection. Bug caught by Sonnet regression
+        # investigator 2026-05-02: post-translator-default-on, translator runs on
+        # Spanish queries (correctly), making query mostly English. Skip-detection
+        # then re-checked the TRANSLATED query → returned False → English cross-encoder
+        # ran against Spanish substrate content → mis-ranked, dropping correct hits.
+        # Now we check skip-detection against original (pre-translation) query stored
+        # on self._last_original_query when hybrid_recall translated.
+        skip_query = getattr(self, '_last_original_query', None) or query
+        if self._should_skip_rerank(skip_query):
             return candidates
         try:
             if self._rerank_model is None:
@@ -1854,9 +1862,16 @@ class NeuralMemory:
         # Original query preserved in _trace.original_query for debugging.
         import os as _os_st
         _original_query_for_trace = query
+        # Reset on each call so prior call's value doesn't leak (instance-level
+        # attribute on a possibly-shared NeuralMemory).
+        self._last_original_query = query
         if _os_st.environ.get("NM_SPANISH_TRANSLATE", "1") != "0":
             if self._should_skip_rerank(query):
-                # Spanish detected — translate before any channel runs
+                # Spanish detected — translate before any channel runs.
+                # Stash original on self so _maybe_rerank can use it for skip-detection
+                # (otherwise the translator defeats the skip-rerank gate). Fix by
+                # Sonnet regression investigator 2026-05-02 (sonnet-regression-investigation-20260502-050747.md).
+                self._last_original_query = query
                 query = self._translate_spanish_to_english(query)
         """Multi-channel hybrid retrieval. Borrowed Hindsight's pool-union
         shape (dense + sparse + graph + temporal candidates) but applied

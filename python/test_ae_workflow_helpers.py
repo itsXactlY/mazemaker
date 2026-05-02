@@ -328,13 +328,24 @@ class LookupBeforeCreateHelpersTests(unittest.TestCase):
         cust_mid = record_customer(self.mem, name="Vibha Choudhury", source="qbo")
         results = recall_customer_by_name(self.mem, name="Vibha", k=5)
         self.assertIsInstance(results, list)
-        # Should find the seeded customer (fuzzy match on partial name)
-        ids = [r["id"] for r in results]
-        # At least the seeded customer should appear (loose check — depends
-        # on embedding/sparse channel weights for this small substrate)
-        # Hard assert: result is a list of dicts with 'id' field
         for r in results:
             self.assertIn("id", r)
+
+    def test_recall_customer_by_name_exact_mode_uses_label_equality(self) -> None:
+        """fuzzy=False must use exact label match, not BM25 sparse_search.
+        Caught by codex-resolver 2026-05-02 — sparse_search returned non-matches."""
+        cust_mid = record_customer(self.mem, name="Vibha Choudhury", source="qbo")
+        # Add a noise memory that contains the customer label as substring but
+        # is NOT the customer entity row
+        self.mem.remember(
+            "This note mentions customer:Vibha Choudhury but is not the customer entity.",
+            label="note:vibha",
+            kind="experience",
+        )
+        results = recall_customer_by_name(
+            self.mem, name="Vibha Choudhury", fuzzy=False, k=5)
+        # Exact mode must return ONLY the customer entity, not the note
+        self.assertEqual([r["id"] for r in results], [cust_mid])
 
     def test_recall_template_for_job_returns_list(self) -> None:
         record_template(

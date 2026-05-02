@@ -29,8 +29,34 @@ Cross-references (in claude-memory PRIVATE):
 
 from __future__ import annotations
 
+import json as _json
 import time as _time
 from typing import Any, Optional
+
+
+def _hydrate_recall_rows(mem: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add typed DB fields missing from store.get()-materialized recall rows.
+    Specifically: parses metadata_json → metadata dict so callers can filter
+    by md.get('customer_id') etc. Bug caught by codex-resolver 2026-05-02 —
+    my recall_* helpers post-filtered on r.get('metadata') but hybrid_recall
+    only returns metadata_json (str), never metadata (dict). Filter never fired.
+    """
+    out = []
+    for r in rows:
+        row = dict(r)
+        mid = row.get("id")
+        if mid is not None and hasattr(mem, "get_memory"):
+            full = mem.get_memory(mid)
+            if full:
+                row.update(full)
+        if "metadata" not in row:
+            raw = row.get("metadata_json")
+            try:
+                row["metadata"] = _json.loads(raw) if raw else {}
+            except (TypeError, ValueError):
+                row["metadata"] = {}
+        out.append(row)
+    return out
 
 
 def record_customer_interaction(
@@ -470,10 +496,26 @@ def recall_customer_by_name(
 ) -> list[dict[str, Any]]:
     """Look up customer entity by name. fuzzy=True uses hybrid_recall (semantic
     similarity catches "Sarah J", "Sarah Jones", "Sara Jones"); fuzzy=False
-    requires exact label match via sparse_search."""
+    requires exact label match via direct SQL (NOT sparse_search, which is
+    BM25 fuzzy under the hood — bug caught by codex-resolver 2026-05-02).
+    """
     if fuzzy:
         return mem.hybrid_recall(name, k=k, kind="entity", rerank=True)
-    return mem.sparse_search(f"customer:{name}", k=k)
+    label = f"customer:{name}"
+    if hasattr(mem, "store") and hasattr(mem.store, "conn"):
+        with mem.store._lock:
+            rows = mem.store.conn.execute(
+                "SELECT id FROM memories WHERE label = ? ORDER BY id DESC LIMIT ?",
+                (label, k),
+            ).fetchall()
+        out = []
+        for row in rows:
+            full = mem.get_memory(row[0]) if hasattr(mem, "get_memory") else mem.store.get(row[0])
+            if full:
+                out.append(full)
+        return out
+    # Fallback (non-SQLite store): post-filter sparse results by exact label
+    return [r for r in mem.sparse_search(label, k=k) if r.get("label") == label]
 
 
 def recall_template_for_job(
@@ -507,7 +549,10 @@ def recall_estimates_for_customer(
     if status:
         query += f" {status}"
     cutoff = _time.time() - (days * 86400)
-    results = mem.hybrid_recall(query, k=k, kind="experience", as_of=None, rerank=True)
+    # Hydrate so 'metadata' (dict) is present, not just 'metadata_json' (str).
+    # Bug caught by codex-resolver 2026-05-02.
+    results = _hydrate_recall_rows(
+        mem, mem.hybrid_recall(query, k=k, kind="experience", as_of=None, rerank=True))
     # Post-filter by metadata customer_id + status (hybrid is fuzzy by content)
     out = []
     for r in results:
@@ -532,7 +577,9 @@ def recall_recent_leads(
     """Get recent leads (optionally filtered by source). Default last 7 days."""
     query = f"lead {source}" if source else "lead recent"
     cutoff = _time.time() - (days * 86400)
-    results = mem.hybrid_recall(query, k=k * 2, kind="experience", rerank=True)
+    # Hydrate so 'metadata' (dict) is present (bug caught by codex-resolver 2026-05-02).
+    results = _hydrate_recall_rows(
+        mem, mem.hybrid_recall(query, k=k * 2, kind="experience", rerank=True))
     out = []
     for r in results:
         md = r.get("metadata") or {}

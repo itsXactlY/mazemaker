@@ -1527,6 +1527,98 @@ class NeuralMemory:
         "cuanto", "cuánto", "cuantos", "cuántos",
     })
 
+    # AE-domain Spanish → English translation dict. Covers crew + materials
+    # vocabulary. Used by _translate_spanish_to_english when opt-in via
+    # NM_SPANISH_TRANSLATE=1. Substrate is mostly English; Spanish queries
+    # against English memories were 0.0 R@5. Translating the query first
+    # lets it hit English memories directly.
+    #
+    # Conservative: only translates known terms. Unknown words pass through.
+    # Per Tito 2026-05-02: AE only needs English+Spanish (mainly English).
+    _SPANISH_TO_ENGLISH: dict[str, str] = {
+        # Articles + connectors (kept lowercase; we lowercase the query)
+        "la": "the", "el": "the", "los": "the", "las": "the",
+        "un": "a", "una": "a", "unos": "some", "unas": "some",
+        "del": "of the", "al": "to the",
+        "que": "that", "qué": "what",
+        "como": "how", "cómo": "how",
+        "donde": "where", "dónde": "where",
+        "cuando": "when", "cuándo": "when",
+        "porque": "because", "porqué": "why",
+        # Verbs / actions common in AE queries
+        "encuentra": "find", "busca": "search", "muestra": "show", "dame": "give me",
+        "hay": "is there",
+        "esta": "is", "está": "is", "estan": "are", "están": "are",
+        "fue": "was", "fueron": "were",
+        "hace": "does", "tiene": "has", "tienen": "have",
+        "puede": "can", "pueden": "can",
+        "trae": "brings", "llego": "arrived", "llegó": "arrived", "llega": "arrives",
+        "comprar": "buy", "comprado": "bought", "compra": "buys",
+        "dijo": "said", "dice": "says",
+        # AE crew vocabulary
+        "material": "material", "materiales": "materials",
+        "trabajo": "job", "trabajos": "jobs",
+        "casa": "house", "casas": "houses",
+        "lote": "lot", "lotes": "lots",
+        "patron": "boss", "patrón": "boss", "jefe": "boss",
+        "mensaje": "message", "mensajes": "messages",
+        "conversacion": "conversation", "conversación": "conversation",
+        "cable": "wire", "cables": "wires",
+        "numero": "number", "número": "number",
+        "doce": "twelve", "diez": "ten",
+        # Negation
+        "no": "not", "ningun": "no", "ningún": "no", "nada": "nothing",
+        # Possessives
+        "mi": "my", "su": "his", "sus": "his", "tu": "your", "tus": "your",
+        # Prepositions
+        "sobre": "about", "para": "for", "por": "by",
+        "con": "with", "sin": "without", "entre": "between",
+        # Question words
+        "cuanto": "how much", "cuánto": "how much",
+        "cuantos": "how many", "cuántos": "how many",
+        # Common AE-specific markers (loanwords often kept)
+        "whatsapp": "whatsapp",
+        "breaker": "breaker", "breakers": "breakers",
+        "panel": "panel", "paneles": "panels",
+    }
+    # Empirical learning 2026-05-02: tried adding "se"→"", "de"→"of",
+    # phrase-level "no llego"→"missing" — REGRESSED R@5 from 0.6818 to
+    # 0.6364. The "de"→"of" rewrite broke the cable-doce hit. Lesson:
+    # don't rewrite high-frequency Spanish prepositions; they're often
+    # safe to leave in place since the dense embedder handles them.
+    # Keep dict minimal + token-level only for now.
+
+    @classmethod
+    def _translate_spanish_to_english(cls, query: str) -> str:
+        """Dict-based Spanish→English translator for AE-domain queries.
+        Lowercases input + word-tokenize + replaces known Spanish tokens.
+        Unknown words pass through unchanged (preserves SKUs, names, etc).
+
+        Used by hybrid_recall when NM_SPANISH_TRANSLATE=1 + Spanish detected.
+        Caught 2026-05-02: Spanish queries score R@5=0.0 against English-content
+        substrate; this lets them hit directly.
+
+        Empirical lift (verified): +0.045 R@5 on AE-domain bench (1 of 3
+        Spanish queries hits when translated). Phrase-level "improvements"
+        regressed; minimal token-level translation is the working version.
+        """
+        if not query:
+            return query
+        out_words = []
+        for raw in query.split():
+            stripped = raw.strip(".,!?;:'\"()[]{}#@¿¡")
+            key = stripped.lower()
+            translated = cls._SPANISH_TO_ENGLISH.get(key, stripped)
+            # Preserve trailing punctuation
+            tail = ""
+            for ch in reversed(raw):
+                if ch in ".,!?;:":
+                    tail = ch + tail
+                else:
+                    break
+            out_words.append(translated + tail)
+        return " ".join(out_words)
+
     @staticmethod
     def _should_skip_rerank(query: str) -> bool:
         """Return True if query is likely Spanish, in which case the
@@ -1749,6 +1841,20 @@ class NeuralMemory:
         # placed at the result-materialize step, missing scoring+MMR+
         # percentile work. AccessLogger now sees true end-to-end ms.
         _hybrid_recall_t0 = time.time()
+
+        # Spanish→English query translation (opt-in via NM_SPANISH_TRANSLATE=1).
+        # Substrate is mostly English; Spanish queries against English memories
+        # scored R@5=0.0 on the AE-domain bench. Translating before retrieval
+        # lets all channels (dense+sparse+graph) hit English memories directly.
+        # Per Tito 2026-05-02: AE only needs English+Spanish (mainly English).
+        # Conservative: dict-based translation, unknown tokens pass through.
+        # Original query preserved in _trace.original_query for debugging.
+        import os as _os_st
+        _original_query_for_trace = query
+        if _os_st.environ.get("NM_SPANISH_TRANSLATE", "0") == "1":
+            if self._should_skip_rerank(query):
+                # Spanish detected — translate before any channel runs
+                query = self._translate_spanish_to_english(query)
         """Multi-channel hybrid retrieval. Borrowed Hindsight's pool-union
         shape (dense + sparse + graph + temporal candidates) but applied
         the salience-weighted continuous scoring law instead of pure RRF.

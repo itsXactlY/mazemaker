@@ -1714,7 +1714,8 @@ class NeuralMemory:
         return selected + remaining
 
     def _maybe_rerank(self, query: str, candidates: list[dict],
-                      force: bool = False) -> list[dict]:
+                      force: bool = False,
+                      original_query: Optional[str] = None) -> list[dict]:
         """Cross-encoder rerank of a candidate set. No-op if disabled or model unavailable.
 
         Candidates must carry 'content' (string). Preserves all other fields and
@@ -1732,14 +1733,13 @@ class NeuralMemory:
             return candidates
         if not (force or self._rerank):
             return candidates
-        # Use original query for skip-detection. Bug caught by Sonnet regression
-        # investigator 2026-05-02: post-translator-default-on, translator runs on
-        # Spanish queries (correctly), making query mostly English. Skip-detection
-        # then re-checked the TRANSLATED query → returned False → English cross-encoder
-        # ran against Spanish substrate content → mis-ranked, dropping correct hits.
-        # Now we check skip-detection against original (pre-translation) query stored
-        # on self._last_original_query when hybrid_recall translated.
-        skip_query = getattr(self, '_last_original_query', None) or query
+        # Use REQUEST-LOCAL original_query for skip-detection. Translated query
+        # may no longer look Spanish by the time rerank runs. Bug caught by
+        # per-commit reviewer 2026-05-02: my prior fix stashed original on
+        # self._last_original_query, but module-global NeuralMemory in
+        # nm_recall_mcp.py shares that mutable field across concurrent MCP
+        # calls. Now request-local via kwarg from hybrid_recall.
+        skip_query = original_query or query
         if self._should_skip_rerank(skip_query):
             return candidates
         try:
@@ -1862,16 +1862,11 @@ class NeuralMemory:
         # Original query preserved in _trace.original_query for debugging.
         import os as _os_st
         _original_query_for_trace = query
-        # Reset on each call so prior call's value doesn't leak (instance-level
-        # attribute on a possibly-shared NeuralMemory).
-        self._last_original_query = query
         if _os_st.environ.get("NM_SPANISH_TRANSLATE", "1") != "0":
             if self._should_skip_rerank(query):
                 # Spanish detected — translate before any channel runs.
-                # Stash original on self so _maybe_rerank can use it for skip-detection
-                # (otherwise the translator defeats the skip-rerank gate). Fix by
-                # Sonnet regression investigator 2026-05-02 (sonnet-regression-investigation-20260502-050747.md).
-                self._last_original_query = query
+                # Original kept in _original_query_for_trace and passed to
+                # _maybe_rerank via kwarg (request-local, no instance state).
                 query = self._translate_spanish_to_english(query)
         """Multi-channel hybrid retrieval. Borrowed Hindsight's pool-union
         shape (dense + sparse + graph + temporal candidates) but applied
@@ -2188,7 +2183,8 @@ class NeuralMemory:
                     top_candidates.append(row)
             if top_candidates:
                 top_candidates = self._maybe_rerank(query, top_candidates,
-                                                   force=use_rerank)
+                                                   force=use_rerank,
+                                                   original_query=_original_query_for_trace)
                 # Splice reranked top back into scored in their new order
                 reranked_ids = [c["id"] for c in top_candidates]
                 tail_ids = [t[0] for t in scored[top_n:]]

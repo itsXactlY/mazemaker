@@ -178,13 +178,13 @@ if [ -n "$ESC_LINE" ]; then
         | sed '/^---$/,$d' \
         | sed '/^\*\*Exit/,$d' \
         | head -c 4000)
-    # Detect prompt-echo: if the extracted text contains literal prompt
-    # phrases ("List ONLY items", "Criteria for escalation", etc.), codex
-    # didn't produce a real synthesis (likely transport error/auth refresh).
-    # Treat as no escalations rather than fire false-positive HIGH-urgency.
-    # Bug caught by builder review 2026-05-02 — repeated false escalations
-    # from codex transport errors echoing prompt criteria.
-    if echo "$ESCALATIONS" | grep -qE 'List ONLY items|Criteria for escalation|If NOTHING meets the criteria|Be terse\. Be evidence-grounded'; then
+    # Detect prompt-echo SHAPE (≥2 prompt phrases at LINE START), not just any
+    # mention. A real escalation may legitimately QUOTE one of these phrases.
+    # Caught by per-commit reviewer 2026-05-02 + resolver patch.
+    PROMPT_ECHO_HITS=$(printf '%s\n' "$ESCALATIONS" \
+        | grep -Ec '^(List ONLY items|Criteria for escalation|If NOTHING meets the criteria|Be terse\. Be evidence-grounded|Context bundle follows in the file at:)' \
+        || true)
+    if [ "${PROMPT_ECHO_HITS:-0}" -ge 2 ]; then
         ESCALATIONS=""
     fi
 else

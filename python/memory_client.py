@@ -702,6 +702,18 @@ class NeuralMemory:
         try:
             # Init max_elements with generous headroom before loading
             self._hnsw_capacity = max(expected_count * 3 // 2, 1024)
+            # Skip re-load if already populated and matches expected count.
+            # Re-loading into a populated index triggers a benign hnswlib
+            # warning ("Calling load_index for an already inited index. Old
+            # index is being deallocated.") that's harmless but noisy in
+            # plugin-reuse + g55-mirror cron contexts.
+            try:
+                current = self._hnsw.get_current_count()
+                if current > 0 and current == expected_count:
+                    self._hnsw_count = current
+                    return True
+            except Exception:
+                pass  # Index not init'd yet — proceed with load
             self._hnsw.load_index(str(p), max_elements=self._hnsw_capacity)
             loaded = self._hnsw.get_current_count()
             if loaded != expected_count:

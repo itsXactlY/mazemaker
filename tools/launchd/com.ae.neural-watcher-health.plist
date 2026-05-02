@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.ae.neural-watcher-health.plist — observer-of-observers
+
+  Per Tito 2026-05-02 directive: watch-the-watchers. Every 30 min,
+  cross-check that the per-commit-reviewer, neural-observer,
+  vault-status-sync, bench-history, and AccessLogger trackers are
+  all firing on their expected cadences. Reports staleness; exits
+  non-zero on issues so launchd's last_exit_code surfaces it.
+
+  Install:
+    cp tools/launchd/com.ae.neural-watcher-health.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ae.neural-watcher-health.plist
+
+  Logs: ~/.neural_memory/logs/watcher-health.log
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ae.neural-watcher-health</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/tito/lWORKSPACEl/research/neural-memory/tools/watcher_health_check.sh</string>
+        <string>--alert</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/tito/.neural_memory/logs/watcher-health.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/tito/.neural_memory/logs/watcher-health.stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key><string>/Users/tito</string>
+        <key>PATH</key><string>/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin</string>
+    </dict>
+</dict>
+</plist>

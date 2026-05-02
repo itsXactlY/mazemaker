@@ -188,9 +188,14 @@ def write_events(events: list[dict]) -> tuple[int, int]:
     failed = 0
     for e in events:
         try:
+            # Reviewer-round-6 fix 2026-05-02: bumped timeout 20s → 90s.
+            # Each remember call cold-loads sentence-transformers (5-15s)
+            # + writes to substrate. Under contention (bench, plugin) all
+            # 30+ events were silently failing observer-side. Bench killed,
+            # but headroom matters for plugin-reuse + cron-overlap windows.
             subprocess.run(
                 [REMEMBER_BIN, e["claim"], "--label", e["label"], "--source", e["source"]],
-                check=False, timeout=20, capture_output=True,
+                check=False, timeout=90, capture_output=True,
             )
             written += 1
         except Exception as exc:

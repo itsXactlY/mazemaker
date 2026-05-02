@@ -107,12 +107,20 @@ def _mrr(retrieved_ids: list[int], gt_ids: list[int]) -> float:
 
 def run_scored(mem, queries: list[dict], k: int = 10) -> dict:
     """Run scored mode against ground_truth_ids. Reports per-category metrics
-    + global metrics + threshold pass/fail."""
+    + global metrics + threshold pass/fail.
+
+    Uses hybrid_recall (the multi-channel path with all Phase 7.5 wirings:
+    entity_score, procedural_score, locus_score, stale_penalty,
+    contradiction_penalty, RRF feature). Caught 2026-05-01: previously used
+    plain recall() which only exercises the dense channel — my Phase 7.5
+    boosts couldn't surface the doctrinal chunks above conversation-turn
+    noise without the entity/procedural/locus signal active.
+    """
     by_cat: dict[str, list[dict]] = defaultdict(list)
     for q in queries:
         if not q["ground_truth_ids"]:
             continue
-        retrieved = mem.recall(q["query"], k=k)
+        retrieved = mem.hybrid_recall(q["query"], k=k)
         rids = [r["id"] for r in retrieved]
         by_cat[q["category"]].append({
             "id": q["id"],

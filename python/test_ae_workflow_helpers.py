@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ae_workflow_helpers import (  # noqa: E402
     initialize_ae_locus_overlay,
+    recall_for_dashboard,
     record_customer_interaction,
     record_financial_event,
     record_invoice_status_change,
@@ -160,6 +161,53 @@ class AEWorkflowHelpersTests(unittest.TestCase):
         for room_id in loci_a.values():
             row = self.mem.get_memory(room_id)
             self.assertEqual(row["kind"], "locus")
+
+
+class RecallForDashboardTests(unittest.TestCase):
+    """Verify the bench-validated dashboard query helper."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.mem = NeuralMemory(
+            db_path=str(Path(self._tmp.name) / "memory.db"),
+            embedding_backend="hash",
+            use_cpp=False,
+            use_hnsw=False,
+        )
+        self.mid = self.mem.remember(
+            "Lennar lot 27 panel install scheduled",
+            kind="experience",
+        )
+
+    def tearDown(self) -> None:
+        try:
+            self.mem.close()
+        except Exception:
+            pass
+        self._tmp.cleanup()
+
+    def test_returns_results_with_trace(self) -> None:
+        results = recall_for_dashboard(self.mem, "Lennar lot 27", k=3)
+        self.assertGreater(len(results), 0, "should return results")
+        # Activation trace must be present (per Phase 7.5 contract)
+        self.assertIn("_trace", results[0])
+        # Trace has all 12 expected fields
+        trace = results[0]["_trace"]
+        for field in ("semantic", "sparse", "graph", "temporal",
+                      "entity", "procedural", "locus",
+                      "stale_penalty", "contradiction_penalty"):
+            self.assertIn(field, trace, f"trace missing {field}")
+
+    def test_kind_filter_passed_through(self) -> None:
+        # When kind='procedural' is requested, results should be filtered
+        # (no procedural memories in this test DB → empty result expected)
+        results = recall_for_dashboard(self.mem, "Lennar lot 27", k=3,
+                                        kind="procedural")
+        # The mid we seeded was kind='experience' so should NOT appear
+        ids = [r["id"] for r in results]
+        self.assertNotIn(self.mid, ids,
+                         "experience-kind seed should be filtered when "
+                         "kind=procedural is passed")
 
 
 if __name__ == "__main__":

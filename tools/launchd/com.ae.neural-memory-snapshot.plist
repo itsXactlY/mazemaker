@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.ae.neural-memory-snapshot.plist — daily backup of ~/.neural_memory/
+
+  Pattern adopted 2026-05-02 from AE-builder peer's daily-snapshot daemon.
+  Substrate is now valuable enough (3.18 GB, 7.5K mems, R@5=0.82) to deserve
+  a never-lose policy.
+
+  Backs up memory.db (gzipped) + bench-history/ to ~/.neural_memory/backups/
+  with 14-day retention.
+
+  Schedule: daily 04:30 (after 03:00 bench-daily, after 04:15 corpus-ingest)
+
+  Install:
+    cp com.ae.neural-memory-snapshot.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ae.neural-memory-snapshot.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ae.neural-memory-snapshot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/tito/lWORKSPACEl/research/neural-memory/tools/neural-memory-snapshot-daily.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/tito/.neural_memory/logs/neural-memory-snapshot.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/tito/.neural_memory/logs/neural-memory-snapshot.stderr.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>HOME</key>
+        <string>/Users/tito</string>
+    </dict>
+</dict>
+</plist>

@@ -193,6 +193,10 @@ def _chunk_hd_catalog(path: Path) -> list[dict]:
     except Exception as e:
         print(f"  skip hd_price_catalog: {e}", file=sys.stderr)
         return []
+    # Reviewer-round-6 fix 2026-05-02: skip summary if catalog has no
+    # items (don't emit a meaningless "0 SKUs" summary memory).
+    if not data.get("items"):
+        return []
     mtime = path.stat().st_mtime
 
     # Summary chunk (yearly spend, top job tags)

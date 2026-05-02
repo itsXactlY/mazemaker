@@ -233,7 +233,9 @@ def _tool_nm_remember(args: dict) -> dict:
 def _tool_nm_status(args: dict) -> dict:
     import sqlite3
     db_path = Path.home() / ".neural_memory" / "memory.db"
-    conn = sqlite3.connect(str(db_path))
+    # Reviewer-round-6 fix 2026-05-02: check_same_thread=False for future
+    # async-transport MCP clients (stdio loop is single-threaded today).
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     try:
         total = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
         entities = conn.execute(
@@ -250,12 +252,18 @@ def _tool_nm_status(args: dict) -> dict:
         ).fetchall()
     finally:
         conn.close()
+    # Reviewer-round-6 fix 2026-05-02: report fts5 + non_entity counts
+    # as separate fields. Previous fts5_sync_delta = fts - non_entity
+    # could mislead because some entity rows occasionally end up in FTS5
+    # (per test_schema_upgrade.py:219). Caller can compute drift as
+    # they prefer.
     return _content(json.dumps({
         "db_path": str(db_path),
         "total_memories": total,
         "entities": entities,
         "edges": edges,
-        "fts5_sync_delta": fts - non_entity,
+        "memories_fts_count": fts,
+        "non_entity_memories_count": non_entity,
         "top_entities_by_freq": [{"label": l, "freq": f} for l, f in top_entities],
     }, indent=2))
 
@@ -263,7 +271,7 @@ def _tool_nm_status(args: dict) -> dict:
 def _tool_nm_audit(args: dict) -> dict:
     import sqlite3
     db_path = Path.home() / ".neural_memory" / "memory.db"
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     try:
         sources = conn.execute(
             "SELECT JSON_EXTRACT(metadata_json,'$.source_label') AS src, COUNT(*) "

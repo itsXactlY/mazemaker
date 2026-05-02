@@ -74,32 +74,38 @@ class RecallAccessLogger:
                 "kind": kind_filter,
                 "rerank": rerank,
             }
-            self._maybe_rotate()
+            # Reviewer-round-6 fix 2026-05-02: hold lock through BOTH the
+            # rotation check AND the write. Previously _maybe_rotate
+            # acquired+released its own lock, then log re-acquired, which
+            # left a window where another thread could rotate between us
+            # checking + us writing — could land bytes in a rotated file
+            # or a stale file handle.
             with self._lock:
+                self._maybe_rotate_locked()
                 with self.path.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(entry, separators=(",", ":")) + "\n")
         except Exception:
             pass
 
-    def _maybe_rotate(self) -> None:
-        """Rotate log if it exceeds size threshold.
+    def _maybe_rotate_locked(self) -> None:
+        """Rotate log if it exceeds size threshold. CALLER MUST HOLD LOCK.
 
-        Reviewer B1 fix 2026-05-02: size-check now inside lock so
-        concurrent rotation can't split-write across files.
+        Reviewer-round-6 fix 2026-05-02: lock-acquisition removed from
+        this method since log() now wraps it under the lock. Avoids
+        re-entrant deadlock + closes the rotation race window.
         """
         try:
-            with self._lock:
-                if not self.path.exists():
-                    return
-                size = self.path.stat().st_size
-                if size < self.rotate_at:
-                    return
-                # Find next available rotation slot
-                for n in range(1, 1000):
-                    rotated = self.path.with_suffix(f".jsonl.{n}")
-                    if not rotated.exists():
-                        self.path.rename(rotated)
-                        break
+            if not self.path.exists():
+                return
+            size = self.path.stat().st_size
+            if size < self.rotate_at:
+                return
+            # Find next available rotation slot
+            for n in range(1, 1000):
+                rotated = self.path.with_suffix(f".jsonl.{n}")
+                if not rotated.exists():
+                    self.path.rename(rotated)
+                    break
         except Exception:
             pass
 

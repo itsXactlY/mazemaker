@@ -125,8 +125,13 @@ def main() -> int:
                 f"DELETE FROM memories_fts WHERE rowid IN ({placeholders})",
                 tuple(delete_ids),
             )
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as fts_err:
+            # Reviewer-round-6 fix 2026-05-02: log warning instead of
+            # silent swallow. If FTS5 delete fails, zombie rows persist
+            # and BM25 returns IDs of deleted memories — visible bug if
+            # we don't surface it.
+            print(f"WARN: FTS5 cleanup failed (zombie rows may persist): "
+                  f"{fts_err}", file=sys.stderr)
         conn.commit()
         print(f"  deleted: {deleted_mems} memory rows + "
               f"{deleted_edges_a + deleted_edges_b} connections")

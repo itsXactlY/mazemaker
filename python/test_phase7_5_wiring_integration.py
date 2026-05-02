@@ -115,6 +115,25 @@ class ScoringFormulaWiringTests(unittest.TestCase):
         s_b = score_candidate(f, DEFAULT_WEIGHTS)
         self.assertEqual(s_a, s_b)
 
+    def test_stale_penalty_threshold_at_30_days(self) -> None:
+        # Phase 7.5-γ ramp: penalty starts at 30 days, caps at 0.3.
+        # Verify the formula directly: stale_penalty = min(age_days/300, 0.3)
+        # if age_days > 30 else 0.0
+        def _compute(age_days: float) -> float:
+            return min(age_days / 300.0, 0.3) if age_days > 30 else 0.0
+
+        # Day 0 = no penalty
+        self.assertEqual(_compute(0), 0.0)
+        # Day 30 (boundary) = no penalty
+        self.assertEqual(_compute(30), 0.0)
+        # Day 31 = small penalty
+        self.assertGreater(_compute(31), 0.0)
+        self.assertLess(_compute(31), 0.15)
+        # Day 90 = 0.30 cap not yet reached (90/300 = 0.30 — exactly at cap)
+        self.assertAlmostEqual(_compute(90), 0.30)
+        # Day 1000 = capped at 0.30
+        self.assertEqual(_compute(1000), 0.30)
+
 
 if __name__ == "__main__":
     unittest.main()

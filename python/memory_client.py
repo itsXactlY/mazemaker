@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS connections (
 
 CREATE INDEX IF NOT EXISTS idx_connections_source ON connections(source_id);
 CREATE INDEX IF NOT EXISTS idx_connections_target ON connections(target_id);
+CREATE INDEX IF NOT EXISTS idx_connections_edge_type_source ON connections(edge_type, source_id);
 
 -- H19 Active Contradiction Replacement: archive table for superseded memories.
 -- When supersede fires, the OLD content moves here and the original memories
@@ -1566,7 +1567,7 @@ class NeuralMemory:
                 f"SELECT id, salience, confidence, kind, valid_from, valid_to, "
                 f"       procedural_score, last_reinforced_at, created_at "
                 f"FROM memories WHERE id IN ({placeholders})",
-                tuple(candidate_ids),
+                tuple(sorted(candidate_ids)),
             ).fetchall()
         meta = {r[0]: {"salience": r[1] or 1.0, "confidence": r[2] or 1.0,
                        "kind": r[3], "valid_from": r[4], "valid_to": r[5],
@@ -1593,7 +1594,7 @@ class NeuralMemory:
                         f"WHERE c.edge_type = 'mentions_entity' "
                         f"  AND m.kind = 'entity' "
                         f"  AND c.source_id IN ({placeholders})",
-                        tuple(candidate_ids),
+                        tuple(sorted(candidate_ids)),
                     ).fetchall()
                 cand_entities: dict[int, set[str]] = {}
                 for src_id, ent_label in edge_rows:
@@ -1625,7 +1626,7 @@ class NeuralMemory:
                     f"WHERE edge_type='contradicts' "
                     f"  AND source_id IN ({placeholders}) "
                     f"GROUP BY source_id",
-                    tuple(candidate_ids),
+                    tuple(sorted(candidate_ids)),
                 ).fetchall()
             for src_id, cnt in cedge_rows:
                 contradicts_count_by_id[src_id] = cnt or 0

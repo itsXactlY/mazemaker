@@ -95,6 +95,30 @@ class ProceduralScoreWiringTests(unittest.TestCase):
         )
         self.assertEqual(self._read_score(mid), 0.3)
 
+    def test_legacy_null_procedural_score_recall_path(self) -> None:
+        # Legacy rows (pre-Phase-7.5) have procedural_score=NULL. Verify
+        # hybrid_recall doesn't raise when meta-fetch SELECT pulls NULL —
+        # the feature dataclass should default to 0.0 and the scorer
+        # should still produce a well-formed score.
+        # Insert a legacy row directly via raw SQL (skip remember() so no
+        # auto-default fires).
+        with self.mem.store._lock:
+            self.mem.store.conn.execute(
+                "INSERT INTO memories (label, content, embedding) "
+                "VALUES (?, ?, ?)",
+                ("legacy-row", "legacy procedural content with no score",
+                 b"\x00" * 1536),
+            )
+            self.mem.store.conn.commit()
+        # Call hybrid_recall — must not raise even though one candidate
+        # has NULL procedural_score
+        try:
+            results = self.mem.hybrid_recall("legacy procedural", k=5)
+        except Exception as e:
+            self.fail(f"hybrid_recall raised on legacy NULL row: {e}")
+        # Reaching here = pass. Don't assert specific ranking (depends
+        # on embedder noise), just that the call completed.
+
 
 class SQLiteStorePassThroughTests(unittest.TestCase):
     """Unit: SQLiteStore.store() persists procedural_score column."""

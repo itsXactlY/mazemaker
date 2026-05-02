@@ -243,6 +243,12 @@ def main() -> int:
             # well below the 5,441ms hazard signal observed when
             # benches contend.
             import time as _time
+            # Warmup call — first invocation pays embedder/HNSW init
+            # cost which would skew trial 0. Discarded.
+            try:
+                _ = mem.hybrid_recall(query, k=10)
+            except Exception:
+                pass
             durations_ms = []
             for _ in range(5):
                 t0 = _time.perf_counter()

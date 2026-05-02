@@ -17,11 +17,12 @@ Otherwise falls back to SQLite.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import threading
 import time
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,10 @@ class DreamBackend:
 
     def get_connections(self) -> List[Dict[str, Any]]:
         raise NotImplementedError
+
+    def iter_connections(self) -> Iterator[Dict[str, Any]]:
+        # Default: materialize via get_connections; subclasses can stream.
+        return iter(self.get_connections())
 
     def strengthen_connection(self, source_id: int, target_id: int,
                                delta: float = 0.05) -> None:
@@ -216,16 +221,36 @@ class SQLiteDreamBackend(DreamBackend):
             conn.close()
 
     def get_connections(self) -> List[Dict[str, Any]]:
+        # Materializing helper for legacy callers; new code should prefer
+        # iter_connections() to avoid loading the full graph into memory.
+        return list(self.iter_connections())
+
+    def iter_connections(self) -> Iterator[Dict[str, Any]]:
+        """Stream live connections in 50K-row chunks, filtered by valid_to.
+
+        D6 second-order root cause (Hermes 2026-05-02): the previous
+        fetchall() pulled all 7.7M rows into a Python heap before NREM
+        ran a single comparison. Streaming bounds resident memory and lets
+        NREM start processing immediately. The valid_to IS NULL filter
+        excludes temporal tombstones from the NREM sweep — pruned edges
+        should not be re-weakened on every cycle.
+        """
         conn = self._connect()
         try:
-            rows = conn.execute(
+            cur = conn.execute(
                 "SELECT source_id, target_id, weight FROM connections "
-                "WHERE weight >= 0.05"
-            ).fetchall()
-            return [
-                {"source_id": r["source_id"], "target_id": r["target_id"], "weight": r["weight"]}
-                for r in rows
-            ]
+                "WHERE weight >= 0.05 AND (valid_to IS NULL)"
+            )
+            while True:
+                rows = cur.fetchmany(50000)
+                if not rows:
+                    break
+                for r in rows:
+                    yield {
+                        "source_id": r["source_id"],
+                        "target_id": r["target_id"],
+                        "weight": r["weight"],
+                    }
         finally:
             conn.close()
 
@@ -324,6 +349,12 @@ class SQLiteDreamBackend(DreamBackend):
     def log_connection_change(self, source_id: int, target_id: int,
                                old_weight: float, new_weight: float,
                                reason: str) -> None:
+        # NM_DISABLE_CONN_HISTORY=1 is a substrate-pressure relief valve.
+        # Sonnet investigation 2026-05-02 [verified-now]: zero production
+        # code reads connection_history. With ~7.7M edges per NREM cycle,
+        # the audit log was growing 11M+ rows/day for no consumer.
+        if os.environ.get("NM_DISABLE_CONN_HISTORY") == "1":
+            return
         conn = self._connect()
         try:
             conn.execute(
@@ -333,6 +364,61 @@ class SQLiteDreamBackend(DreamBackend):
                 (source_id, target_id, old_weight, new_weight, reason, time.time())
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    def apply_connection_changes(
+        self,
+        updates: List[Tuple[int, int, float, float, str]],
+        *,
+        prune_threshold: float = 0.05,
+    ) -> int:
+        """Apply NREM edge updates in one SQLite transaction.
+
+        D6 runtime proof showed the scheduled 03:45 dream cycle spending tens of
+        minutes inside SQLite when NREM iterated millions of edges. The hotspot
+        was per-edge connection churn: strengthen/weakens and history logging each
+        opened a fresh SQLite connection and committed individually.
+
+        Keep the fix narrow: batch only the existing per-edge update pattern so a
+        whole NREM pass can use O(1) backend connections instead of O(N).
+        """
+        conn = self._connect()
+        try:
+            if updates:
+                changed_at = time.time()
+                conn.executemany(
+                    "UPDATE connections SET weight = ? WHERE source_id = ? AND target_id = ?",
+                    [
+                        (new_weight, source_id, target_id)
+                        for source_id, target_id, _old_weight, new_weight, _reason in updates
+                    ],
+                )
+                if os.environ.get("NM_DISABLE_CONN_HISTORY") != "1":
+                    conn.executemany(
+                        "INSERT INTO connection_history "
+                        "(source_id, target_id, old_weight, new_weight, reason, changed_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        [
+                            (source_id, target_id, old_weight, new_weight, reason, changed_at)
+                            for source_id, target_id, old_weight, new_weight, reason in updates
+                        ],
+                    )
+
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(connections)")}
+            if "valid_to" in cols:
+                count = conn.execute(
+                    """UPDATE connections SET valid_to = ?
+                       WHERE weight < ? AND valid_to IS NULL""",
+                    (time.time(), prune_threshold),
+                ).rowcount
+            else:
+                count = conn.execute(
+                    "DELETE FROM connections WHERE weight < ?",
+                    (prune_threshold,),
+                ).rowcount
+            conn.commit()
+            return count
         finally:
             conn.close()
 
@@ -458,6 +544,7 @@ class DreamEngine:
         self._last_activity = time.time()
         self._memory_count_at_last_dream = 0
         self._dream_count = 0
+        self._subprocess_jobs: Dict[str, Any] = {}
 
     @classmethod
     def sqlite(cls, db_path: str, neural_memory: Optional[Any] = None, **kwargs) -> 'DreamEngine':
@@ -555,10 +642,12 @@ class DreamEngine:
         runner = (
             "import sys, json, time\n"
             f"sys.path.insert(0, {py_dir!r})\n"
+            "import os\n"
             "from memory_client import NeuralMemory\n"
             "from dream_engine import DreamEngine\n"
-            f"mem = NeuralMemory(db_path={db_path!r}, use_cpp=False)\n"
-            "engine = DreamEngine(mem)\n"
+            "embedding_backend = os.environ.get('NEURAL_MEMORY_EMBED_BACKEND', 'auto')\n"
+            f"mem = NeuralMemory(db_path={db_path!r}, embedding_backend=embedding_backend, use_cpp=False, use_hnsw=False)\n"
+            f"engine = DreamEngine.sqlite({db_path!r}, neural_memory=mem)\n"
             "started = time.time()\n"
             "try:\n"
             "    result = engine._run_dream_cycle()\n"
@@ -568,6 +657,12 @@ class DreamEngine:
             "    result = {}\n"
             "    status = 'error'\n"
             "    error = str(exc)\n"
+            "try:\n"
+            "    mem.close()\n"
+            "except Exception as close_exc:\n"
+            "    if error is None:\n"
+            "        error = 'close failed: ' + str(close_exc)\n"
+            "        status = 'error'\n"
             f"sp = {str(status_path)!r}\n"
             "with open(sp, 'w') as fh:\n"
             "    json.dump({\n"
@@ -578,7 +673,6 @@ class DreamEngine:
             "        'result': result,\n"
             "        'error': error,\n"
             "    }, fh)\n"
-            "mem.close()\n"
         )
 
         # stdout/stderr to /dev/null so subprocess doesn't pipe back
@@ -588,6 +682,7 @@ class DreamEngine:
             stderr=_subprocess.DEVNULL,
             close_fds=True,
         )
+        self._subprocess_jobs[job_id] = proc
         return {
             "job_id": job_id,
             "pid": proc.pid,
@@ -608,7 +703,17 @@ class DreamEngine:
         if not status_path.exists():
             return {"job_id": job_id, "status": "unknown"}
         try:
-            return _json.loads(status_path.read_text())
+            status = _json.loads(status_path.read_text())
+            if status.get("status") in {"complete", "error"}:
+                proc = self._subprocess_jobs.get(job_id)
+                if proc is not None:
+                    try:
+                        proc.wait(timeout=5.0)
+                    except Exception:
+                        pass
+                    if proc.poll() is not None:
+                        self._subprocess_jobs.pop(job_id, None)
+            return status
         except Exception as exc:
             return {"job_id": job_id, "status": "error", "error": str(exc)}
 
@@ -727,32 +832,46 @@ class DreamEngine:
                         pass
                 stats["processed"] += 1
 
-            # Get all connections and update weights
-            all_conns = self._backend.get_connections()
-            now = time.time()
+            # Get all connections and update weights. Stream via
+            # iter_connections() — fetchall() previously pulled all 7.7M
+            # active edges into a 6.7GB Python heap before any work began.
+            updates: List[Tuple[int, int, float, float, str]] = []
 
-            for conn in all_conns:
+            for conn in self._backend.iter_connections():
                 src, tgt = conn["source_id"], conn["target_id"]
                 key = (min(src, tgt), max(src, tgt))
 
                 if key in activated_edges:
                     old_w = conn["weight"]
-                    self._backend.strengthen_connection(src, tgt, 0.05)
-                    self._backend.log_connection_change(
-                        src, tgt, old_w, min(old_w + 0.05, 1.0), "nrem_strengthen"
-                    )
+                    updates.append((src, tgt, old_w, min(old_w + 0.05, 1.0), "nrem_strengthen"))
                     stats["strengthened"] += 1
                 else:
                     old_w = conn["weight"]
                     if old_w > 0.05:
-                        self._backend.weaken_connection(src, tgt, 0.01)
-                        self._backend.log_connection_change(
-                            src, tgt, old_w, max(old_w - 0.01, 0.0), "nrem_weaken"
-                        )
+                        updates.append((src, tgt, old_w, max(old_w - 0.01, 0.0), "nrem_weaken"))
                         stats["weakened"] += 1
 
-            # Prune dead connections
-            stats["pruned"] = self._backend.prune_weak(0.05)
+            # D6 runtime proof on the live 03:45 scheduler showed that opening a
+            # fresh SQLite connection + commit per edge turns NREM into a giant
+            # SQLite hot loop once the graph reaches millions of connections.
+            # Batch the exact same edge updates into one backend transaction when
+            # the backend supports it, but preserve the old step-by-step path for
+            # other backends.
+            if hasattr(self._backend, "apply_connection_changes"):
+                stats["pruned"] = self._backend.apply_connection_changes(
+                    updates,
+                    prune_threshold=0.05,
+                )
+            else:
+                for src, tgt, old_w, new_w, reason in updates:
+                    delta = new_w - old_w
+                    if delta > 0:
+                        self._backend.strengthen_connection(src, tgt, delta)
+                    else:
+                        self._backend.weaken_connection(src, tgt, abs(delta))
+                    self._backend.log_connection_change(src, tgt, old_w, new_w, reason)
+                # Prune dead connections
+                stats["pruned"] = self._backend.prune_weak(0.05)
 
             self._backend.finish_session(session_id, stats)
 
@@ -828,19 +947,22 @@ class DreamEngine:
         session_id = self._backend.start_session("insight")
 
         try:
-            edges = self._backend.get_connections()
-            if not edges:
-                return stats
-
-            # Build adjacency
+            # Stream once into adjacency; community detection still needs the
+            # full edge list, but we avoid the second materialization that
+            # the previous (edges = get_connections() then iterate) pattern
+            # implied.
+            edges: List[Dict[str, Any]] = []
             adj: Dict[int, List[Tuple[int, float]]] = defaultdict(list)
             nodes = set()
-            for e in edges:
+            for e in self._backend.iter_connections():
+                edges.append(e)
                 s, t, w = e["source_id"], e["target_id"], e["weight"]
                 adj[s].append((t, w))
                 adj[t].append((s, w))
                 nodes.add(s)
                 nodes.add(t)
+            if not edges:
+                return stats
 
             # Community detection: Louvain (modularity-optimized) with BFS fallback.
             # Louvain finds denser sub-structure inside connected components, which

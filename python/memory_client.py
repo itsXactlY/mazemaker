@@ -103,6 +103,11 @@ CREATE TABLE IF NOT EXISTS connections (
 CREATE INDEX IF NOT EXISTS idx_connections_source ON connections(source_id);
 CREATE INDEX IF NOT EXISTS idx_connections_target ON connections(target_id);
 CREATE INDEX IF NOT EXISTS idx_connections_edge_type_source ON connections(edge_type, source_id);
+-- D6 second-order fix (Hermes diagnosis 2026-05-02): NREM does point updates
+-- of the form `WHERE source_id = ? AND target_id = ?` against ~7.7M rows. The
+-- existing single-column indexes force B-tree movement on every UPDATE. The
+-- composite index turns each point update into a direct lookup.
+CREATE INDEX IF NOT EXISTS idx_connections_pair ON connections(source_id, target_id);
 
 -- H19 Active Contradiction Replacement: archive table for superseded memories.
 -- When supersede fires, the OLD content moves here and the original memories

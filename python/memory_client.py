@@ -355,6 +355,58 @@ class SQLiteStore:
             })
         return out
 
+    def get_connections_batch(
+        self,
+        node_ids,
+        at_time: Optional[float] = None,
+        include_expired: bool = False,
+    ) -> dict:
+        """Batched version of get_connections — single SQL for many nodes.
+
+        Returns {node_id: [edges]}. Each edge dict mirrors get_connections.
+
+        Caught 2026-05-02 via AccessLogger telemetry: graph_search BFS at
+        hops=2 was calling get_connections per-node-per-hop, generating
+        2,500+ SQL round-trips for long abstract queries (181s observed
+        wall time). Batching collapses to ~1 query per BFS level.
+        """
+        import time as _time
+        node_ids = list(node_ids)
+        if not node_ids:
+            return {}
+        placeholders = ",".join("?" * len(node_ids))
+        params = tuple(node_ids) + tuple(node_ids)
+        rows = self.conn.execute(
+            f"""SELECT source_id, target_id, weight, edge_type,
+                       event_time, ingestion_time, valid_from, valid_to
+                FROM connections
+                WHERE source_id IN ({placeholders})
+                   OR target_id IN ({placeholders})
+                ORDER BY weight DESC""",
+            params,
+        ).fetchall()
+        now = at_time if at_time is not None else _time.time()
+        out: dict = {nid: [] for nid in node_ids}
+        node_set = set(node_ids)
+        for r in rows:
+            vf, vt = r[6], r[7]
+            if not include_expired:
+                if vf is not None and now < vf:
+                    continue
+                if vt is not None and now > vt:
+                    continue
+            edge = {
+                'source': r[0], 'target': r[1], 'weight': r[2], 'type': r[3],
+                'event_time': r[4], 'ingestion_time': r[5],
+                'valid_from': vf, 'valid_to': vt,
+            }
+            # Distribute edge to whichever endpoint(s) is in our requested set
+            if r[0] in node_set:
+                out[r[0]].append(edge)
+            if r[1] in node_set and r[1] != r[0]:
+                out[r[1]].append(edge)
+        return out
+
     def set_edges_valid_to(self, node_id: int, ts: float,
                            edge_type: Optional[str] = None) -> int:
         """H3/H6: mark all currently-valid edges touching node_id as expired at ts.
@@ -1007,37 +1059,53 @@ class NeuralMemory:
         # traversal (e.g., partially-constructed entries from a future
         # cross-encoder rerank step).
         activation: dict[int, float] = {}
+        # Initialize activation + per-seed initial frontier in one pass.
+        # Per-2026-05-02 perf fix: rewrote BFS to BATCH get_connections per
+        # hop level instead of per-node. Was 2,500+ SQL queries for hops=2
+        # on long abstract queries (181s observed). Now ~1 query per hop.
+        per_seed_frontiers: list[dict[int, float]] = []
         for seed in seeds:
             sid = seed.get('id')
             if sid is None:
                 continue
             base = float(seed.get('similarity', seed.get('combined', 0.5)))
             activation[sid] = max(activation.get(sid, 0.0), base)
+            per_seed_frontiers.append({sid: base})
 
-            # BFS up to `hops` levels
-            frontier = {sid: base}
-            for _ in range(hops):
-                next_frontier: dict[int, float] = {}
-                for node_id, node_act in frontier.items():
-                    try:
-                        edges = self.store.get_connections(node_id)
-                    except Exception:
+        # Merge all seed frontiers into one global frontier per BFS level
+        # (each node carries its max activation seen so far). This collapses
+        # N seeds × per-node SQL into a single batched fetch per level.
+        global_frontier: dict[int, float] = {}
+        for f in per_seed_frontiers:
+            for nid, act in f.items():
+                if act > global_frontier.get(nid, 0.0):
+                    global_frontier[nid] = act
+
+        for _ in range(hops):
+            if not global_frontier:
+                break
+            try:
+                edges_by_node = self.store.get_connections_batch(
+                    list(global_frontier.keys())
+                )
+            except Exception:
+                edges_by_node = {}
+            next_frontier: dict[int, float] = {}
+            for node_id, node_act in global_frontier.items():
+                for edge in edges_by_node.get(node_id, []):
+                    src = edge.get('source')
+                    tgt = edge.get('target')
+                    if src is None or tgt is None:
                         continue
-                    for edge in edges:
-                        src = edge.get('source')
-                        tgt = edge.get('target')
-                        if src is None or tgt is None:
-                            continue
-                        other = tgt if src == node_id else src
-                        # get_connections() returns dict key 'type' (NOT 'edge_type')
-                        et = edge.get('type') or edge.get('edge_type') or 'semantic_similar_to'
-                        w = weights.get(et, 0.3)  # unknown edge-type baseline weight
-                        new_act = node_act * w * 0.7  # 0.7 = damping factor
-                        if new_act > next_frontier.get(other, 0.0):
-                            next_frontier[other] = new_act
-                        if new_act > activation.get(other, 0.0):
-                            activation[other] = new_act
-                frontier = next_frontier
+                    other = tgt if src == node_id else src
+                    et = edge.get('type') or edge.get('edge_type') or 'semantic_similar_to'
+                    w = weights.get(et, 0.3)
+                    new_act = node_act * w * 0.7  # 0.7 damping
+                    if new_act > next_frontier.get(other, 0.0):
+                        next_frontier[other] = new_act
+                    if new_act > activation.get(other, 0.0):
+                        activation[other] = new_act
+            global_frontier = next_frontier
 
         # Rank by accumulated activation. Seeds remain in results — nodes
         # that are BOTH semantically similar AND graph-reachable get the

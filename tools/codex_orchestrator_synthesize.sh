@@ -167,9 +167,24 @@ RC=${PIPESTATUS[0]}
 # Update current-state symlink
 ln -sf "$NEW_STATE" "${STATE_DIR}/current-state.md.tmp" && mv "${STATE_DIR}/current-state.md.tmp" "$PREV_STATE"
 
-# Extract escalations (if any) — section between '## ESCALATIONS' and end of file
-ESCALATIONS=$(awk '/^## ESCALATIONS$/{flag=1; next} flag' "$NEW_STATE" | sed '/^None — routine synthesis\.?$/d' | head -c 4000)
-ESCALATION_COUNT=$(echo "$ESCALATIONS" | grep -cE '^[-*0-9]' 2>/dev/null || echo 0)
+# Extract escalations — find LAST occurrence of '## ESCALATIONS' marker
+# (the prompt itself echoes the marker; we need codex's ACTUAL output which
+# is always after the prompt echo). Bug caught by orchestrator first
+# escalation post 2026-05-02 — was generating false-positive 17-item esc.
+ESC_LINE=$(grep -n '^## ESCALATIONS$' "$NEW_STATE" 2>/dev/null | tail -1 | cut -d: -f1)
+if [ -n "$ESC_LINE" ]; then
+    ESCALATIONS=$(tail -n +$((ESC_LINE+1)) "$NEW_STATE" \
+        | sed '/^None — routine synthesis\.?$/d' \
+        | sed '/^---$/,$d' \
+        | sed '/^\*\*Exit/,$d' \
+        | head -c 4000)
+else
+    ESCALATIONS=""
+fi
+# Count actual escalation items (lines starting with - or * or digit-dot)
+# Filter out lines that look like criteria/instructions (e.g., contain 'criteria')
+ESCALATION_COUNT=$(echo "$ESCALATIONS" | grep -cE '^[-*]\s|^[0-9]+\.\s' 2>/dev/null | tr -d ' \n' || echo 0)
+[ -z "$ESCALATION_COUNT" ] && ESCALATION_COUNT=0
 
 # Bridge FYI (always sent, low urgency)
 if [ -x "$(command -v node)" ] && [ -f "$BRIDGE_CLI" ]; then

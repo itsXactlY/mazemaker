@@ -206,7 +206,7 @@ fi
 # Bridge FYI
 if [ -x "$(command -v node)" ] && [ -f "$BRIDGE_CLI" ]; then
     node "$BRIDGE_CLI" send \
-        --from "codex-project-analyzer" \
+        --from "codex-project-analyzer-nm" \
         --to "claude-code-${LANE}" \
         --subject "project-analyzer: primer refreshed (lane=${LANE}, exit=${RC})" \
         --body "Primer file: ${PRIMER}

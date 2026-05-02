@@ -1366,13 +1366,21 @@ class NeuralMemory:
         
         return False
     
-    def _maybe_rerank(self, query: str, candidates: list[dict]) -> list[dict]:
+    def _maybe_rerank(self, query: str, candidates: list[dict],
+                      force: bool = False) -> list[dict]:
         """Cross-encoder rerank of a candidate set. No-op if disabled or model unavailable.
 
         Candidates must carry 'content' (string). Preserves all other fields and
         adds 'rerank_score'. Re-sorts by rerank_score descending.
+
+        Caught 2026-05-01: previously gated only on self._rerank, so
+        callers passing rerank=True per-call (like the AE-domain bench
+        harness) had their kwarg silently ignored. force=True overrides
+        the instance flag and lets per-call rerank requests through.
         """
-        if not self._rerank or not candidates:
+        if not candidates:
+            return candidates
+        if not (force or self._rerank):
             return candidates
         try:
             if self._rerank_model is None:
@@ -1789,7 +1797,8 @@ class NeuralMemory:
                     row["_combined"] = _final
                     top_candidates.append(row)
             if top_candidates:
-                top_candidates = self._maybe_rerank(query, top_candidates)
+                top_candidates = self._maybe_rerank(query, top_candidates,
+                                                   force=use_rerank)
                 # Splice reranked top back into scored in their new order
                 reranked_ids = [c["id"] for c in top_candidates]
                 tail_ids = [t[0] for t in scored[top_n:]]

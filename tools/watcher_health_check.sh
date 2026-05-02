@@ -165,7 +165,7 @@ else
 fi
 
 # 9. Codex TODO sweep cron (daily; allow 36h staleness — same as archaeology)
-F="${HOME}/.neural_memory/logs/codex-todo-sweep.stdout.log"
+F="${HOME}/.neural_memory/logs/aor-codex-todo-sweep.stdout.log"
 A=$(mtime_age "$F")
 if [ "$A" -lt 0 ]; then
     HEALTHY+=("codex-todo-sweep (not yet fired — first run pending)")
@@ -195,7 +195,7 @@ else
 fi
 
 # 7. Codex archaeology cron (daily; allow 36h staleness)
-F="${HOME}/.neural_memory/logs/codex-archaeology.stdout.log"
+F="${HOME}/.neural_memory/logs/aor-codex-archaeology.stdout.log"
 A=$(mtime_age "$F")
 if [ "$A" -lt 0 ]; then
     HEALTHY+=("codex-archaeology (not yet fired — first run pending)")

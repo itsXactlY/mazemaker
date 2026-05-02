@@ -75,7 +75,14 @@ while true; do
             echo "$NOW" > "$LAST_FIRE_F"
             echo "$CUR_HEAD" > "$LAST_HEAD_F"
         else
-            log "FAILED — preserving change signals for next tick"
+            # Write LAST_FIRE_F=$NOW even on failure so MIN_INTERVAL gates retries.
+            # Bug caught by Sonnet hostile-reviewer 2026-05-02 — without this, persistent
+            # failures (codex auth issue, transient API error) refire every $POLL tick
+            # bypassing $MIN_INTERVAL and burning API budget continuously.
+            # LAST_HEAD_F NOT updated — preserves the change signal for next tick to
+            # retry on the same content (so we still attempt the failed work).
+            echo "$NOW" > "$LAST_FIRE_F"
+            log "FAILED — change signal preserved (LAST_HEAD unchanged), next retry gated by MIN_INTERVAL"
         fi
     fi
 

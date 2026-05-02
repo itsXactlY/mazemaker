@@ -1637,19 +1637,22 @@ class NeuralMemory:
         # entity_score.
         locus_score_by_id: dict[int, float] = {}
         try:
+            # Single lock acquisition matching β/δ patterns (per round-5
+            # reviewer cross-cutting findings).
             with self.store._lock:
                 locus_rows = self.store.conn.execute(
                     "SELECT id, label FROM memories WHERE kind='locus'"
                 ).fetchall()
-            if locus_rows:
-                query_lower = query.lower()
-                matching_locus_ids = {
-                    lid for lid, label in locus_rows
-                    if label and label.lower() in query_lower
-                }
-                if matching_locus_ids:
-                    locus_placeholders = ",".join("?" * len(matching_locus_ids))
-                    with self.store._lock:
+                if locus_rows:
+                    query_lower = query.lower()
+                    matching_locus_ids = {
+                        lid for lid, label in locus_rows
+                        if label and label.lower() in query_lower
+                    }
+                    if matching_locus_ids:
+                        locus_placeholders = ",".join(
+                            "?" * len(matching_locus_ids)
+                        )
                         loc_edge_rows = self.store.conn.execute(
                             f"SELECT source_id FROM connections "
                             f"WHERE edge_type='located_in' "
@@ -1658,8 +1661,8 @@ class NeuralMemory:
                             tuple(sorted(candidate_ids))
                             + tuple(sorted(matching_locus_ids)),
                         ).fetchall()
-                    for (src_id,) in loc_edge_rows:
-                        locus_score_by_id[src_id] = 1.0
+                        for (src_id,) in loc_edge_rows:
+                            locus_score_by_id[src_id] = 1.0
         except Exception as exc:
             import logging
             logging.getLogger(__name__).debug(

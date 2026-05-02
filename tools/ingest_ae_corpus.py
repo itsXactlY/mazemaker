@@ -42,6 +42,40 @@ _CLAUDE_MEMORY = Path("/Users/tito/.claude/projects/-Users-tito/memory")
 _VALIENDO_HANDOFFS = Path("/Users/tito/.hermes/artifacts/valiendo/handoffs")
 _BRIDGE_AGENTS_DIR = Path("/Users/tito/.hermes/agent-bridge/agents")  # bridge inbox.jsonl per agent
 
+# Per Tito 2026-05-02: extended ingest scope to AE personal/business stores.
+# Substrate was AE-narrow; expanding makes it actually omniscient for AE.
+_ONEDRIVE_ROOT = Path(
+    "/Users/tito/Library/CloudStorage/OneDrive-Personal/:ONEDRIVE:"
+)
+# Only walk these OneDrive subdirs (rest is binaries/archives/photos)
+_ONEDRIVE_WALK_SUBDIRS = (
+    "_REFERENCE/SOPs_V2",
+    "_PROJECTS/FINANCIAL AGENT/FINANCE",
+    "_OPERATIONS",
+    "_WORKFLOW SOP",
+)
+
+_GDRIVE_ROOT = Path(
+    "/Users/tito/Library/CloudStorage/GoogleDrive-ernesto@angels-electric.com/My Drive"
+)
+# GDrive root is huge; just take handoff/quickstart/SOP-shaped files
+_GDRIVE_INCLUDE_PATTERNS = (
+    re.compile(r"handoff", re.IGNORECASE),
+    re.compile(r"quickstart", re.IGNORECASE),
+    re.compile(r"SOP", re.IGNORECASE),
+    re.compile(r"closeout", re.IGNORECASE),
+)
+
+# Apr 27 archaeologist findings (vault-ingested distillation of older work)
+_VAULT_ARCHAEOLOGY = Path(
+    "/Users/tito/.obsidian/obsidian-vaults/ae-ai-vault-hub/10 Mirror Reviews/historical-context-archaeologist"
+)
+
+# HD price catalog — JSON dump of materials Tito buys most
+_HD_PRICE_CATALOG = Path(
+    "/Users/tito/lWORKSPACEl/Projects/AngelsElectric/LangGraph/data/hd_price_catalog.json"
+)
+
 # Bridge messages: limit to last N days to avoid pulling stale history
 _BRIDGE_MAX_AGE_DAYS = 60
 
@@ -184,6 +218,58 @@ def _gather_sources() -> list[dict]:
                 "default_kind": _kind_for_memory_file(name),
                 "origin_system": "claude_memory",
             })
+
+    # OneDrive AE personal/business knowledge (per Tito 2026-05-02 directive)
+    # Only walk specific subdirs (rest is binaries/photos/zips).
+    if _ONEDRIVE_ROOT.exists():
+        for sub in _ONEDRIVE_WALK_SUBDIRS:
+            sub_root = _ONEDRIVE_ROOT / sub
+            if not sub_root.exists():
+                continue
+            for ext in ("*.md", "*.txt", "*.json", "*.csv"):
+                for p in sub_root.rglob(ext):
+                    if p.name.startswith("."):
+                        continue
+                    sources.append({
+                        "path": p,
+                        "source_label": "onedrive_" + sub.split("/")[0].lower().lstrip("_"),
+                        "default_kind": "world",  # SOPs / references
+                        "origin_system": "ae",
+                    })
+
+    # Google Drive — handoffs / quickstarts / SOPs / closeouts only
+    if _GDRIVE_ROOT.exists():
+        for ext in ("*.md", "*.txt"):
+            for p in _GDRIVE_ROOT.glob(ext):
+                if p.name.startswith("."):
+                    continue
+                if not any(pat.search(p.name) for pat in _GDRIVE_INCLUDE_PATTERNS):
+                    continue
+                sources.append({
+                    "path": p,
+                    "source_label": "gdrive_handoffs",
+                    "default_kind": "experience",
+                    "origin_system": "ae",
+                })
+
+    # Apr 27 archaeologist findings (vault distillation of older-context work)
+    if _VAULT_ARCHAEOLOGY.exists():
+        for p in sorted(_VAULT_ARCHAEOLOGY.glob("*.md")):
+            sources.append({
+                "path": p,
+                "source_label": "vault_archaeology",
+                "default_kind": "world",
+                "origin_system": "ae",
+            })
+
+    # HD price catalog (materials Tito buys most — JSON dump)
+    if _HD_PRICE_CATALOG.exists():
+        sources.append({
+            "path": _HD_PRICE_CATALOG,
+            "source_label": "hd_price_catalog",
+            "default_kind": "world",  # reference data
+            "origin_system": "ae",
+        })
 
     return sources
 

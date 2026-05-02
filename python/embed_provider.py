@@ -21,12 +21,17 @@ DIMENSION = 384  # all-MiniLM-L6-v2 output dim
 # ============================================================================
 
 class SentenceTransformerBackend:
-    """Uses sentence-transformers (all-MiniLM-L6-v2, 384d, ~80MB)
-    
+    """Uses sentence-transformers (all-MiniLM-L6-v2 default, 384d, ~80MB)
+
     Singleton: model loaded once and shared across all instances.
     Cached locally at ~/.neural_memory/models/.
+
+    Override via NM_EMBED_MODEL env var. The MODEL_NAME class attr is the
+    fallback only; ablation work (e.g. bge-small-en-v1.5) sets the env.
+    Per Sonnet upgrade-scout 2026-05-02: bge-small-en-v1.5 is the safest
+    canary (384-dim drop-in, MTEB nDCG@10 51.68 vs MiniLM ~44-46).
     """
-    MODEL_NAME = 'all-MiniLM-L6-v2'
+    MODEL_NAME = os.environ.get('NM_EMBED_MODEL', 'all-MiniLM-L6-v2')
     _shared_model = None
     _shared_dim = 384
     

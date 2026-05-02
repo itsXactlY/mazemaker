@@ -76,6 +76,31 @@ _HD_PRICE_CATALOG = Path(
     "/Users/tito/lWORKSPACEl/Projects/AngelsElectric/LangGraph/data/hd_price_catalog.json"
 )
 
+# Archaeology round-6 2026-05-02: high-value AE data not in substrate.
+# Adds ~250 memories (V32 schema 5 + checkpoints 56 + amperage 186 + permits ~40).
+
+# V32 SQL migrations — schema-as-knowledge + 23 IL municipality seed
+_LANGGRAPH_MIGRATIONS = Path(
+    "/Users/tito/lWORKSPACEl/Projects/AngelsElectric/LangGraph/scripts/migrations"
+)
+
+# Context-kernel checkpoints — durable cross-lane decision trail
+_KERNEL_CHECKPOINTS = Path(
+    "/Users/tito/lWORKSPACEl/Projects/AngelsElectric/LangGraph/context-kernel/checkpoints"
+)
+
+# Amperage invoice lines — per-line SKU + qty + price + job + invoice date
+# (mirrors HD per-SKU pattern; complements HD catalog with actual purchases)
+_AMPERAGE_INVOICES = Path(
+    "/Users/tito/lWORKSPACEl/Projects/AngelsElectric/LangGraph/data/materials/amperage_invoice_lines.jsonl"
+)
+
+# OneDrive PERMITS/COIs/Bonds — filename-only manifest (no PDF body until OCR
+# wired). Gives substrate awareness "X exists at path Y" for retrieval.
+_ONEDRIVE_PERMITS = Path(
+    "/Users/tito/Library/CloudStorage/OneDrive-Personal/:ONEDRIVE:/_OPERATIONS/PERMITS"
+)
+
 # Bridge messages: limit to last N days to avoid pulling stale history
 _BRIDGE_MAX_AGE_DAYS = 60
 
@@ -230,6 +255,100 @@ def _chunk_hd_catalog(path: Path) -> list[dict]:
     return chunks
 
 
+def _chunk_amperage_invoices(path: Path) -> list[dict]:
+    """Per-line chunking for amperage_invoice_lines.jsonl.
+
+    Each line is one invoice line: SKU + qty + price + job_name + invoice
+    date + source_pdf. Mirrors HD per-SKU pattern but for actual purchases
+    (HD catalog = "what we've bought", Amperage = "actual line items").
+    """
+    chunks: list[dict] = []
+    try:
+        mtime = path.stat().st_mtime
+        with path.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except Exception:
+                    continue
+                sku = item.get("product_code", "?")
+                desc = item.get("description", "")
+                qty = item.get("qty_shipped", item.get("qty_ordered", "?"))
+                price = item.get("unit_price", "?")
+                ext = item.get("extension", "?")
+                inv = item.get("invoice_no", "?")
+                inv_date = item.get("invoice_date", "?")
+                job = item.get("job_name", "?")
+                src_pdf = item.get("source_pdf", "?")
+                if not desc and not sku:
+                    continue
+                body = (
+                    f"Amperage invoice line — {sku}: {desc}\n"
+                    f"  Qty: {qty}  Unit price: ${price}  Extension: ${ext}\n"
+                    f"  Invoice: {inv} ({inv_date})\n"
+                    f"  Job: {job}\n"
+                    f"  Source PDF: {src_pdf}"
+                )
+                chunks.append({
+                    "path": path,
+                    "source_label": "amperage_invoices",
+                    "default_kind": "world",
+                    "origin_system": "ae",
+                    "heading": f"Amperage {sku}: {desc[:60]}",
+                    "body": body,
+                    "content_hash": _content_hash(body),
+                    "mtime": mtime,
+                })
+    except Exception as e:
+        print(f"  skip amperage_invoices: {e}", file=sys.stderr)
+    return chunks
+
+
+def _chunk_permits_manifest(path: Path) -> list[dict]:
+    """Filename-only manifest of PERMITS/COIs/Bonds PDFs.
+
+    Walks the OneDrive PERMITS dir + emits one memory per PDF — captures
+    "this permit/COI/bond exists at path X" without OCRing the body.
+    Lets retrieval surface "Naperville COI" → file path even before
+    PDF extraction lands.
+    """
+    chunks: list[dict] = []
+    try:
+        for pdf in sorted(path.rglob("*.pdf")):
+            if pdf.name.startswith("."):
+                continue
+            try:
+                mtime = pdf.stat().st_mtime
+                size = pdf.stat().st_size
+            except Exception:
+                continue
+            rel = pdf.relative_to(path)
+            body = (
+                f"AE permit/COI/bond document: {pdf.name}\n"
+                f"  Path: {rel}\n"
+                f"  Full path: {pdf}\n"
+                f"  Size: {size} bytes\n"
+                f"  Modified: {mtime}\n"
+                f"  (Body not OCR'd — filename + path only)"
+            )
+            chunks.append({
+                "path": pdf,
+                "source_label": "onedrive_permits_manifest",
+                "default_kind": "world",
+                "origin_system": "ae",
+                "heading": f"Permit doc: {pdf.name}",
+                "body": body,
+                "content_hash": _content_hash(body),
+                "mtime": mtime,
+            })
+    except Exception as e:
+        print(f"  skip permits_manifest: {e}", file=sys.stderr)
+    return chunks
+
+
 def _kind_for_memory_file(name: str) -> str:
     for prefix, kind in _MEMORY_PREFIX_TO_KIND.items():
         if name.startswith(prefix):
@@ -348,6 +467,42 @@ def _gather_sources() -> list[dict]:
             "path": _HD_PRICE_CATALOG,
             "source_label": "hd_price_catalog",
             "default_kind": "world",  # reference data
+            "origin_system": "ae",
+        })
+
+    # Archaeology round-6 2026-05-02: V32 SQL migrations + checkpoints +
+    # amperage + permits manifest.
+    if _LANGGRAPH_MIGRATIONS.exists():
+        for p in sorted(_LANGGRAPH_MIGRATIONS.glob("*.sql")):
+            sources.append({
+                "path": p,
+                "source_label": "langgraph_migrations",
+                "default_kind": "world",  # schema-as-knowledge
+                "origin_system": "ae",
+            })
+
+    if _KERNEL_CHECKPOINTS.exists():
+        for p in sorted(_KERNEL_CHECKPOINTS.glob("*.jsonl")):
+            sources.append({
+                "path": p,
+                "source_label": "kernel_checkpoints",
+                "default_kind": "experience",  # decisions / state events
+                "origin_system": "ae",
+            })
+
+    if _AMPERAGE_INVOICES.exists():
+        sources.append({
+            "path": _AMPERAGE_INVOICES,
+            "source_label": "amperage_invoices",
+            "default_kind": "world",  # purchase records
+            "origin_system": "ae",
+        })
+
+    if _ONEDRIVE_PERMITS.exists():
+        sources.append({
+            "path": _ONEDRIVE_PERMITS,
+            "source_label": "onedrive_permits_manifest",
+            "default_kind": "world",  # filename-manifest of permit/COI/bond PDFs
             "origin_system": "ae",
         })
 
@@ -502,6 +657,20 @@ def main() -> int:
         # case its JSON structure: walk items[] + emit per-SKU memories.
         if src["source_label"] == "hd_price_catalog":
             for chunk in _chunk_hd_catalog(path):
+                chunk_inventory.append(chunk)
+                total_chunks += 1
+            continue
+
+        # Archaeology round-6 2026-05-02: per-line amperage invoices.
+        if src["source_label"] == "amperage_invoices":
+            for chunk in _chunk_amperage_invoices(path):
+                chunk_inventory.append(chunk)
+                total_chunks += 1
+            continue
+
+        # Archaeology round-6 2026-05-02: filename-only PERMITS manifest.
+        if src["source_label"] == "onedrive_permits_manifest":
+            for chunk in _chunk_permits_manifest(path):
                 chunk_inventory.append(chunk)
                 total_chunks += 1
             continue

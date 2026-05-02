@@ -91,6 +91,33 @@ class DreamNremBatchingTests(unittest.TestCase):
         )
 
 
+    def test_iter_connections_works_on_legacy_schema_without_valid_to(self) -> None:
+        """Pre-bi-temporal DBs lack valid_to; iter_connections must still work.
+        Caught by per-commit reviewer 8b26966 — original SQL hard-required the
+        column, would crash on legacy substrates with `no such column: valid_to`.
+        """
+        # Drop the valid_to column to simulate legacy schema. SQLite < 3.35
+        # doesn't support DROP COLUMN, so use a CREATE...AS SELECT trick.
+        with self.mem.store._lock:
+            self.mem.store.conn.executescript("""
+                CREATE TABLE connections_legacy AS
+                    SELECT id, source_id, target_id, weight, edge_type, created_at
+                    FROM connections;
+                DROP TABLE connections;
+                ALTER TABLE connections_legacy RENAME TO connections;
+            """)
+            self.mem.store.conn.execute(
+                "INSERT INTO connections (source_id, target_id, weight) VALUES (1, 2, 0.8)"
+            )
+            self.mem.store.conn.commit()
+
+        backend = self.engine._backend
+        rows = list(backend.iter_connections())
+        self.assertGreater(
+            len(rows), 0,
+            "iter_connections must yield rows on legacy schema (no valid_to)",
+        )
+
     def test_phase_nrem_skips_connection_history_when_disabled(self) -> None:
         """NM_DISABLE_CONN_HISTORY=1 must short-circuit history INSERTs.
 

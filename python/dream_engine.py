@@ -234,13 +234,23 @@ class SQLiteDreamBackend(DreamBackend):
         NREM start processing immediately. The valid_to IS NULL filter
         excludes temporal tombstones from the NREM sweep — pruned edges
         should not be re-weakened on every cycle.
+
+        Defensive fallback: pre-bi-temporal DBs lack valid_to. Query
+        without the filter on those (per-commit-reviewer 8b26966).
         """
         conn = self._connect()
         try:
-            cur = conn.execute(
-                "SELECT source_id, target_id, weight FROM connections "
-                "WHERE weight >= 0.05 AND (valid_to IS NULL)"
+            has_valid_to = any(
+                r[1] == "valid_to"
+                for r in conn.execute("PRAGMA table_info(connections)")
             )
+            if has_valid_to:
+                sql = ("SELECT source_id, target_id, weight FROM connections "
+                       "WHERE weight >= 0.05 AND valid_to IS NULL")
+            else:
+                sql = ("SELECT source_id, target_id, weight FROM connections "
+                       "WHERE weight >= 0.05")
+            cur = conn.execute(sql)
             while True:
                 rows = cur.fetchmany(50000)
                 if not rows:

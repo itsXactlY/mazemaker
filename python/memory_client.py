@@ -1565,7 +1565,8 @@ class NeuralMemory:
         with self.store._lock:
             rows = self.store.conn.execute(
                 f"SELECT id, salience, confidence, kind, valid_from, valid_to, "
-                f"       procedural_score, last_reinforced_at, created_at "
+                f"       procedural_score, last_reinforced_at, last_accessed, "
+                f"       created_at "
                 f"FROM memories WHERE id IN ({placeholders})",
                 tuple(sorted(candidate_ids)),
             ).fetchall()
@@ -1573,7 +1574,8 @@ class NeuralMemory:
                        "kind": r[3], "valid_from": r[4], "valid_to": r[5],
                        "procedural_score": r[6] or 0.0,
                        "last_reinforced_at": r[7],
-                       "created_at": r[8]}
+                       "last_accessed": r[8],
+                       "created_at": r[9]}
                 for r in rows}
 
         # ---- Phase 7.5-β: per-candidate entity_score ------------------
@@ -1665,11 +1667,20 @@ class NeuralMemory:
             m = meta.get(cid, {})
             # Phase 7.5-γ: stale_penalty for memories not reinforced/accessed
             # in a long time. Mild discount; capped at 0.3 to avoid
-            # dominating the formula. Uses last_reinforced_at if set,
-            # else falls back to created_at. Caught 2026-05-01: scoring's
-            # stale_penalty was always 0 because the call site never
-            # computed it.
-            ref_ts = m.get("last_reinforced_at") or m.get("created_at") or 0.0
+            # dominating the formula. Reference timestamp priority:
+            #   1. last_reinforced_at (Phase 7 column; not yet written by
+            #      production paths but ready for future reinforcement
+            #      tracking)
+            #   2. last_accessed (updated by SQLiteStore.get() on every
+            #      retrieval — measures "haven't been queried recently")
+            #   3. created_at (fresh-row fallback)
+            # This means stale_penalty currently approximates "haven't
+            # been read in N days" — semantically correct for stale
+            # memories that aren't being touched anymore.
+            ref_ts = (m.get("last_reinforced_at")
+                      or m.get("last_accessed")
+                      or m.get("created_at")
+                      or 0.0)
             try:
                 age_days = max((time.time() - float(ref_ts)) / 86400.0, 0.0)
             except (TypeError, ValueError):

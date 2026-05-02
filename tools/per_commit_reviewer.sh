@@ -73,7 +73,9 @@ Look for:
 4. Performance concerns — new SQL, new loops, unbounded growth
 5. Inconsistency with existing Phase 7.5 wiring patterns (α/β/γ/δ/ε)
 
-Output your report as markdown to stdout. Begin with '# Review: ${SHORT} — ${SUBJECT}' as h1. Under 200 words. [verified-now] tag for confirmed issues. file_path:line cites. Be terse and evidence-grounded. Don't manufacture findings — if commit is clean, say PASS in one line."
+Output your report as markdown to stdout. Begin with '# Review: ${SHORT} — ${SUBJECT}' as h1. Under 200 words. [verified-now] tag for confirmed issues. file_path:line cites. Be terse and evidence-grounded. Don't manufacture findings — if commit is clean, say PASS in one line.
+
+After your review, if the commit added new BEHAVIOR (function, branch, edge case) without adding a test, append a '## SUGGESTED TESTS' section with 1-3 unittest-style test stubs that would cover the new behavior. Format: brief name + 1-line docstring + skeleton 'def test_<name>(self): ...'. Don't suggest tests for trivial commits (typo fixes, doc-only, comment changes). Suggest at most 3 tests. If no tests warranted, omit the section entirely (don't write 'No tests needed' — just skip)."
 
     echo "[$(date)] Dispatching codex ${MODEL} review for $SHORT ($SUBJECT)" >> "$LOG_FILE"
     # Write to .partial first; only finalize if codex exits 0 + produces meaningful

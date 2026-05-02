@@ -1747,9 +1747,16 @@ class NeuralMemory:
             # production consumer yet) — but wired so when a real
             # contradiction-detection runner ships, the scorer immediately
             # discounts memories with active contradictions.
+            #
+            # Magic 0.05: per-edge penalty. Calibrated to match the
+            # procedural channel weight (DEFAULT_WEIGHTS["procedural"] = 0.05)
+            # so a single contradiction roughly cancels a procedural boost.
+            # Memories with 6+ contradicts edges hit -0.30 (matches stale_
+            # penalty cap). Tunable; no test depends on the exact value.
+            CONTRADICTION_PER_EDGE = 0.05
             contradiction_penalty = float(
                 contradicts_count_by_id.get(cid, 0)
-            ) * 0.05
+            ) * CONTRADICTION_PER_EDGE
 
             features = CandidateFeatures(
                 memory_id=cid,

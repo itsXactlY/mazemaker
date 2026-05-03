@@ -145,6 +145,9 @@ class AEEvidenceIngestContractTests(unittest.TestCase):
     # ------------------------------------------------------------ WA
     def test_wa_crew_event_persists_full_contract_schema(self) -> None:
         ts = time.time()
+        # auth_proof is now a structured dict (parity with dry-run
+        # validator per S5b 2026-05-03). Strings are rejected.
+        proof = {"receipt_id": "abc123", "read_at": ts, "by": "miguel"}
         mid = _mid(record_wa_crew_event(
             self.mem,
             capability_id="ITEM-WA",
@@ -155,7 +158,7 @@ class AEEvidenceIngestContractTests(unittest.TestCase):
             lang="es",
             normalized_text="the 12 wire arrived at lot 27",
             delivery_status="read",
-            auth_proof="receipt:abc123",
+            auth_proof=proof,
         ))
         import json
         md = json.loads(self.mem.get_memory(mid)["metadata_json"])
@@ -165,7 +168,7 @@ class AEEvidenceIngestContractTests(unittest.TestCase):
         self.assertEqual(md["sender"], "miguel")
         self.assertEqual(md["lang"], "es")
         self.assertEqual(md["delivery_status"], "read")
-        self.assertEqual(md["auth_proof"], "receipt:abc123")
+        self.assertEqual(md["auth_proof"], proof)
         # Read receipts get higher confidence
         self.assertEqual(self.mem.get_memory(mid)["confidence"], 0.95)
 
@@ -184,6 +187,177 @@ class AEEvidenceIngestContractTests(unittest.TestCase):
         ))
         # Pending status → lower confidence (delivery not confirmed)
         self.assertEqual(self.mem.get_memory(mid)["confidence"], 0.85)
+
+    # ------------------------------------------------------------ WA auth_proof contract (S5b 2026-05-03)
+    # Active P1 #9: dry-run validator requires auth_proof object/null,
+    # but record_wa_crew_event used to take Optional[str]. The four
+    # tests below lock the parity: dict accepted, None accepted, str
+    # rejected, dict round-trips through metadata as dict (not str).
+    def test_record_wa_crew_event_accepts_dict_auth_proof(self) -> None:
+        proof = {"receipt_id": "RCT-7788", "read_at": 1717350000.5}
+        result = record_wa_crew_event(
+            self.mem,
+            capability_id="ITEM-WA-AP-D",
+            thread_id="crew-ap-dict",
+            sender="miguel",
+            raw_text="dict auth_proof accepted",
+            ts=1717350000.5,
+            auth_proof=proof,
+        )
+        self.assertTrue(result["inserted"])
+        import json
+        md = json.loads(self.mem.get_memory(result["memory_id"])["metadata_json"])
+        self.assertEqual(md["auth_proof"], proof)
+        self.assertIsInstance(md["auth_proof"], dict)
+
+    def test_record_wa_crew_event_accepts_none_auth_proof(self) -> None:
+        # Explicit None and omission both result in no auth_proof key
+        # in the persisted metadata.
+        r1 = record_wa_crew_event(
+            self.mem,
+            capability_id="ITEM-WA-AP-N1",
+            thread_id="crew-ap-none-explicit",
+            sender="m",
+            raw_text="none auth_proof accepted (explicit)",
+            ts=1717350001.5,
+            auth_proof=None,
+        )
+        r2 = record_wa_crew_event(
+            self.mem,
+            capability_id="ITEM-WA-AP-N2",
+            thread_id="crew-ap-none-omitted",
+            sender="m",
+            raw_text="none auth_proof accepted (omitted)",
+            ts=1717350002.5,
+        )
+        import json
+        for r in (r1, r2):
+            self.assertTrue(r["inserted"])
+            md = json.loads(self.mem.get_memory(r["memory_id"])["metadata_json"])
+            self.assertNotIn(
+                "auth_proof", md,
+                "None/omitted auth_proof must not appear in metadata",
+            )
+
+    def test_record_wa_crew_event_rejects_str_auth_proof(self) -> None:
+        # Strings cannot represent the structured proof Hermes produces;
+        # the dry-run validator already rejects str, so the helper must
+        # too — otherwise live-ingest would diverge from dry-run.
+        with self.assertRaises(ValueError) as ctx:
+            record_wa_crew_event(
+                self.mem,
+                capability_id="ITEM-WA-AP-STR",
+                thread_id="crew-ap-str",
+                sender="m",
+                raw_text="string auth_proof rejected",
+                ts=1717350003.5,
+                auth_proof="receipt:abc123",  # legacy string shape
+            )
+        msg = str(ctx.exception)
+        self.assertIn("auth_proof", msg)
+        self.assertIn("dict", msg)
+        self.assertIn("str", msg)
+
+    def test_record_wa_crew_event_persists_auth_proof_dict_in_metadata(self) -> None:
+        # Verify the persisted shape is a dict (not str-coerced via
+        # json.dumps or repr) — round-tripping through metadata must
+        # preserve the dict so consumers can read structured fields.
+        proof = {
+            "receipt_id": "RCT-XYZ",
+            "read_at": 1717350004.5,
+            "signature": {"alg": "hs256", "sig": "deadbeef"},
+            "delivery_chain": ["sent", "delivered", "read"],
+        }
+        result = record_wa_crew_event(
+            self.mem,
+            capability_id="ITEM-WA-AP-RT",
+            thread_id="crew-ap-roundtrip",
+            sender="m",
+            raw_text="auth_proof round-trip preserves dict",
+            ts=1717350004.5,
+            auth_proof=proof,
+        )
+        import json
+        md = json.loads(self.mem.get_memory(result["memory_id"])["metadata_json"])
+        self.assertIsInstance(md["auth_proof"], dict)
+        self.assertEqual(md["auth_proof"], proof)
+        # Nested structure preserved
+        self.assertIsInstance(md["auth_proof"]["signature"], dict)
+        self.assertEqual(md["auth_proof"]["signature"]["alg"], "hs256")
+        self.assertEqual(
+            md["auth_proof"]["delivery_chain"],
+            ["sent", "delivered", "read"],
+        )
+
+    def test_dryrun_validator_and_helper_agree_on_dict_auth_proof(self) -> None:
+        """Validator + helper parity (S5b 2026-05-03): a typed_record
+        with a dict auth_proof must (a) pass dry-run validate_row,
+        (b) be accepted by record_wa_crew_event, and (c) the dry-run's
+        to_typed_record metadata.auth_proof must equal the helper's
+        persisted metadata.auth_proof. This test is the canary that
+        keeps the two paths from drifting again."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+        import ingest_wa_dryrun as wa  # noqa: E402
+
+        ts_iso = "2026-05-03T10:41:47+00:00"
+        ts_epoch = 1777804907.0  # corresponds to ts_iso (verified via _ts_to_epoch)
+        proof = {"receipt_id": "RCT-PARITY", "read_at": ts_epoch}
+        row = {
+            "thread_id": "120363021234567890@g.us",
+            "sender": "miguel",
+            "raw_text": "parity row with dict auth_proof",
+            "ts": ts_iso,
+            "lang": "es",
+            "delivery_status": "delivered",
+            "privacy_class": "internal",
+            "capability_id": "ITEM-WA-PARITY",
+            "auth_proof": proof,
+        }
+
+        # (a) Dry-run validator accepts the dict auth_proof row
+        report = wa.validate_row(row, 1)
+        self.assertTrue(
+            report["valid"],
+            f"dry-run rejected dict auth_proof row: {report['errors']}",
+        )
+
+        # (b) Helper accepts the same dict auth_proof
+        live = record_wa_crew_event(
+            self.mem,
+            capability_id="ITEM-WA-PARITY",
+            thread_id="120363021234567890@g.us",
+            sender="miguel",
+            raw_text="parity row with dict auth_proof",
+            ts=ts_epoch,
+            lang="es",
+            delivery_status="delivered",
+            privacy_class="internal",
+            auth_proof=proof,
+        )
+        self.assertTrue(live["inserted"])
+
+        # (c) Dry-run typed_record + helper-persisted metadata agree
+        # on auth_proof shape (dict, structurally equal)
+        dryrun_record = wa.to_typed_record(row)
+        self.assertEqual(dryrun_record["metadata"]["auth_proof"], proof)
+        import json
+        live_md = json.loads(
+            self.mem.get_memory(live["memory_id"])["metadata_json"]
+        )
+        self.assertEqual(live_md["auth_proof"], proof)
+        self.assertEqual(
+            dryrun_record["metadata"]["auth_proof"],
+            live_md["auth_proof"],
+            "dry-run + helper auth_proof diverged",
+        )
+
+        # (d) evidence_id parity holds (sanity — S2 lockdown also covers
+        # this, but reasserted here under the dict-auth_proof path)
+        self.assertEqual(
+            dryrun_record["evidence_id"],
+            live["evidence_id"],
+            "dict auth_proof must not perturb evidence_id parity",
+        )
 
     # ------------------------------------------------------------ estimate
     def test_estimate_evidence_with_pdf_path_classifies_as_sent_pdf(self) -> None:

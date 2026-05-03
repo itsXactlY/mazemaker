@@ -1015,7 +1015,7 @@ def record_wa_crew_event(
     normalized_text: Optional[str] = None,
     media_paths: Optional[list[str]] = None,
     delivery_status: str = "delivered",
-    auth_proof: Optional[str] = None,
+    auth_proof: Optional[dict] = None,
     privacy_class: str = "internal",
     consumer_hint: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -1028,7 +1028,17 @@ def record_wa_crew_event(
 
     Required: thread_id, sender, raw_text, ts. Optional: normalized_text
     (translation/cleanup), media_paths (image/audio attachments),
-    auth_proof (delivery receipt / read receipt / signature).
+    auth_proof (delivery receipt / read receipt / signature — must be a
+    structured object/dict, not a free-form string).
+
+    auth_proof contract (S5b 2026-05-03 — parity with
+    tools/ingest_wa_dryrun.py validator):
+      - dict: preferred shape (e.g. {"receipt_id": "...", "read_at": ..., ...})
+      - None: omitted (no proof attached)
+      - str: REJECTED with ValueError — strings cannot represent the
+        structured proof Hermes will produce, and the dry-run validator
+        already rejects string auth_proof (so accepting it here would
+        diverge dry-run from live ingest).
 
     Source path defaults to "wa_bridge:<thread_id>:<ts>" if no specific
     file source. Bi-temporal: valid_from = ts; valid_to remains NULL
@@ -1045,6 +1055,20 @@ def record_wa_crew_event(
             f"delivery_status={delivery_status!r} must be one of "
             f"delivered/pending/failed/read"
         )
+    # auth_proof must be dict or None — parity with dry-run validator
+    # (tools/ingest_wa_dryrun.py:_validate_auth_proof). Strings are
+    # explicitly rejected: free-form strings can't carry the structured
+    # proof Hermes produces (receipt_id, read_at, signature, etc.) and
+    # silently coercing would diverge live-ingest from the dry-run
+    # contract that S5 packet locked.
+    if auth_proof is not None and not isinstance(auth_proof, dict):
+        raise ValueError(
+            f"record_wa_crew_event: auth_proof must be dict or None, "
+            f"got {type(auth_proof).__name__}. String auth_proof is "
+            f"explicitly rejected — wrap structured fields in a dict "
+            f"(e.g. {{'receipt_id': '...'}}) to match the Hermes WA "
+            f"bridge contract and the tools/ingest_wa_dryrun.py validator."
+        )
 
     content_parts = [raw_text]
     if normalized_text and normalized_text != raw_text:
@@ -1060,7 +1084,11 @@ def record_wa_crew_event(
     }
     if media_paths:
         extra["media_paths"] = media_paths
-    if auth_proof:
+    if auth_proof is not None:
+        # Persist as the dict (JSON-serializable). The truthiness guard
+        # is intentionally is-not-None rather than truthy: an empty {}
+        # auth_proof is still a structurally valid (if uninformative)
+        # proof, and we should preserve caller intent rather than drop it.
         extra["auth_proof"] = auth_proof
     if normalized_text:
         extra["normalized_text"] = normalized_text

@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.ae.neural-self-portrait.plist — agent self-portrait scaffolder
+
+  Per the agent self-portrait feature handoff
+  (project_self_portrait_feature_handoff_2026-05-02.md): each AE agent
+  (Claude Code, Hermes/Valiendo, Codex) reads its OWN substrate every 6h,
+  composes its OWN diffusion prompt + written reasoning, generates a visual
+  self-image, and stores it.
+
+  Tito-set hard rules driving this plist:
+    1. Always-on, no manual triggers, no opt-in
+    2. Reasoning mandatory each cycle alongside visual
+    3. Agents pick their own aesthetic
+    4. References inspiration only
+
+  This launchd job runs a wrapper (tools/self_portrait_cron.sh) that
+  SCAFFOLDS each agent's input packet by invoking the cycle script in
+  scaffold mode for each agent in the v0 set (claude-code, hermes, codex).
+  See the wrapper for the exact CLI invocation.
+  Agents come back later, read their input packet, write reasoning + prompt,
+  and invoke complete-cycle themselves — this cron does NOT do the
+  complete-cycle (per Tito rule #3 "agents pick their own aesthetic").
+
+  Cadence: every 6 hours offset 06:00 (per Tito directive — read fresh D5
+  insights from the 03:00 daily aggregator before fanning out). Fires at
+  06:00, 12:00, 18:00, 00:00 local time.
+
+  Logs: ~/Library/Logs/ae/neural-self-portrait.{stdout,stderr}.log
+
+  TEMPLATE — not installed automatically. Opus reviews diff, then loads via:
+    cp tools/launchd/com.ae.neural-self-portrait.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ae.neural-self-portrait.plist
+
+  To uninstall:
+    launchctl bootout gui/$(id -u)/com.ae.neural-self-portrait
+    rm ~/Library/LaunchAgents/com.ae.neural-self-portrait.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ae.neural-self-portrait</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/tito/lWORKSPACEl/research/neural-memory/tools/self_portrait_cron.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/tito/lWORKSPACEl/research/neural-memory</string>
+
+    <!-- Every 6 hours offset 06:00 local — fires at 06:00, 12:00, 18:00, 00:00.
+         Offset 06:00 chosen to read fresh D5 insights from the 03:00 daily
+         aggregator (per Tito directive). -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>6</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>12</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>18</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>0</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+    </array>
+
+    <!-- Only respawn on failure. SuccessfulExit=false means: if the
+         wrapper exits 0, do NOT keep running (we ran one cycle, done until
+         next StartCalendarInterval); if it exits non-zero, launchd may
+         retry. Combined with ThrottleInterval to avoid thrash. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <!-- Fires immediately when first loaded; useful for testing without
+         waiting up to 6 hours. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/tito/Library/Logs/ae/neural-self-portrait.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/tito/Library/Logs/ae/neural-self-portrait.stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/tito</string>
+        <!-- PATH mirrors com.ae.neural-memory-snapshot/watcher-health: needs
+             /opt/homebrew/bin for python3.11 + /usr/local/bin for any
+             user-installed binaries. -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <!-- OPENAI_API_KEY intentionally NOT set here. The image-gen step in
+             self_portrait_cycle.py reads from the agent's own env at
+             complete-cycle time; if absent, image_path=None and the cycle
+             continues per design. This wrapper only scaffolds inputs. -->
+    </dict>
+</dict>
+</plist>

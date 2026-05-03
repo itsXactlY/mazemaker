@@ -569,6 +569,7 @@ class NeuralMemoryProvider(MemoryProvider):
         if os.environ.get("NM_HERMES_HYBRID_RECALL") != "1":
             return self._memory.recall(query, k=limit)
 
+        logger.info("hybrid_recall enabled: queue_prefetch path (k=%d)", limit)
         started = time.perf_counter()
         try:
             results = self._memory.hybrid_recall(query, k=limit, rerank=False)
@@ -1029,6 +1030,7 @@ class NeuralMemoryProvider(MemoryProvider):
         if os.environ.get("NM_HERMES_HYBRID_RECALL") != "1":
             return self._memory.recall(query, k=limit)
 
+        logger.info("hybrid_recall enabled: _handle_recall path (k=%d)", limit)
         started = time.perf_counter()
         try:
             results = self._memory.hybrid_recall(query, k=limit, rerank=True)

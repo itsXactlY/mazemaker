@@ -20,8 +20,12 @@ NM mapping:
                                            but that's not in the enum — using
                                            the canonical "sent_pdf" instead)
   source_system    = "sent_estimate_pdf_miner"
-  source_record_id = sidecar.msg_id        (Gmail-stable; deterministic
-                                            evidence_id consistent on re-mine)
+  source_record_id = f"{msg_id}:{filename}" composite (S3 packet 2026-05-03).
+                     Gmail msg_id alone collides — a single email can carry
+                     N attachments (verified: 11 dup groups / 35 sidecars on
+                     the 63-sidecar corpus). Falls back to
+                     f"{msg_id}:{filehash[:16]}" only when filename missing
+                     (currently 0 of 63).
   source_path      = absolute sidecar path
   content          = sidecar.text
   valid_from       = parsed(sidecar.downloaded_at) → epoch float
@@ -29,7 +33,8 @@ NM mapping:
                      an ISO-8601 string; we parse it)
   metadata         = {thread_id, subject, from, to, date, filename,
                       dollar_total_guess, size_bytes, page_count,
-                      extraction_method, capability_id: "ITEM-SENT-PDF"}
+                      extraction_method, capability_id: "ITEM-SENT-PDF",
+                      msg_id, source_record_key_strategy}
 
 DEFAULT MODE = dry-run. NO substrate write. Validates sidecars and emits
 typed records to ~/.neural_memory/ingest-dryruns/sent-pdf-{ts}.jsonl for
@@ -37,9 +42,14 @@ inspection. --live is explicit opt-in and writes to canonical substrate
 via record_evidence_artifact (which is replay-safe via evidence_id upsert).
 
 Watermark format (default ~/.neural_memory/state/sent-pdf-watermark.json):
-  {"processed_msg_ids": [...], "last_run_ts": <epoch_float>}
-  Tracks the SET of processed msg_ids — sidecars don't have a stable
-  creation order so a single cursor would be wrong. --backfill ignores it.
+  {"processed_keys": [...], "last_run_ts": <epoch_float>,
+   "schema_version": 2}
+  Tracks the SET of composite (msg_id:filename) keys. schema_version=1
+  files (legacy `processed_msg_ids`) are auto-migrated forward on read —
+  legacy ids skip nothing because they no longer match the composite key
+  space, so on the first run after upgrade every sidecar will re-process
+  and re-skip via record_evidence_artifact's evidence_id upsert path
+  (idempotent). --backfill ignores the watermark entirely.
 
 Usage:
     # Dry-run smoke against all 47 historical sidecars (READ-ONLY):
@@ -54,7 +64,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import sqlite3
 import sys
 import time
 from datetime import datetime
@@ -85,6 +97,15 @@ CONFIDENCE = 0.95
 
 REQUIRED_FIELDS = {"msg_id", "text", "downloaded_at"}
 
+# Canonical substrate path. Pre-flight refusal check looks for the
+# evidence_ledger table OR PRAGMA user_version >= S2's target before
+# allowing --live against this DB.
+CANONICAL_DB_PATH = (Path.home() / ".neural_memory" / "memory.db").resolve()
+EVIDENCE_LEDGER_TABLE = "evidence_ledger"
+EVIDENCE_LEDGER_TARGET_USER_VERSION = 1   # mirrors S2 schema_upgrade target
+
+WATERMARK_SCHEMA_VERSION = 2   # bumped from 1 (msg_id) → 2 (composite keys)
+
 
 def _parse_downloaded_at(value: object) -> float:
     """Sidecar `downloaded_at` is ISO-8601 (verified-now). Accept epoch float
@@ -104,28 +125,89 @@ def _parse_downloaded_at(value: object) -> float:
 
 
 def load_watermark(path: Path) -> set[str]:
+    """Load composite-key watermark. Auto-migrates schema_version=1 (legacy
+    `processed_msg_ids` listing bare msg_ids) into an empty set — legacy ids
+    cannot match composite keys so they would skip nothing anyway. The first
+    write after migration replaces the file with schema_version=2.
+    """
     if not path.exists():
         return set()
     try:
         data = json.loads(path.read_text())
-        ids = data.get("processed_msg_ids", [])
-        if not isinstance(ids, list):
+        # Schema 2: composite keys
+        keys = data.get("processed_keys")
+        if isinstance(keys, list):
+            return set(str(x) for x in keys)
+        # Schema 1 legacy: bare msg_ids — discard, they can't dedup composites
+        if "processed_msg_ids" in data:
+            print(
+                "INFO: legacy schema_version=1 watermark detected (bare msg_id "
+                "keys); migrating to composite-key (schema_version=2). First "
+                "post-migration run will re-process every sidecar; "
+                "record_evidence_artifact dedup keeps it idempotent.",
+                file=sys.stderr,
+            )
             return set()
-        return set(str(x) for x in ids)
+        return set()
     except Exception as e:
         print(f"WARNING: watermark file unreadable ({e}); treating as empty", file=sys.stderr)
         return set()
 
 
-def save_watermark(path: Path, processed_ids: set[str]) -> None:
+def save_watermark(path: Path, processed_keys: set[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "processed_msg_ids": sorted(processed_ids),
+        "schema_version": WATERMARK_SCHEMA_VERSION,
+        "processed_keys": sorted(processed_keys),
         "last_run_ts": time.time(),
     }
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2))
     tmp.replace(path)  # atomic
+
+
+def _compute_pdf_filehash(sidecar_path: Path) -> str | None:
+    """sha256 of the sibling PDF bytes (sidecar.json → sidecar.pdf).
+    Returns None if the PDF doesn't exist — caller decides what to do.
+    Used only as filename-fallback so a missing PDF on the fallback path
+    is a hard error.
+    """
+    pdf_path = sidecar_path.with_suffix(".pdf")
+    if not pdf_path.exists():
+        return None
+    h = hashlib.sha256()
+    with open(pdf_path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _build_composite_source_record_id(
+    sidecar: dict, sidecar_path: Path
+) -> tuple[str, str]:
+    """Returns (composite_key, strategy_tag).
+
+    Strategy preference (synth contract 2026-05-03 10:41:47Z):
+      1. f"{msg_id}:{filename}"            strategy="filename"
+      2. f"{msg_id}:{filehash16}"          strategy="filehash"   (fallback)
+
+    filehash fallback only fires when filename is missing/empty. Current
+    corpus has 0 missing filenames so path 2 is exercised only by tests
+    + future drift defense.
+    """
+    msg_id = sidecar["msg_id"]
+    filename = sidecar.get("filename") or ""
+    filename = filename.strip()
+    if filename:
+        return f"{msg_id}:{filename}", "filename"
+    # Fallback: hash the PDF bytes
+    fh = _compute_pdf_filehash(sidecar_path)
+    if fh is None:
+        raise ValueError(
+            f"sidecar lacks filename AND sibling PDF for filehash fallback: "
+            f"{sidecar_path}"
+        )
+    return f"{msg_id}:{fh[:16]}", "filehash"
 
 
 def build_record(sidecar: dict, sidecar_path: Path) -> dict:
@@ -137,6 +219,10 @@ def build_record(sidecar: dict, sidecar_path: Path) -> dict:
     text = sidecar["text"]
     valid_from = _parse_downloaded_at(sidecar["downloaded_at"])
 
+    composite_key, key_strategy = _build_composite_source_record_id(
+        sidecar, sidecar_path
+    )
+
     extra_metadata = {
         "thread_id": sidecar.get("thread_id"),
         "subject": sidecar.get("subject"),
@@ -146,6 +232,11 @@ def build_record(sidecar: dict, sidecar_path: Path) -> dict:
         "filename": sidecar.get("filename"),
         "size_bytes": sidecar.get("size_bytes"),
         "dollar_total_guess": sidecar.get("dollar_total_guess"),
+        # S3 packet 2026-05-03: keep msg_id queryable even though
+        # source_record_id is now composite — recall paths still want to
+        # group by Gmail message.
+        "msg_id": msg_id,
+        "source_record_key_strategy": key_strategy,
     }
     extraction = sidecar.get("extraction") or {}
     if isinstance(extraction, dict):
@@ -160,7 +251,7 @@ def build_record(sidecar: dict, sidecar_path: Path) -> dict:
     evidence_id = _compute_evidence_id(
         evidence_type=EVIDENCE_TYPE,
         source_system=SOURCE_SYSTEM,
-        source_record_id=msg_id,
+        source_record_id=composite_key,
     )
 
     return {
@@ -171,13 +262,47 @@ def build_record(sidecar: dict, sidecar_path: Path) -> dict:
         "content": text,
         "privacy_class": PRIVACY_CLASS,
         "confidence": CONFIDENCE,
-        "source_record_id": msg_id,
+        "source_record_id": composite_key,
         "valid_from": valid_from,
         "extra_metadata": extra_metadata,
         # Pre-computed for dry-run parity (live ingest will recompute identically)
         "_preview_evidence_id": evidence_id,
+        "_composite_key": composite_key,
         "_msg_id": msg_id,
     }
+
+
+def _check_db_guard(db_path: Path) -> tuple[bool, str]:
+    """Pre-flight: returns (ok, reason). DB is guarded if either:
+      - PRAGMA user_version >= EVIDENCE_LEDGER_TARGET_USER_VERSION, OR
+      - the evidence_ledger table physically exists.
+    Both clauses match what S2's schema_upgrade installs; either means
+    the dedup-authority surface is live and --live writes are safe.
+    """
+    if not db_path.exists():
+        return False, f"DB file does not exist: {db_path}"
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            uv = conn.execute("PRAGMA user_version").fetchone()[0]
+            if uv >= EVIDENCE_LEDGER_TARGET_USER_VERSION:
+                return True, f"user_version={uv} (>= {EVIDENCE_LEDGER_TARGET_USER_VERSION})"
+            row = conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name=?",
+                (EVIDENCE_LEDGER_TABLE,),
+            ).fetchone()
+            if row is not None:
+                return True, f"{EVIDENCE_LEDGER_TABLE} table present (user_version={uv})"
+            return False, (
+                f"DB guard not present: user_version={uv} (need "
+                f">={EVIDENCE_LEDGER_TARGET_USER_VERSION}) AND no "
+                f"{EVIDENCE_LEDGER_TABLE} table"
+            )
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        return False, f"DB guard probe failed: {type(e).__name__}: {e}"
 
 
 def discover_sidecars(sidecar_dir: Path) -> list[Path]:
@@ -255,14 +380,39 @@ def main() -> int:
     suffix = "live" if args.live else "dry"
     out_path = out_dir / f"sent-pdf-{ts_now}.{suffix}.jsonl"
 
-    # Live mode: open NM lazily so dry-run never imports memory_client
+    # Live mode: pre-flight DB guard refusal + lazy NM init
     mem = None
+    target_db_for_report: str | None = None
     if args.live:
-        from memory_client import NeuralMemory  # noqa: WPS433 (deferred import is intentional)
+        # Resolve target DB path (caller-supplied or canonical default)
         if args.db_path:
-            mem = NeuralMemory(db_path=args.db_path)
+            target_db = Path(args.db_path).expanduser().resolve()
         else:
-            mem = NeuralMemory()
+            target_db = CANONICAL_DB_PATH
+
+        # Guard refusal: ALWAYS check, regardless of canonical vs copy.
+        # Synth contract: "block canonical --live without DB guard/copy proof".
+        # Copy DBs ALSO must have the guard (otherwise the copy isn't proof of
+        # safety). The "copy proof" path is: caller intentionally creates a
+        # copy DB AND runs schema_upgrade against it before --live.
+        ok, reason = _check_db_guard(target_db)
+        if not ok:
+            print(
+                f"REFUSED: --live blocked — DB guard check failed.\n"
+                f"  target DB: {target_db}\n"
+                f"  reason: {reason}\n"
+                f"  fix: run python/schema_upgrade.py against this DB first "
+                f"(creates {EVIDENCE_LEDGER_TABLE} + bumps user_version to "
+                f">={EVIDENCE_LEDGER_TARGET_USER_VERSION}).\n"
+                f"  canonical --live: also requires --db-path proof when "
+                f"the canonical DB itself is not yet upgraded.",
+                file=sys.stderr,
+            )
+            return 5
+
+        target_db_for_report = str(target_db)
+        from memory_client import NeuralMemory  # noqa: WPS433 (deferred import is intentional)
+        mem = NeuralMemory(db_path=str(target_db))
 
     skipped_watermark = 0
     processed = 0
@@ -270,7 +420,7 @@ def main() -> int:
     inserted = 0
     deduped = 0
     rows_for_show: list[dict] = []
-    new_processed_ids: set[str] = set()
+    new_processed_keys: set[str] = set()
 
     with open(out_path, "w") as fh:
         for sidecar_path in sidecars:
@@ -284,15 +434,17 @@ def main() -> int:
                 msg_id = sidecar["msg_id"]
                 row_report["msg_id"] = msg_id
 
-                if msg_id in skip_set:
+                kwargs = build_record(sidecar, sidecar_path)
+                preview_evidence_id = kwargs.pop("_preview_evidence_id")
+                composite_key = kwargs.pop("_composite_key")
+                kwargs.pop("_msg_id")
+                row_report["composite_key"] = composite_key
+
+                if composite_key in skip_set:
                     skipped_watermark += 1
                     row_report["skipped_watermark"] = True
                     fh.write(json.dumps(row_report) + "\n")
                     continue
-
-                kwargs = build_record(sidecar, sidecar_path)
-                preview_evidence_id = kwargs.pop("_preview_evidence_id")
-                kwargs.pop("_msg_id")
 
                 if args.live:
                     result = record_evidence_artifact(mem, **kwargs)
@@ -324,7 +476,7 @@ def main() -> int:
                         },
                     })
                 processed += 1
-                new_processed_ids.add(msg_id)
+                new_processed_keys.add(composite_key)
                 if args.show and len(rows_for_show) < args.show:
                     rows_for_show.append(row_report)
             except Exception as e:
@@ -334,20 +486,23 @@ def main() -> int:
 
     # Update watermark only on --live success — dry-run is purely informational
     # and shouldn't advance state.
-    if args.live and not args.backfill and new_processed_ids:
-        merged = (skip_set | new_processed_ids)
+    if args.live and not args.backfill and new_processed_keys:
+        merged = (skip_set | new_processed_keys)
         save_watermark(watermark_path, merged)
-    elif args.live and args.backfill and new_processed_ids:
+    elif args.live and args.backfill and new_processed_keys:
         # Backfill should still seed the watermark so a subsequent
         # non-backfill run skips what we just ingested.
-        save_watermark(watermark_path, new_processed_ids | skip_set)
+        save_watermark(watermark_path, new_processed_keys | skip_set)
 
     print(f"=== sent-PDF sidecar ingest report ===")
     print(f"  mode: {'LIVE (canonical substrate write)' if args.live else 'dry-run'}")
+    if args.live:
+        print(f"  target DB: {target_db_for_report}")
     print(f"  sidecar dir: {sidecar_dir}")
     print(f"  total found: {len(sidecars)}")
     print(f"  skipped (watermark): {skipped_watermark}")
     print(f"  processed: {processed}")
+    print(f"  distinct composite keys this run: {len(new_processed_keys)}")
     if args.live:
         print(f"    inserted (new): {inserted}")
         print(f"    deduped (existing evidence_id): {deduped}")

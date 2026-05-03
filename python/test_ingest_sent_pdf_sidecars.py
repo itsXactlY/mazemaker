@@ -1,13 +1,22 @@
 """Tests for tools/ingest_sent_pdf_sidecars.py — NM-side tail of AE
-sent-PDF sidecars per Sonnet packet S-OptE (2026-05-03).
+sent-PDF sidecars.
+
+Original surface: S-OptE packet (2026-05-03 03:23Z) — basic ingest, msg_id-only
+identity, watermark, dry-run vs --live.
+
+Patched surface: S3 packet (2026-05-03 10:41:47Z) — composite source_record_id
+(msg_id:filename), filehash fallback, composite-key watermark, canonical --live
+DB-guard refusal (requires evidence_ledger table OR user_version >=
+EVIDENCE_LEDGER_TARGET_USER_VERSION), duplicate-group fixture proving N
+sidecars sharing a msg_id produce N distinct ledger entries.
 
 These tests are hermetic — they patch ae_workflow_helpers.record_evidence_artifact
 and use synthetic sidecars in a tempdir. No substrate write, no real Gmail data.
 """
 from __future__ import annotations
 
-import io
 import json
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -31,6 +40,9 @@ def make_sidecar(
     filename: str = "estimate.pdf",
     page_count: int = 1,
     extra: dict | None = None,
+    json_name: str | None = None,
+    write_pdf: bool = False,
+    pdf_bytes: bytes = b"%PDF-1.4 stub",
 ) -> Path:
     payload = {
         "msg_id": msg_id,
@@ -48,9 +60,48 @@ def make_sidecar(
     }
     if extra:
         payload.update(extra)
-    p = sidecar_dir / f"{msg_id}_customer_{filename.replace('.pdf', '')}.json"
+    # Allow caller to override the json filename so duplicate-msg_id sidecars
+    # can coexist on disk with distinct paths.
+    safe_fname = (filename or "noname").replace(".pdf", "").replace("/", "_")
+    name = json_name or f"{msg_id}_customer_{safe_fname}.json"
+    p = sidecar_dir / name
     p.write_text(json.dumps(payload))
+    if write_pdf:
+        p.with_suffix(".pdf").write_bytes(pdf_bytes)
     return p
+
+
+def make_guarded_db(path: Path, *, install_table: bool = True,
+                    user_version: int = 1) -> None:
+    """Create a SQLite DB at `path` with the evidence_ledger guard installed
+    (mirrors S2's schema_upgrade output minimally enough to satisfy the
+    pre-flight check in the ingest tool).
+    """
+    conn = sqlite3.connect(path)
+    if install_table:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS evidence_ledger (
+                evidence_id      TEXT PRIMARY KEY,
+                memory_id        INTEGER,
+                evidence_type    TEXT NOT NULL,
+                source_system    TEXT NOT NULL,
+                source_record_id TEXT NOT NULL
+            )
+        """)
+    conn.execute(f"PRAGMA user_version = {user_version}")
+    conn.commit()
+    conn.close()
+
+
+def make_unguarded_db(path: Path) -> None:
+    """Create a SQLite DB with NO evidence_ledger and user_version=0 — the
+    pre-flight guard MUST refuse --live against this file.
+    """
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE memories (id INTEGER PRIMARY KEY)")
+    conn.execute("PRAGMA user_version = 0")
+    conn.commit()
+    conn.close()
 
 
 class IngestSentPdfSidecarsTests(unittest.TestCase):
@@ -92,18 +143,358 @@ class IngestSentPdfSidecarsTests(unittest.TestCase):
                     return ingest.main()
             with patch.object(ingest, "record_evidence_artifact", mock_record):
                 # --live also imports memory_client — stub it
-                with patch.dict(sys.modules, {"memory_client": MagicMock()}):
+                fake_mc_module = MagicMock()
+                fake_mc_module.NeuralMemory = MagicMock(return_value=MagicMock())
+                with patch.dict(sys.modules, {"memory_client": fake_mc_module}):
                     return ingest.main()
 
-    # ---------------------------------------------------- contract tests
+    # ============================================================
+    # S3 PRIMARY CONTRACT — composite source_record_id
+    # ============================================================
+
+    def test_composite_source_record_id_when_filename_present(self) -> None:
+        """source_record_id must be f"{msg_id}:{filename}" — the filename
+        path. No filehash anywhere.
+        """
+        make_sidecar(
+            self.sidecar_dir, "msg_a", filename="LOI-Bldg-117.pdf",
+        )
+        guarded = self.tmp / "guarded.db"
+        make_guarded_db(guarded)
+        mock = MagicMock(return_value={
+            "memory_id": 1, "evidence_id": "e", "inserted": True,
+        })
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(guarded),
+            mock_record=mock,
+        )
+        self.assertEqual(rc, 0)
+        kwargs = mock.call_args.kwargs
+        self.assertEqual(kwargs["source_record_id"], "msg_a:LOI-Bldg-117.pdf")
+        self.assertEqual(kwargs["extra_metadata"]["msg_id"], "msg_a")
+        self.assertEqual(
+            kwargs["extra_metadata"]["source_record_key_strategy"], "filename",
+        )
+
+    def test_filehash_fallback_when_filename_missing(self) -> None:
+        """Strategy switches to f"{msg_id}:{filehash[:16]}" only when
+        filename is missing AND a sibling .pdf exists for hashing.
+        """
+        pdf_payload = b"%PDF-1.4 deterministic-bytes-for-hash"
+        # Compute the expected hash16 manually
+        import hashlib as _h
+        expected_h16 = _h.sha256(pdf_payload).hexdigest()[:16]
+
+        make_sidecar(
+            self.sidecar_dir, "msg_no_fname",
+            filename="",  # missing
+            json_name="msg_no_fname_attachment.json",
+            write_pdf=True,
+            pdf_bytes=pdf_payload,
+        )
+        guarded = self.tmp / "guarded.db"
+        make_guarded_db(guarded)
+        mock = MagicMock(return_value={
+            "memory_id": 1, "evidence_id": "e", "inserted": True,
+        })
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(guarded),
+            mock_record=mock,
+        )
+        self.assertEqual(rc, 0)
+        kwargs = mock.call_args.kwargs
+        self.assertEqual(
+            kwargs["source_record_id"], f"msg_no_fname:{expected_h16}",
+        )
+        self.assertEqual(
+            kwargs["extra_metadata"]["source_record_key_strategy"], "filehash",
+        )
+
+    def test_filehash_fallback_fails_if_pdf_missing(self) -> None:
+        """If filename is missing AND no sibling .pdf exists for hashing,
+        the per-sidecar build path must error (not silently fall back to
+        bare msg_id). Tool exits 3 (errors > 0) but doesn't crash.
+        """
+        make_sidecar(
+            self.sidecar_dir, "msg_no_fname_no_pdf",
+            filename="",
+            json_name="msg_no_fname_no_pdf.json",
+            write_pdf=False,
+        )
+        rc = self._run("--backfill")
+        self.assertEqual(rc, 3)
+        outs = list(self.dryrun_dir.glob("sent-pdf-*.dry.jsonl"))
+        rows = [json.loads(l) for l in outs[0].read_text().splitlines() if l.strip()]
+        self.assertEqual(len(rows), 1)
+        self.assertIn("error", rows[0])
+
+    def test_duplicate_msg_id_distinct_filenames_yield_distinct_keys(self) -> None:
+        """Critical S3 contract: 2 sidecars sharing msg_id but with
+        different filenames must produce 2 DISTINCT ledger entries (different
+        composite source_record_id), NOT 1 collapsed entry. This is the
+        bug class the patch fixes.
+        """
+        # Mirror real corpus: msg_id 19707875871798bb has 5 different LOI PDFs.
+        make_sidecar(
+            self.sidecar_dir, "msg_shared",
+            filename="LOI-Bldg-117.pdf",
+            json_name="msg_shared_117.json",
+        )
+        make_sidecar(
+            self.sidecar_dir, "msg_shared",
+            filename="LOI-Lot-299.pdf",
+            json_name="msg_shared_299.json",
+        )
+
+        guarded = self.tmp / "guarded.db"
+        make_guarded_db(guarded)
+        mock = MagicMock(return_value={
+            "memory_id": 1, "evidence_id": "e", "inserted": True,
+        })
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(guarded),
+            mock_record=mock,
+        )
+        self.assertEqual(rc, 0)
+        # Two distinct calls, two distinct source_record_ids
+        self.assertEqual(mock.call_count, 2)
+        ids = sorted(
+            call.kwargs["source_record_id"] for call in mock.call_args_list
+        )
+        self.assertEqual(
+            ids,
+            ["msg_shared:LOI-Bldg-117.pdf", "msg_shared:LOI-Lot-299.pdf"],
+        )
+        # Underlying msg_id preserved in metadata for both
+        for call in mock.call_args_list:
+            self.assertEqual(call.kwargs["extra_metadata"]["msg_id"], "msg_shared")
+
+    def test_duplicate_msg_id_distinct_evidence_ids(self) -> None:
+        """Pre-computed evidence_id (sha256 over the composite triple) must
+        differ when source_record_id differs — guarantees the upsert path
+        keys two distinct ledger rows.
+        """
+        from ae_workflow_helpers import _compute_evidence_id
+        a = _compute_evidence_id("sent_pdf", "sent_estimate_pdf_miner",
+                                 "msg_shared:LOI-Bldg-117.pdf")
+        b = _compute_evidence_id("sent_pdf", "sent_estimate_pdf_miner",
+                                 "msg_shared:LOI-Lot-299.pdf")
+        self.assertNotEqual(a, b)
+
+    # ============================================================
+    # S3 PRIMARY CONTRACT — composite-key watermark
+    # ============================================================
+
+    def test_watermark_uses_composite_keys(self) -> None:
+        """After --live, watermark file must list composite keys, not bare
+        msg_ids. schema_version=2.
+        """
+        make_sidecar(
+            self.sidecar_dir, "msg_a", filename="a.pdf",
+            json_name="msg_a_a.json",
+        )
+        make_sidecar(
+            self.sidecar_dir, "msg_a", filename="b.pdf",
+            json_name="msg_a_b.json",
+        )
+        guarded = self.tmp / "guarded.db"
+        make_guarded_db(guarded)
+        mock = MagicMock(return_value={
+            "memory_id": 1, "evidence_id": "e", "inserted": True,
+        })
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(guarded),
+            mock_record=mock,
+        )
+        self.assertEqual(rc, 0)
+        wm = json.loads(self.watermark.read_text())
+        self.assertEqual(wm["schema_version"], 2)
+        self.assertEqual(
+            set(wm["processed_keys"]),
+            {"msg_a:a.pdf", "msg_a:b.pdf"},
+        )
+        self.assertNotIn("processed_msg_ids", wm)
+
+    def test_idempotent_rerun_via_composite_watermark(self) -> None:
+        """Second --live run (no --backfill) over the same sidecars skips
+        every entry via watermark — record_evidence_artifact called 0 times.
+        """
+        make_sidecar(
+            self.sidecar_dir, "msg_a", filename="a.pdf",
+            json_name="msg_a_a.json",
+        )
+        make_sidecar(
+            self.sidecar_dir, "msg_a", filename="b.pdf",
+            json_name="msg_a_b.json",
+        )
+        guarded = self.tmp / "guarded.db"
+        make_guarded_db(guarded)
+
+        # Round 1: backfill + live → fills watermark
+        mock1 = MagicMock(return_value={
+            "memory_id": 1, "evidence_id": "e", "inserted": True,
+        })
+        rc1 = self._run(
+            "--backfill", "--live", "--db-path", str(guarded),
+            mock_record=mock1,
+        )
+        self.assertEqual(rc1, 0)
+        self.assertEqual(mock1.call_count, 2)
+
+        # Round 2: no --backfill, same sidecars → watermark skips all
+        mock2 = MagicMock(return_value={
+            "memory_id": 1, "evidence_id": "e", "inserted": True,
+        })
+        rc2 = self._run(
+            "--live", "--db-path", str(guarded),
+            mock_record=mock2,
+        )
+        self.assertEqual(rc2, 0)
+        self.assertEqual(mock2.call_count, 0)
+
+    def test_legacy_watermark_schema_v1_migrated(self) -> None:
+        """Legacy schema_version=1 watermark (bare msg_ids) must be
+        recognised + discarded; the next save writes schema_version=2.
+        """
+        # Seed legacy v1 watermark
+        self.watermark.parent.mkdir(parents=True, exist_ok=True)
+        self.watermark.write_text(json.dumps({
+            "processed_msg_ids": ["msg_a"],
+            "last_run_ts": 1700000000,
+        }))
+
+        make_sidecar(
+            self.sidecar_dir, "msg_a", filename="a.pdf",
+            json_name="msg_a_a.json",
+        )
+        guarded = self.tmp / "guarded.db"
+        make_guarded_db(guarded)
+
+        mock = MagicMock(return_value={
+            "memory_id": 1, "evidence_id": "e", "inserted": True,
+        })
+        # NO --backfill: tool consults watermark; legacy data discarded so
+        # msg_a:a.pdf is NOT skipped.
+        rc = self._run(
+            "--live", "--db-path", str(guarded),
+            mock_record=mock,
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(mock.call_count, 1)
+        wm = json.loads(self.watermark.read_text())
+        self.assertEqual(wm["schema_version"], 2)
+        self.assertIn("processed_keys", wm)
+        self.assertEqual(set(wm["processed_keys"]), {"msg_a:a.pdf"})
+
+    # ============================================================
+    # S3 PRIMARY CONTRACT — canonical --live DB guard refusal
+    # ============================================================
+
+    def test_canonical_live_refused_without_evidence_ledger(self) -> None:
+        """--live must REFUSE (exit 5) when the target DB lacks the
+        evidence_ledger table AND user_version is below the S2 target.
+        """
+        make_sidecar(self.sidecar_dir, "msg_a", filename="a.pdf")
+        unguarded = self.tmp / "unguarded.db"
+        make_unguarded_db(unguarded)
+
+        # Use mock_record so the unhappy path isn't masked by import side-effects.
+        mock = MagicMock()
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(unguarded),
+            mock_record=mock,
+        )
+        self.assertEqual(rc, 5, "tool must refuse --live without DB guard")
+        # record_evidence_artifact must NOT have been called
+        self.assertEqual(mock.call_count, 0)
+
+    def test_canonical_live_refused_when_db_missing(self) -> None:
+        """Non-existent DB also fails the guard (no silent create)."""
+        make_sidecar(self.sidecar_dir, "msg_a", filename="a.pdf")
+        missing = self.tmp / "does-not-exist.db"
+        mock = MagicMock()
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(missing),
+            mock_record=mock,
+        )
+        self.assertEqual(rc, 5)
+        self.assertEqual(mock.call_count, 0)
+
+    def test_canonical_default_db_refused_when_unguarded(self) -> None:
+        """When --db-path NOT supplied, the default canonical DB is
+        probed. If unguarded → refuse. We patch CANONICAL_DB_PATH to a
+        tempdir-controlled unguarded file.
+        """
+        make_sidecar(self.sidecar_dir, "msg_a", filename="a.pdf")
+        unguarded = self.tmp / "fake-canonical.db"
+        make_unguarded_db(unguarded)
+        with patch.object(ingest, "CANONICAL_DB_PATH", unguarded):
+            mock = MagicMock()
+            rc = self._run("--backfill", "--live", mock_record=mock)
+        self.assertEqual(rc, 5)
+        self.assertEqual(mock.call_count, 0)
+
+    def test_copy_db_live_allowed_when_guard_installed(self) -> None:
+        """The 'copy proof' path: caller creates a copy DB AND installs
+        the evidence_ledger guard before --live. Tool must allow this.
+        """
+        make_sidecar(self.sidecar_dir, "msg_a", filename="a.pdf")
+        copy_db = self.tmp / "copy.db"
+        make_guarded_db(copy_db, install_table=True, user_version=1)
+
+        mock = MagicMock(return_value={
+            "memory_id": 1, "evidence_id": "e", "inserted": True,
+        })
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(copy_db),
+            mock_record=mock,
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(mock.call_count, 1)
+
+    def test_guard_passes_via_user_version_alone(self) -> None:
+        """user_version >= target also satisfies the guard, even when the
+        evidence_ledger table is missing (forward-compat for future
+        schema_upgrade migrations that fold the table differently).
+        """
+        make_sidecar(self.sidecar_dir, "msg_a", filename="a.pdf")
+        db = self.tmp / "uv-only.db"
+        make_guarded_db(db, install_table=False, user_version=1)
+        mock = MagicMock(return_value={
+            "memory_id": 1, "evidence_id": "e", "inserted": True,
+        })
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(db),
+            mock_record=mock,
+        )
+        self.assertEqual(rc, 0)
+
+    def test_dry_run_never_probes_db_guard(self) -> None:
+        """Dry-run is purely informational; the DB guard check must NOT
+        run in dry-run, even when --db-path points at an unguarded DB.
+        """
+        make_sidecar(self.sidecar_dir, "msg_a", filename="a.pdf")
+        unguarded = self.tmp / "unguarded.db"
+        make_unguarded_db(unguarded)
+        # Default mock_record (None) asserts record_evidence_artifact is NOT called
+        rc = self._run("--backfill", "--db-path", str(unguarded))
+        self.assertEqual(rc, 0)
+
+    # ============================================================
+    # PRESERVED CONTRACTS FROM S-OPTE
+    # ============================================================
 
     def test_dry_run_default_no_substrate_write(self) -> None:
-        make_sidecar(self.sidecar_dir, "msg_a")
-        make_sidecar(self.sidecar_dir, "msg_b")
-        # default mock_record asserts record_evidence_artifact is NOT called
+        make_sidecar(
+            self.sidecar_dir, "msg_a", filename="a.pdf",
+            json_name="msg_a_a.json",
+        )
+        make_sidecar(
+            self.sidecar_dir, "msg_b", filename="b.pdf",
+            json_name="msg_b_b.json",
+        )
         rc = self._run("--backfill")
         self.assertEqual(rc, 0)
-        # exactly one dry-run output file
         outs = list(self.dryrun_dir.glob("sent-pdf-*.dry.jsonl"))
         self.assertEqual(len(outs), 1)
         rows = [json.loads(l) for l in outs[0].read_text().splitlines() if l.strip()]
@@ -113,19 +504,28 @@ class IngestSentPdfSidecarsTests(unittest.TestCase):
             self.assertIsNone(r["memory_id"])
             self.assertIsNone(r["inserted"])
             self.assertIn("evidence_id", r)
+            self.assertIn("composite_key", r)
 
     def test_live_mode_calls_record_evidence_artifact(self) -> None:
-        make_sidecar(self.sidecar_dir, "msg_a", text="Estimate body A")
+        make_sidecar(
+            self.sidecar_dir, "msg_a", text="Estimate body A",
+            filename="a.pdf",
+        )
+        guarded = self.tmp / "guarded.db"
+        make_guarded_db(guarded)
         mock = MagicMock(return_value={
             "memory_id": 42, "evidence_id": "abc123", "inserted": True,
         })
-        rc = self._run("--backfill", "--live", mock_record=mock)
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(guarded),
+            mock_record=mock,
+        )
         self.assertEqual(rc, 0)
         self.assertEqual(mock.call_count, 1)
         _, kwargs = mock.call_args
         self.assertEqual(kwargs["evidence_type"], "sent_pdf")
         self.assertEqual(kwargs["source_system"], "sent_estimate_pdf_miner")
-        self.assertEqual(kwargs["source_record_id"], "msg_a")
+        self.assertEqual(kwargs["source_record_id"], "msg_a:a.pdf")
         self.assertEqual(kwargs["content"], "Estimate body A")
         self.assertEqual(kwargs["capability_id"], "ITEM-SENT-PDF")
         self.assertEqual(kwargs["privacy_class"], "financial")
@@ -133,105 +533,49 @@ class IngestSentPdfSidecarsTests(unittest.TestCase):
         self.assertIn("filename", kwargs["extra_metadata"])
         self.assertIn("page_count", kwargs["extra_metadata"])
         self.assertEqual(kwargs["extra_metadata"]["extraction_method"], "pdfplumber")
-        # valid_from must be parsed into an epoch float
         self.assertIsInstance(kwargs["valid_from"], float)
         self.assertGreater(kwargs["valid_from"], 1_700_000_000)
 
-    def test_idempotent_via_msg_id(self) -> None:
-        """Re-running over same sidecar with same evidence_id uses upsert
-        path (record_evidence_artifact returns inserted=False the second time).
-        We simulate that on the mock side."""
-        make_sidecar(self.sidecar_dir, "msg_dup")
-
-        # First call: inserted; second call (replay): existing
-        call_results = [
-            {"memory_id": 7, "evidence_id": "evid", "inserted": True},
-            {"memory_id": 7, "evidence_id": "evid", "inserted": False},
-        ]
-
-        mock = MagicMock(side_effect=call_results)
-        # Backfill once, then again; both should call (mock simulates dedup)
-        rc1 = self._run("--backfill", "--live", mock_record=mock)
-        # Reset watermark side-effect by deleting it (--backfill should write
-        # the watermark; we want to simulate a true replay over same sidecar)
-        if self.watermark.exists():
-            self.watermark.unlink()
-        rc2 = self._run("--backfill", "--live", mock_record=mock)
-        self.assertEqual(rc1, 0)
-        self.assertEqual(rc2, 0)
-        self.assertEqual(mock.call_count, 2)
-        # The source_record_id passed both times must be identical (msg_id)
-        first_kwargs = mock.call_args_list[0].kwargs
-        second_kwargs = mock.call_args_list[1].kwargs
-        self.assertEqual(first_kwargs["source_record_id"], "msg_dup")
-        self.assertEqual(second_kwargs["source_record_id"], "msg_dup")
-
-    def test_watermark_skips_already_processed(self) -> None:
-        make_sidecar(self.sidecar_dir, "msg_old")
-        make_sidecar(self.sidecar_dir, "msg_new")
-
-        # Seed watermark with msg_old as already processed
-        self.watermark.parent.mkdir(parents=True, exist_ok=True)
-        self.watermark.write_text(json.dumps({
-            "processed_msg_ids": ["msg_old"],
-            "last_run_ts": 1700000000,
-        }))
-
-        mock = MagicMock(return_value={
-            "memory_id": 1, "evidence_id": "e", "inserted": True,
-        })
-        # Live + NO backfill → must consult watermark
-        rc = self._run("--live", mock_record=mock)
-        self.assertEqual(rc, 0)
-        self.assertEqual(mock.call_count, 1)
-        only_call_kwargs = mock.call_args.kwargs
-        self.assertEqual(only_call_kwargs["source_record_id"], "msg_new")
-        # Watermark must now contain BOTH (merge of pre-existing + new)
-        wm = json.loads(self.watermark.read_text())
-        self.assertEqual(set(wm["processed_msg_ids"]), {"msg_old", "msg_new"})
-
     def test_backfill_ignores_watermark(self) -> None:
-        make_sidecar(self.sidecar_dir, "msg_a")
-        make_sidecar(self.sidecar_dir, "msg_b")
+        make_sidecar(
+            self.sidecar_dir, "msg_a", filename="a.pdf",
+            json_name="msg_a_a.json",
+        )
+        make_sidecar(
+            self.sidecar_dir, "msg_b", filename="b.pdf",
+            json_name="msg_b_b.json",
+        )
+        # Pre-seed a v2 watermark with both composite keys
         self.watermark.parent.mkdir(parents=True, exist_ok=True)
         self.watermark.write_text(json.dumps({
-            "processed_msg_ids": ["msg_a", "msg_b"],
+            "schema_version": 2,
+            "processed_keys": ["msg_a:a.pdf", "msg_b:b.pdf"],
             "last_run_ts": 1700000000,
         }))
-        # Dry-run + backfill: should still process both even though watermark
-        # has them; default mock_record asserts NO record_evidence_artifact call
         rc = self._run("--backfill")
         self.assertEqual(rc, 0)
         outs = list(self.dryrun_dir.glob("sent-pdf-*.dry.jsonl"))
         rows = [json.loads(l) for l in outs[0].read_text().splitlines() if l.strip()]
-        # All rows processed (dry_run=True), none skipped_watermark=True
         self.assertEqual(len(rows), 2)
         for r in rows:
             self.assertTrue(r.get("dry_run"))
             self.assertNotIn("skipped_watermark", r)
 
     def test_handles_malformed_sidecar(self) -> None:
-        # Good sidecar
-        make_sidecar(self.sidecar_dir, "msg_good")
-        # Bad JSON
+        make_sidecar(self.sidecar_dir, "msg_good", filename="g.pdf")
         (self.sidecar_dir / "bad_json.json").write_text("{not valid json")
-        # Missing required field (no msg_id)
         (self.sidecar_dir / "missing_field.json").write_text(json.dumps({
             "thread_id": "x", "text": "y", "downloaded_at": "2026-05-02T00:00:00+00:00",
         }))
-
         rc = self._run("--backfill")
-        # Errors present → exit 3 (not 0), but tool should NOT crash
         self.assertEqual(rc, 3)
         outs = list(self.dryrun_dir.glob("sent-pdf-*.dry.jsonl"))
         rows = [json.loads(l) for l in outs[0].read_text().splitlines() if l.strip()]
-        # 3 sidecar files → 3 rows (1 ok + 2 errors)
         self.assertEqual(len(rows), 3)
         ok = [r for r in rows if "error" not in r]
         bad = [r for r in rows if "error" in r]
         self.assertEqual(len(ok), 1)
         self.assertEqual(len(bad), 2)
-        # Both error rows include the file path
         for r in bad:
             self.assertIn("sidecar_path", r)
             self.assertIsInstance(r["error"], str)
@@ -240,30 +584,36 @@ class IngestSentPdfSidecarsTests(unittest.TestCase):
         make_sidecar(
             self.sidecar_dir, "msg_meta",
             text="body",
+            filename="meta.pdf",
             extra={"dollar_total_guess": 1234.56},
         )
+        guarded = self.tmp / "guarded.db"
+        make_guarded_db(guarded)
         mock = MagicMock(return_value={
             "memory_id": 1, "evidence_id": "e", "inserted": True,
         })
-        rc = self._run("--backfill", "--live", mock_record=mock)
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(guarded),
+            mock_record=mock,
+        )
         self.assertEqual(rc, 0)
         kwargs = mock.call_args.kwargs
         meta = kwargs["extra_metadata"]
-        # Per packet spec — these MUST appear in the metadata
         for key in ("thread_id", "subject", "from", "to", "date",
-                    "filename", "dollar_total_guess"):
+                    "filename", "dollar_total_guess",
+                    # S3 additions
+                    "msg_id", "source_record_key_strategy"):
             self.assertIn(key, meta, f"metadata missing required key {key!r}")
-        # Bonus fields from extraction
         self.assertIn("page_count", meta)
         self.assertEqual(meta["dollar_total_guess"], 1234.56)
-        # Top-level contract fields
+        self.assertEqual(meta["msg_id"], "msg_meta")
+        self.assertEqual(meta["source_record_key_strategy"], "filename")
         self.assertEqual(kwargs["evidence_type"], "sent_pdf")
         self.assertEqual(kwargs["capability_id"], "ITEM-SENT-PDF")
-        # capability_id is on top-level kwargs (record_evidence_artifact
-        # writes it to metadata.capability_id internally), per ae_workflow_helpers
-        # contract — so don't expect it inside extra_metadata.
 
-    # ---------------------------------------------------- aux contracts
+    # ============================================================
+    # AUX
+    # ============================================================
 
     def test_parse_downloaded_at_iso_string(self) -> None:
         ts = ingest._parse_downloaded_at("2026-05-02T05:13:53.556661+00:00")
@@ -275,9 +625,35 @@ class IngestSentPdfSidecarsTests(unittest.TestCase):
         self.assertEqual(ts, 1714627200.5)
 
     def test_empty_sidecar_dir_no_op(self) -> None:
-        # No sidecars at all — should produce empty report and exit 0
         rc = self._run("--backfill")
         self.assertEqual(rc, 0)
+
+    def test_check_db_guard_helper_table_present(self) -> None:
+        db = self.tmp / "g1.db"
+        make_guarded_db(db, install_table=True, user_version=0)
+        ok, reason = ingest._check_db_guard(db)
+        self.assertTrue(ok, reason)
+        self.assertIn("evidence_ledger", reason)
+
+    def test_check_db_guard_helper_user_version_only(self) -> None:
+        db = self.tmp / "g2.db"
+        make_guarded_db(db, install_table=False, user_version=1)
+        ok, reason = ingest._check_db_guard(db)
+        self.assertTrue(ok, reason)
+        self.assertIn("user_version", reason)
+
+    def test_check_db_guard_helper_unguarded(self) -> None:
+        db = self.tmp / "g3.db"
+        make_unguarded_db(db)
+        ok, reason = ingest._check_db_guard(db)
+        self.assertFalse(ok)
+        self.assertIn("guard not present", reason)
+
+    def test_check_db_guard_helper_missing_file(self) -> None:
+        db = self.tmp / "nope.db"
+        ok, reason = ingest._check_db_guard(db)
+        self.assertFalse(ok)
+        self.assertIn("does not exist", reason)
 
 
 if __name__ == "__main__":

@@ -986,6 +986,255 @@ class AEEvidenceIngestContractTests(unittest.TestCase):
         self.assertEqual(mem_cnt, 0,
                          "loser-timeout must not insert a memory row")
 
+    # ------------------------------------------------------------ S4c: composite identity (sent-PDF sidecar standard)
+    def test_estimate_evidence_backward_compat_unchanged_source_record_id(
+        self,
+    ) -> None:
+        """S4c contract: callers passing ONLY (estimate_id, event_type) — no
+        new optional disambiguation fields — must produce the SAME
+        source_record_id formula as S2b (`f"{estimate_id}:{event_type}"`).
+        This protects every existing caller + the namespace-test reference
+        formula from drift."""
+        result = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-2026-001", customer_id="CUST-1",
+            event_type="draft",
+        )
+        # Compute the evidence_id we WOULD expect under the legacy formula.
+        expected_evidence_id = _compute_evidence_id(
+            "estimate_event", "ae_dashboard", "EST-2026-001:draft",
+        )
+        self.assertEqual(
+            result["evidence_id"], expected_evidence_id,
+            "backward-compat broken: caller w/ no optional disambiguation "
+            "fields must produce the legacy source_record_id formula "
+            "(f'{estimate_id}:{event_type}')",
+        )
+
+    def test_estimate_evidence_resend_disambiguation_via_msg_id(self) -> None:
+        """Same (estimate_id, event_type) + DIFFERENT msg_id → 2 distinct
+        ledger rows (per Active P1 #10: resends must not collapse)."""
+        ts = time.time()
+        r1 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-RESEND", customer_id="CUST-7",
+            event_type="sent",
+            pdf_path="/path/EST-RESEND.pdf",
+            amount_cents=100000,
+            sent_at=ts,
+            msg_id="gmail-msg-FIRST",
+        )
+        r2 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-RESEND", customer_id="CUST-7",
+            event_type="sent",
+            pdf_path="/path/EST-RESEND.pdf",
+            amount_cents=100000,
+            sent_at=ts,
+            msg_id="gmail-msg-SECOND",  # the resend
+        )
+        self.assertNotEqual(
+            r1["evidence_id"], r2["evidence_id"],
+            "resend (different msg_id) must produce a distinct evidence_id",
+        )
+        self.assertNotEqual(
+            r1["memory_id"], r2["memory_id"],
+            "resend must persist a separate ledger memory row",
+        )
+        self.assertTrue(r1["inserted"])
+        self.assertTrue(r2["inserted"])
+
+    def test_estimate_evidence_multi_attachment_disambiguation_via_pdf_path(
+        self,
+    ) -> None:
+        """Same (estimate_id, event_type) + DIFFERENT pdf_path → 2 distinct
+        ledger rows (multi-attachment send: e.g. one estimate email with
+        scope.pdf + bom.pdf both attached)."""
+        ts = time.time()
+        r1 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-MULTI", customer_id="CUST-8",
+            event_type="sent",
+            pdf_path="/path/scope.pdf",
+            sent_at=ts,
+            msg_id="gmail-msg-MULTI",
+        )
+        r2 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-MULTI", customer_id="CUST-8",
+            event_type="sent",
+            pdf_path="/path/bom.pdf",  # different attachment, same email
+            sent_at=ts,
+            msg_id="gmail-msg-MULTI",  # same email
+        )
+        self.assertNotEqual(
+            r1["evidence_id"], r2["evidence_id"],
+            "multi-attachment (different pdf_path) must produce distinct "
+            "evidence_ids even when msg_id is identical",
+        )
+        self.assertNotEqual(
+            r1["memory_id"], r2["memory_id"],
+            "multi-attachment must persist as 2 ledger memory rows",
+        )
+
+    def test_estimate_evidence_multi_attachment_via_attachment_ordinal(
+        self,
+    ) -> None:
+        """attachment_ordinal disambiguates when the SAME pdf_path is sent
+        twice (rare, but possible if the producer doesn't have distinct
+        filenames yet — fallback safety net)."""
+        ts = time.time()
+        r1 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-ORD", customer_id="CUST-9",
+            event_type="sent",
+            pdf_path="/path/same.pdf",
+            sent_at=ts,
+            attachment_ordinal=1,
+        )
+        r2 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-ORD", customer_id="CUST-9",
+            event_type="sent",
+            pdf_path="/path/same.pdf",
+            sent_at=ts,
+            attachment_ordinal=2,
+        )
+        self.assertNotEqual(
+            r1["evidence_id"], r2["evidence_id"],
+            "different attachment_ordinal must produce distinct evidence_ids",
+        )
+
+    def test_estimate_evidence_pdf_sha256_fallback_when_path_missing(
+        self,
+    ) -> None:
+        """When pdf_path is absent but pdf_sha256 is provided, the hash
+        (truncated to 16 hex chars) folds into source_record_id as the
+        path-fallback. Mirrors S3 producer-side fallback pattern.
+        """
+        ts = time.time()
+        sha = "abcdef0123456789" + "0" * 48  # 64-char sha256
+        r1 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-HASH", customer_id="CUST-10",
+            event_type="sent",
+            # pdf_path intentionally omitted
+            pdf_sha256=sha,
+            sent_at=ts,
+            msg_id="gmail-msg-HASH",
+        )
+        # Expected source_record_id: base + pdf=<sha[:16]> + msg=<msg_id>
+        # + sent=<int(ts)>
+        expected_src = (
+            f"EST-HASH:sent"
+            f":pdf={sha[:16]}"
+            f":msg=gmail-msg-HASH"
+            f":sent={int(ts)}"
+        )
+        # estimate_event when pdf_path absent (formula in helper)
+        expected_evidence_id = _compute_evidence_id(
+            "estimate_event", "ae_dashboard", expected_src,
+        )
+        self.assertEqual(
+            r1["evidence_id"], expected_evidence_id,
+            "pdf_sha256 fallback formula drifted",
+        )
+
+    def test_estimate_evidence_composite_identity_deterministic(self) -> None:
+        """Same set of optional fields (regardless of caller invocation
+        order) MUST produce the same source_record_id. Compose order is
+        fixed: pdf → msg → sent → att. Determinism guards against subtle
+        replay bugs where two callers with identical intent produce
+        different evidence_ids."""
+        ts = 1714723200.0  # fixed timestamp for determinism
+        # Two sub-tests: same args → same evidence_id (deterministic).
+        r1 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-DET", customer_id="CUST-11",
+            event_type="sent",
+            pdf_path="/path/det.pdf",
+            msg_id="msg-DET",
+            sent_at=ts,
+            attachment_ordinal=3,
+        )
+        # Recompute the expected evidence_id directly from compose order.
+        expected_src = (
+            "EST-DET:sent"
+            ":pdf=det.pdf"
+            ":msg=msg-DET"
+            f":sent={int(ts)}"
+            ":att=3"
+        )
+        expected_evidence_id = _compute_evidence_id(
+            "sent_pdf", "ae_dashboard", expected_src,
+        )
+        self.assertEqual(
+            r1["evidence_id"], expected_evidence_id,
+            "composite source_record_id formula drifted from documented "
+            "compose order (pdf → msg → sent → att)",
+        )
+
+    def test_estimate_evidence_composite_replay_dedup(self) -> None:
+        """Same composite identity → second call returns inserted=False
+        with the SAME memory_id (replay safety holds for the new identity
+        formula too)."""
+        ts = 1714723200.0
+        kwargs = dict(
+            capability_id="ITEM-9",
+            estimate_id="EST-REPLAY", customer_id="CUST-12",
+            event_type="sent",
+            pdf_path="/path/replay.pdf",
+            msg_id="msg-REPLAY",
+            sent_at=ts,
+            attachment_ordinal=1,
+        )
+        r1 = record_estimate_evidence(self.mem, **kwargs)
+        r2 = record_estimate_evidence(self.mem, **kwargs)
+        self.assertTrue(r1["inserted"])
+        self.assertFalse(r2["inserted"], "replay must return inserted=False")
+        self.assertEqual(r1["memory_id"], r2["memory_id"],
+                         "replay must return the original memory_id")
+        self.assertEqual(r1["evidence_id"], r2["evidence_id"])
+
+    def test_estimate_evidence_recipient_alias_to_sent_to(self) -> None:
+        """`recipient` is metadata-only (does NOT alter source_record_id)
+        and is folded into `sent_to` only when sent_to is unset. This
+        prevents over-fragmenting batch sends to multiple parties while
+        still letting callers use the more general spelling."""
+        # (a) recipient → sent_to alias when sent_to is unset
+        r1 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-ALIAS", customer_id="CUST-13",
+            event_type="sent",
+            pdf_path="/path/alias.pdf",
+            recipient="batch-target-1@example.com",
+        )
+        import json
+        md = json.loads(self.mem.get_memory(r1["memory_id"])["metadata_json"])
+        self.assertEqual(md["sent_to"], "batch-target-1@example.com",
+                         "recipient must alias to sent_to when sent_to unset")
+
+        # (b) recipient does NOT enter source_record_id — same identity
+        # whether or not recipient is passed.
+        r2 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-ALIAS-NORECIP", customer_id="CUST-13",
+            event_type="sent",
+            pdf_path="/path/no-recip.pdf",
+        )
+        r3 = record_estimate_evidence(
+            self.mem, capability_id="ITEM-9",
+            estimate_id="EST-ALIAS-NORECIP", customer_id="CUST-13",
+            event_type="sent",
+            pdf_path="/path/no-recip.pdf",
+            recipient="anyone@example.com",  # added — must be metadata-only
+        )
+        self.assertEqual(
+            r2["evidence_id"], r3["evidence_id"],
+            "recipient must be metadata-only — adding it must NOT change "
+            "source_record_id (would over-fragment batch sends)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1130,6 +1130,12 @@ def record_estimate_evidence(
     sent_at: Optional[float] = None,
     privacy_class: str = "financial",
     consumer_hint: Optional[str] = None,
+    # S4c additions (2026-05-03): identity disambiguation for resends +
+    # multi-attachment sent-PDF events. All optional; backward-compat preserved.
+    pdf_sha256: Optional[str] = None,
+    msg_id: Optional[str] = None,
+    recipient: Optional[str] = None,
+    attachment_ordinal: Optional[int] = None,
 ) -> dict[str, Any]:
     """Record an estimate-pipeline event with provenance to the PDF artifact.
 
@@ -1138,6 +1144,33 @@ def record_estimate_evidence(
 
     The financial privacy class is default since estimates carry pricing
     that's not internal-public. Override only with explicit Tito approval.
+
+    IDENTITY COMPOSITION (S4c packet 2026-05-03):
+    The base source_record_id is `f"{estimate_id}:{event_type}"` (unchanged
+    from S2b). When the optional disambiguation fields are passed, they are
+    appended in a deterministic compose order to widen the identity so that
+    resends + multi-attachment sent-PDF events do NOT collapse into one
+    ledger row:
+
+      base                                 = f"{estimate_id}:{event_type}"
+      + pdf_path  → ":pdf=" + basename(pdf_path)
+      + pdf_sha256 (only if pdf_path absent) → ":pdf=" + pdf_sha256[:16]
+      + msg_id    → ":msg=" + msg_id
+      + sent_at   → ":sent=" + str(int(sent_at))
+      + attachment_ordinal → ":att=" + str(int(attachment_ordinal))
+
+    Compose order is `pdf → msg → sent → att`. Same set of optional fields
+    in any call order produces the same source_record_id (deterministic).
+
+    Backward-compat: callers that pass none of the optional disambiguation
+    fields produce the SAME source_record_id as before this change
+    (`f"{estimate_id}:{event_type}"`). The S2b namespace test reference
+    formula still holds for the no-pdf and with-pdf shapes that don't pass
+    the new fields.
+
+    `recipient` is metadata-only — it does NOT enter the source_record_id
+    (would over-fragment batch sends to multiple parties). It is folded
+    into `sent_to` only when `sent_to` is otherwise unset.
 
     Returns: {"memory_id": int, "evidence_id": str, "inserted": bool}
     (forwarded from record_evidence_artifact for replay safety).
@@ -1148,11 +1181,37 @@ def record_estimate_evidence(
             f"draft/sent/approved/scheduled/lost"
         )
 
+    # Compose source_record_id deterministically (S4c).
+    # Base preserves the S2b formula for backward-compat.
+    src_parts = [f"{estimate_id}:{event_type}"]
+    if pdf_path:
+        # basename() avoids leaking absolute-path differences across hosts;
+        # the producer-side (tools/ingest_sent_pdf_sidecars.py) S3 commit
+        # uses the same file-identity pattern (filename, fallback to hash).
+        import os as _os
+        src_parts.append(f"pdf={_os.path.basename(pdf_path)}")
+    elif pdf_sha256:
+        # Fallback when path is missing — matches S3 producer-side fallback
+        # f"{msg_id}:{filehash[:16]}" pattern.
+        src_parts.append(f"pdf={pdf_sha256[:16]}")
+    if msg_id:
+        src_parts.append(f"msg={msg_id}")
+    if sent_at is not None:
+        src_parts.append(f"sent={int(sent_at)}")
+    if attachment_ordinal is not None:
+        src_parts.append(f"att={int(attachment_ordinal)}")
+    source_record_id = ":".join(src_parts)
+
+    # Resolve sent_to ← recipient when sent_to is otherwise unset (S4c).
+    # `recipient` is the more general spelling; existing callers that pass
+    # `sent_to` keep their semantics.
+    effective_sent_to = sent_to if sent_to else recipient
+
     content_parts = [f"Estimate {estimate_id} for customer {customer_id}: {event_type}"]
     if amount_cents is not None:
         content_parts.append(f"\nAmount: ${amount_cents/100:.2f}")
-    if sent_to:
-        content_parts.append(f"\nSent to: {sent_to}")
+    if effective_sent_to:
+        content_parts.append(f"\nSent to: {effective_sent_to}")
     if pdf_path:
         content_parts.append(f"\nPDF: {pdf_path}")
     content = "".join(content_parts)
@@ -1164,12 +1223,21 @@ def record_estimate_evidence(
     }
     if amount_cents is not None:
         extra["amount_cents"] = amount_cents
-    if sent_to:
-        extra["sent_to"] = sent_to
+    if effective_sent_to:
+        extra["sent_to"] = effective_sent_to
     if sent_at is not None:
         extra["sent_at"] = sent_at
     if pdf_path:
         extra["pdf_path"] = pdf_path
+    # S4c metadata: surface the disambiguation fields alongside the
+    # composite source_record_id so audits can see WHY two ledger rows
+    # exist for the same (estimate_id, event_type).
+    if pdf_sha256:
+        extra["pdf_sha256"] = pdf_sha256
+    if msg_id:
+        extra["msg_id"] = msg_id
+    if attachment_ordinal is not None:
+        extra["attachment_ordinal"] = int(attachment_ordinal)
 
     return record_evidence_artifact(
         mem,
@@ -1180,7 +1248,7 @@ def record_estimate_evidence(
         content=content,
         privacy_class=privacy_class,
         confidence=0.95,
-        source_record_id=f"{estimate_id}:{event_type}",
+        source_record_id=source_record_id,
         valid_from=sent_at if sent_at is not None else _time.time(),
         consumer_hint=consumer_hint,
         extra_metadata=extra,

@@ -1981,7 +1981,7 @@ class Mazemaker:
                 continue
             seen.add(key)
             edges.append({"from": r["source_id"], "to": r["target_id"], "weight": round(float(r["weight"]), 3), "type": r["edge_type"] or "similar"})
-        return {"nodes": stats["memories"], "edges": stats["connections"], "top_edges": edges[:10]}
+        return {"nodes": stats["memories"], "edges": stats["connections"], "top_edges": edges}
 
     def stats(self) -> dict:
         graph = self.store.stats() if hasattr(self.store, "stats") else self.store.get_stats()

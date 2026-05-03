@@ -14,6 +14,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -234,20 +235,41 @@ class SchemaUpgrade:
         Safe to apply repeatedly; safe to apply on a DB at any version 0/1/2.
         """
         current_version = conn.execute("PRAGMA user_version").fetchone()[0]
-        if current_version >= _EVIDENCE_LEDGER_TARGET_USER_VERSION:
-            return {
-                "ledger_created": 0,
-                "ledger_indexes_created": 0,
-                "user_version_before": current_version,
-                "user_version_after": current_version,
-            }
 
-        # Table existence pre-check so we can report whether THIS run created
-        # it (vs a partial prior run). CREATE IF NOT EXISTS still runs either
-        # way — this is informational only.
+        # Table existence pre-check (informational — CREATE IF NOT EXISTS runs
+        # either way; this only determines the ledger_created return value).
         existed = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_ledger'"
         ).fetchone() is not None
+
+        if current_version >= _EVIDENCE_LEDGER_TARGET_USER_VERSION:
+            # user_version is already at target, but a malformed DB (e.g.
+            # partial install, test fixture, or bit-for-bit copy) may be
+            # missing the table or the required v2 composite index. Verify and
+            # repair rather than returning early (S4 hardening 2026-05-03:
+            # schema_upgrade must not silently no-op on malformed v2 DBs).
+            conn.execute(_EVIDENCE_LEDGER_DDL)  # no-op if table already exists
+            # Only count indexes that are actually absent so idempotent re-runs
+            # on an already-correct DB return ledger_indexes_created=0.
+            repaired_indexes = 0
+            existing_indexes = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index'"
+                ).fetchall()
+            }
+            for ddl in _EVIDENCE_LEDGER_INDEXES:
+                conn.execute(ddl)
+                # Extract index name from "CREATE … INDEX IF NOT EXISTS <name> ON …"
+                m = re.search(r"NOT EXISTS\s+(\S+)", ddl)
+                if m and m.group(1) not in existing_indexes:
+                    repaired_indexes += 1
+            return {
+                "ledger_created": 0,
+                "ledger_indexes_created": repaired_indexes,
+                "user_version_before": current_version,
+                "user_version_after": current_version,
+            }
 
         # v0 → v2 fresh creation, OR v1 → v2 migration. Both paths converge
         # on the same final shape: table + 2 v2-shape indexes.

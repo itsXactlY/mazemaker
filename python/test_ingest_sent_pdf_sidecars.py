@@ -72,10 +72,13 @@ def make_sidecar(
 
 
 def make_guarded_db(path: Path, *, install_table: bool = True,
-                    user_version: int = 1) -> None:
-    """Create a SQLite DB at `path` with the evidence_ledger guard installed
-    (mirrors S2's schema_upgrade output minimally enough to satisfy the
-    pre-flight check in the ingest tool).
+                    user_version: int = 2,
+                    install_index: bool = True) -> None:
+    """Create a SQLite DB at `path` with the v2 evidence_ledger guard installed.
+
+    S4 hardening (2026-05-03): valid guard now requires user_version >= 2,
+    the evidence_ledger table, AND idx_evidence_ledger_type_source_record.
+    Default values match the canonical v2 shape from schema_upgrade.
     """
     conn = sqlite3.connect(path)
     if install_table:
@@ -88,6 +91,12 @@ def make_guarded_db(path: Path, *, install_table: bool = True,
                 source_record_id TEXT NOT NULL
             )
         """)
+        if install_index:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS "
+                "idx_evidence_ledger_type_source_record "
+                "ON evidence_ledger (evidence_type, source_system, source_record_id)"
+            )
     conn.execute(f"PRAGMA user_version = {user_version}")
     conn.commit()
     conn.close()
@@ -436,11 +445,11 @@ class IngestSentPdfSidecarsTests(unittest.TestCase):
 
     def test_copy_db_live_allowed_when_guard_installed(self) -> None:
         """The 'copy proof' path: caller creates a copy DB AND installs
-        the evidence_ledger guard before --live. Tool must allow this.
+        the v2 evidence_ledger guard before --live. Tool must allow this.
         """
         make_sidecar(self.sidecar_dir, "msg_a", filename="a.pdf")
         copy_db = self.tmp / "copy.db"
-        make_guarded_db(copy_db, install_table=True, user_version=1)
+        make_guarded_db(copy_db, install_table=True, user_version=2)
 
         mock = MagicMock(return_value={
             "memory_id": 1, "evidence_id": "e", "inserted": True,
@@ -452,14 +461,26 @@ class IngestSentPdfSidecarsTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(mock.call_count, 1)
 
-    def test_guard_passes_via_user_version_alone(self) -> None:
-        """user_version >= target also satisfies the guard, even when the
-        evidence_ledger table is missing (forward-compat for future
-        schema_upgrade migrations that fold the table differently).
+    def test_guard_fails_via_user_version_alone(self) -> None:
+        """S4 hardening: user_version-only (no table) must FAIL the guard.
+        v2 guard requires user_version >= 2 AND the table AND the index.
         """
         make_sidecar(self.sidecar_dir, "msg_a", filename="a.pdf")
         db = self.tmp / "uv-only.db"
-        make_guarded_db(db, install_table=False, user_version=1)
+        make_guarded_db(db, install_table=False, user_version=2)
+        mock = MagicMock()
+        rc = self._run(
+            "--backfill", "--live", "--db-path", str(db),
+            mock_record=mock,
+        )
+        self.assertEqual(rc, 5, "uv-only DB must be refused by v2 guard")
+        self.assertEqual(mock.call_count, 0)
+
+    def test_guard_passes_v2_full_shape(self) -> None:
+        """S4 hardening: user_version=2 + table + index must pass the guard."""
+        make_sidecar(self.sidecar_dir, "msg_a", filename="a.pdf")
+        db = self.tmp / "v2-full.db"
+        make_guarded_db(db, install_table=True, user_version=2, install_index=True)
         mock = MagicMock(return_value={
             "memory_id": 1, "evidence_id": "e", "inserted": True,
         })
@@ -467,7 +488,7 @@ class IngestSentPdfSidecarsTests(unittest.TestCase):
             "--backfill", "--live", "--db-path", str(db),
             mock_record=mock,
         )
-        self.assertEqual(rc, 0)
+        self.assertEqual(rc, 0, "v2 full-shape DB must be allowed by guard")
 
     def test_dry_run_never_probes_db_guard(self) -> None:
         """Dry-run is purely informational; the DB guard check must NOT
@@ -628,26 +649,44 @@ class IngestSentPdfSidecarsTests(unittest.TestCase):
         rc = self._run("--backfill")
         self.assertEqual(rc, 0)
 
-    def test_check_db_guard_helper_table_present(self) -> None:
+    def test_check_db_guard_helper_v2_full_shape_passes(self) -> None:
+        """S4: v2 = user_version >= 2 + table + index must pass."""
         db = self.tmp / "g1.db"
-        make_guarded_db(db, install_table=True, user_version=0)
+        make_guarded_db(db, install_table=True, user_version=2, install_index=True)
         ok, reason = ingest._check_db_guard(db)
         self.assertTrue(ok, reason)
-        self.assertIn("evidence_ledger", reason)
+        self.assertIn("v2 guard OK", reason)
 
-    def test_check_db_guard_helper_user_version_only(self) -> None:
+    def test_check_db_guard_helper_table_only_fails(self) -> None:
+        """S4: table present but user_version < 2 must fail."""
+        db = self.tmp / "g1b.db"
+        make_guarded_db(db, install_table=True, user_version=0, install_index=False)
+        ok, reason = ingest._check_db_guard(db)
+        self.assertFalse(ok)
+        self.assertIn("need >=2", reason)
+
+    def test_check_db_guard_helper_user_version_only_v1_fails(self) -> None:
+        """S4: user_version=1, no table must fail (uv < 2)."""
         db = self.tmp / "g2.db"
         make_guarded_db(db, install_table=False, user_version=1)
         ok, reason = ingest._check_db_guard(db)
-        self.assertTrue(ok, reason)
-        self.assertIn("user_version", reason)
+        self.assertFalse(ok)
+        self.assertIn("need >=2", reason)
+
+    def test_check_db_guard_helper_v2_no_index_fails(self) -> None:
+        """S4: user_version=2, table present, but index missing must fail."""
+        db = self.tmp / "g2b.db"
+        make_guarded_db(db, install_table=True, user_version=2, install_index=False)
+        ok, reason = ingest._check_db_guard(db)
+        self.assertFalse(ok)
+        self.assertIn("index missing", reason)
 
     def test_check_db_guard_helper_unguarded(self) -> None:
         db = self.tmp / "g3.db"
         make_unguarded_db(db)
         ok, reason = ingest._check_db_guard(db)
         self.assertFalse(ok)
-        self.assertIn("guard not present", reason)
+        self.assertIn("need >=2", reason)
 
     def test_check_db_guard_helper_missing_file(self) -> None:
         db = self.tmp / "nope.db"

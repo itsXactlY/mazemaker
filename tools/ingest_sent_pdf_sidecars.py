@@ -97,12 +97,13 @@ CONFIDENCE = 0.95
 
 REQUIRED_FIELDS = {"msg_id", "text", "downloaded_at"}
 
-# Canonical substrate path. Pre-flight refusal check looks for the
-# evidence_ledger table OR PRAGMA user_version >= S2's target before
-# allowing --live against this DB.
+# Canonical substrate path. Pre-flight refusal check requires BOTH
+# PRAGMA user_version >= v2 target AND the v2 composite index before
+# allowing --live against this DB (S4 hardening 2026-05-03).
 CANONICAL_DB_PATH = (Path.home() / ".neural_memory" / "memory.db").resolve()
 EVIDENCE_LEDGER_TABLE = "evidence_ledger"
-EVIDENCE_LEDGER_TARGET_USER_VERSION = 1   # mirrors S2 schema_upgrade target
+EVIDENCE_LEDGER_TARGET_USER_VERSION = 2   # mirrors S2b schema_upgrade target (v2)
+EVIDENCE_LEDGER_REQUIRED_INDEX = "idx_evidence_ledger_type_source_record"
 
 WATERMARK_SCHEMA_VERSION = 2   # bumped from 1 (msg_id) → 2 (composite keys)
 
@@ -273,11 +274,16 @@ def build_record(sidecar: dict, sidecar_path: Path) -> dict:
 
 
 def _check_db_guard(db_path: Path) -> tuple[bool, str]:
-    """Pre-flight: returns (ok, reason). DB is guarded if either:
-      - PRAGMA user_version >= EVIDENCE_LEDGER_TARGET_USER_VERSION, OR
-      - the evidence_ledger table physically exists.
-    Both clauses match what S2's schema_upgrade installs; either means
-    the dedup-authority surface is live and --live writes are safe.
+    """Pre-flight: returns (ok, reason).
+
+    S4 hardening (2026-05-03): DB is guarded only when ALL of:
+      1. PRAGMA user_version >= EVIDENCE_LEDGER_TARGET_USER_VERSION (v2), AND
+      2. evidence_ledger table exists, AND
+      3. EVIDENCE_LEDGER_REQUIRED_INDEX (v2 composite index) exists.
+
+    Rejects: no-table DBs, table-only (v0/v1) DBs, user-version-only DBs
+    missing the index, and any DB below v2. Requires the exact v2 shape
+    installed by S2b's schema_upgrade._ensure_evidence_ledger().
     """
     if not db_path.exists():
         return False, f"DB file does not exist: {db_path}"
@@ -285,19 +291,35 @@ def _check_db_guard(db_path: Path) -> tuple[bool, str]:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
             uv = conn.execute("PRAGMA user_version").fetchone()[0]
-            if uv >= EVIDENCE_LEDGER_TARGET_USER_VERSION:
-                return True, f"user_version={uv} (>= {EVIDENCE_LEDGER_TARGET_USER_VERSION})"
-            row = conn.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type='table' AND name=?",
+            if uv < EVIDENCE_LEDGER_TARGET_USER_VERSION:
+                return False, (
+                    f"DB guard failed: user_version={uv} (need "
+                    f">={EVIDENCE_LEDGER_TARGET_USER_VERSION}); "
+                    f"run SchemaUpgrade to migrate"
+                )
+            # user_version >= 2 — now verify table + required v2 index exist.
+            has_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
                 (EVIDENCE_LEDGER_TABLE,),
-            ).fetchone()
-            if row is not None:
-                return True, f"{EVIDENCE_LEDGER_TABLE} table present (user_version={uv})"
-            return False, (
-                f"DB guard not present: user_version={uv} (need "
-                f">={EVIDENCE_LEDGER_TARGET_USER_VERSION}) AND no "
-                f"{EVIDENCE_LEDGER_TABLE} table"
+            ).fetchone() is not None
+            if not has_table:
+                return False, (
+                    f"DB guard failed: user_version={uv} but "
+                    f"{EVIDENCE_LEDGER_TABLE} table missing; malformed v2 DB"
+                )
+            has_index = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?",
+                (EVIDENCE_LEDGER_REQUIRED_INDEX,),
+            ).fetchone() is not None
+            if not has_index:
+                return False, (
+                    f"DB guard failed: user_version={uv}, table present but "
+                    f"{EVIDENCE_LEDGER_REQUIRED_INDEX} index missing; "
+                    f"malformed v2 DB — run SchemaUpgrade to repair"
+                )
+            return True, (
+                f"v2 guard OK: user_version={uv}, "
+                f"{EVIDENCE_LEDGER_TABLE} table + {EVIDENCE_LEDGER_REQUIRED_INDEX} present"
             )
         finally:
             conn.close()

@@ -624,7 +624,48 @@ class Memory:
     def consolidate(self) -> int:
         """Run memory consolidation."""
         return 0
-    
+
+    # ------------------------------------------------------------------
+    # Dream engine (NREM / REM / Insight) — lazy singleton bound to the
+    # same SQLite DB as the inner memory store. The MCP wrapper expects
+    # `dream(phase=...)` and `dream_stats()` on this adapter; without
+    # them the v2 mcp returns 500 "internal.error" for those tools.
+    # ------------------------------------------------------------------
+    _dream_engine_singleton = None
+
+    def _get_dream_engine(self):
+        if self._dream_engine_singleton is None:
+            from dream_engine import DreamEngine  # type: ignore[import]
+            # Pass `neural_memory=self._sqlite_memory` so REM/Insight phases
+            # can call .think()/.recall() against the live store.
+            self._dream_engine_singleton = DreamEngine.sqlite(
+                self._db_path, neural_memory=self._sqlite_memory
+            )
+        return self._dream_engine_singleton
+
+    def dream(self, phase: str = "all") -> dict:
+        """Run a single dream cycle synchronously.
+
+        phase: 'nrem' | 'rem' | 'insight' | 'all' (default).
+        Returns the per-phase stats dict the engine logs.
+        """
+        eng = self._get_dream_engine()
+        phase = (phase or "all").strip().lower()
+        if phase == "all":
+            return eng.dream_now()
+        if phase == "nrem":
+            return {"nrem": eng._phase_nrem()}
+        if phase == "rem":
+            return {"rem": eng._phase_rem()}
+        if phase == "insight":
+            return {"insights": eng._phase_insights()}
+        raise ValueError(f"unknown dream phase: {phase}")
+
+    def dream_stats(self) -> dict:
+        """Aggregate dream-engine stats from the backend."""
+        eng = self._get_dream_engine()
+        return eng._backend.get_dream_stats()
+
     def stats(self) -> dict:
         """System statistics. SQLite primary."""
         s = self._sqlite_memory.stats()

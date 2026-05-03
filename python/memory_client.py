@@ -1969,6 +1969,45 @@ class Mazemaker:
                 })
         return results
 
+    # ------------------------------------------------------------------
+    # Dream engine (NREM / REM / Insight) — lazy singleton bound to the
+    # same SQLite DB as this store. The v2 mcp wrapper expects
+    # `dream(phase=...)` and `dream_stats()` on this class; without them
+    # the tools return 500 "internal.error".
+    # ------------------------------------------------------------------
+    _dream_engine_singleton = None
+
+    def _get_dream_engine(self):
+        if self._dream_engine_singleton is None:
+            from dream_engine import DreamEngine  # type: ignore[import]
+            self._dream_engine_singleton = DreamEngine.sqlite(
+                str(self._db_path), neural_memory=self
+            )
+        return self._dream_engine_singleton
+
+    def dream(self, phase: str = "all") -> dict:
+        """Run a single dream cycle synchronously.
+
+        phase: 'nrem' | 'rem' | 'insight' | 'all' (default).
+        Returns the per-phase stats dict.
+        """
+        eng = self._get_dream_engine()
+        phase = (phase or "all").strip().lower()
+        if phase == "all":
+            return eng.dream_now()
+        if phase == "nrem":
+            return {"nrem": eng._phase_nrem()}
+        if phase == "rem":
+            return {"rem": eng._phase_rem()}
+        if phase == "insight":
+            return {"insights": eng._phase_insights()}
+        raise ValueError(f"unknown dream phase: {phase}")
+
+    def dream_stats(self) -> dict:
+        """Aggregate dream-engine stats from the backend."""
+        eng = self._get_dream_engine()
+        return eng._backend.get_dream_stats()
+
     def graph(self) -> dict:
         stats = self.store.get_stats()
         edges = []

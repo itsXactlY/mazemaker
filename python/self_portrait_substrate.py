@@ -35,10 +35,19 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import time
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any, Optional, Union
 
 logger = logging.getLogger(__name__)
+
+
+# Type alias: helpers accept any of three substrate-access shapes.
+#  - NeuralMemory instance (has .store.conn) — original path, full live process
+#  - sqlite3.Connection (has .cursor() method) — lightweight scaffold mode
+#  - str / Path — file path to memory.db; we open a read-only sqlite3 conn
+SubstrateInput = Any  # documented union; runtime-dispatched in _get_conn
 
 
 # ---------------------------------------------------------------------------
@@ -144,23 +153,72 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
     }
 
 
+def _get_conn(mem_or_path: SubstrateInput) -> tuple[Optional[Any], Optional[Any]]:
+    """Dispatch the substrate-access input to (conn, lock).
+
+    Returns (conn, lock) where:
+      - NeuralMemory-like (has .store.conn) → (store.conn, store._lock or None)
+      - sqlite3.Connection-like (has .cursor() method) → (input, None)
+      - str / Path → open read-only URI sqlite3 conn → (conn, None)
+      - Anything else → (None, None) so callers fail soft.
+
+    Type-dispatch precedence matters: NeuralMemory check FIRST because a real
+    NM also exposes .cursor() via its embedder/HNSW internals — we want the
+    NM-aware path (lock-protected) when available. Path check last because
+    sqlite3.Connection IS a class, not a string.
+
+    Read-only URI uses `mode=ro` + `uri=True`. Gotcha: WAL-mode databases can
+    still be opened ro, but the conn cannot create the -shm/-wal files; if
+    the substrate is mid-write we may see a transient SQLITE_BUSY. Caller's
+    _safe_execute traps this and returns [].
+    """
+    # Path 1: NeuralMemory-like (real or MagicMock with .store.conn)
+    store = getattr(mem_or_path, "store", None)
+    if store is not None:
+        conn = getattr(store, "conn", None)
+        if conn is not None:
+            lock = getattr(store, "_lock", None)
+            return conn, lock
+
+    # Path 2: sqlite3.Connection-like (has .cursor() method, NOT a string)
+    if not isinstance(mem_or_path, (str, Path)) and hasattr(mem_or_path, "cursor"):
+        return mem_or_path, None
+
+    # Path 3: str / Path → open read-only URI
+    if isinstance(mem_or_path, (str, Path)):
+        try:
+            path = Path(mem_or_path).expanduser().resolve()
+            # file: URI form lets us request mode=ro without exclusive lock.
+            uri = f"file:{path}?mode=ro"
+            conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+            return conn, None
+        except sqlite3.Error as exc:
+            logger.warning(
+                "self_portrait_substrate could not open %s read-only: %s",
+                mem_or_path,
+                exc,
+            )
+            return None, None
+
+    return None, None
+
+
 def _safe_execute(
-    mem: Any, sql: str, params: tuple = ()
+    mem_or_path: SubstrateInput, sql: str, params: tuple = ()
 ) -> list[tuple]:
-    """Run a read-only SELECT against mem.store.conn. Defensive: returns []
-    on any sqlite error rather than letting the cycle crash.
+    """Run a read-only SELECT against the dispatched connection. Defensive:
+    returns [] on any sqlite error rather than letting the cycle crash.
+
+    Accepts: NeuralMemory instance, sqlite3.Connection, str/Path to memory.db.
+    See _get_conn() for dispatch precedence.
 
     Why defensive: a self-portrait cycle that raises stops ALL agents from
     portraying. Better to log + return empty than to break the always-on loop.
     """
     try:
-        store = getattr(mem, "store", None)
-        if store is None:
-            return []
-        conn = getattr(store, "conn", None)
+        conn, lock = _get_conn(mem_or_path)
         if conn is None:
             return []
-        lock = getattr(store, "_lock", None)
         if lock is not None:
             with lock:
                 return conn.execute(sql, params).fetchall()
@@ -208,9 +266,12 @@ def _build_agent_sql_predicate(aliases: frozenset[str]) -> tuple[str, list[Any]]
 
 
 def read_self_relevant_memories(
-    mem: Any, agent_name: str, limit: int = 20
+    mem: SubstrateInput, agent_name: str, limit: int = 20
 ) -> list[dict[str, Any]]:
     """Return recent memories attributable to agent_name.
+
+    `mem` accepts NeuralMemory, sqlite3.Connection, or a str/Path to memory.db
+    (see _get_conn). Scaffold mode passes a path to skip NM cold-start cost.
 
     Filters via SQL-level alias predicate (see _build_agent_sql_predicate)
     against origin_system / source / metadata_json LIKE on .from/.author/
@@ -238,7 +299,7 @@ def read_self_relevant_memories(
 
 
 def read_recent_reflections(
-    mem: Any, agent_name: str, limit: int = 10
+    mem: SubstrateInput, agent_name: str, limit: int = 10
 ) -> list[dict[str, Any]]:
     """Return recent reflections / self_portrait memories authored by agent_name.
 
@@ -262,7 +323,7 @@ def read_recent_reflections(
 
 
 def read_top_entities(
-    mem: Any, agent_name: str, limit: int = 10
+    mem: SubstrateInput, agent_name: str, limit: int = 10
 ) -> list[dict[str, Any]]:
     """Return entity memories most-connected to agent_name's recent activity.
 
@@ -321,7 +382,7 @@ def read_top_entities(
 
 
 def read_recent_dream_insights(
-    mem: Any, limit: int = 5
+    mem: SubstrateInput, limit: int = 5
 ) -> list[dict[str, Any]]:
     """Return most-recent dream insight memories (D5 phase output).
 
@@ -345,7 +406,7 @@ def read_recent_dream_insights(
 
 
 def read_peer_portraits(
-    mem: Any, exclude_agent: str, limit: int = 3
+    mem: SubstrateInput, exclude_agent: str, limit: int = 3
 ) -> dict[str, list[dict[str, Any]]]:
     """Return most-recent self_portrait memories from peer agents.
 
@@ -388,8 +449,14 @@ def read_peer_portraits(
     return by_agent
 
 
-def compose_substrate_packet(mem: Any, agent_name: str) -> dict[str, Any]:
+def compose_substrate_packet(mem: SubstrateInput, agent_name: str) -> dict[str, Any]:
     """Orchestrator helper: bundle every substrate read into one structured dict.
+
+    `mem` accepts NeuralMemory, sqlite3.Connection, or a str/Path to memory.db.
+    Scaffold mode passes a path so it never instantiates NeuralMemory (which
+    pulls in sentence-transformers + HNSW + reranker = ~5s + ~2GB RAM cold).
+    Complete mode still passes a real NeuralMemory because STEP 7 store needs
+    the embedder.
 
     The cycle dispatcher (separate packet) hands this dict to the agent's
     reflection step. Shape is fixed — every key always present, even if

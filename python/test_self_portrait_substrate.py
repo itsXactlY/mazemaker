@@ -13,6 +13,7 @@ Per packet S-PORTRAIT-1 acceptance criteria:
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -329,6 +330,136 @@ class EmptySubstrateGracefulTests(unittest.TestCase):
         self.assertEqual(packet["top_entities"], [])
         self.assertEqual(packet["dream_insights"], [])
         self.assertEqual(packet["peer_portraits"], {})
+
+
+# ---------------------------------------------------------------------------
+# S-PORTRAIT-PERF: scaffold-mode lightweight substrate access
+# ---------------------------------------------------------------------------
+
+
+def _build_real_sqlite_substrate(path: str) -> sqlite3.Connection:
+    """Create a minimal real sqlite substrate matching the columns the
+    helpers SELECT. Just enough schema to exercise the dispatch + SQL path,
+    not the full memory_client schema.
+    """
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """
+        CREATE TABLE memories (
+            id INTEGER PRIMARY KEY,
+            label TEXT,
+            content TEXT,
+            kind TEXT,
+            salience REAL,
+            created_at REAL,
+            last_accessed REAL,
+            origin_system TEXT,
+            source TEXT,
+            metadata_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE connections (
+            source_id INTEGER,
+            target_id INTEGER,
+            weight REAL
+        )
+        """
+    )
+    conn.executemany(
+        "INSERT INTO memories (id, label, content, kind, salience, created_at, "
+        "last_accessed, origin_system, source, metadata_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (1, "msg-A", "claude observation A", "experience", 0.5, 1000.0,
+             1000.0, "claude_memory", None, None),
+            (2, "msg-B", "claude observation B", "experience", 0.5, 1001.0,
+             1001.0, "claude_memory", None, None),
+            (3, "msg-C", "hermes msg", "experience", 0.5, 1002.0,
+             1002.0, "hermes", "bridge_mailbox", None),
+        ],
+    )
+    conn.commit()
+    return conn
+
+
+class CompositionInputDispatchTests(unittest.TestCase):
+    """S-PORTRAIT-PERF acceptance: compose_substrate_packet must accept
+    NeuralMemory instance, raw sqlite3.Connection, OR str/Path to memory.db.
+    """
+
+    def test_compose_substrate_packet_accepts_sqlite3_connection(self) -> None:
+        """Pass a raw sqlite3 connection — should work without NeuralMemory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = str(Path(tmpdir) / "memory.db")
+            writer = _build_real_sqlite_substrate(db_path)
+            writer.close()
+            # Now open a fresh read-only connection to mirror what scaffold does.
+            uri = f"file:{Path(db_path).resolve()}?mode=ro"
+            ro_conn = sqlite3.connect(uri, uri=True)
+            try:
+                packet = sps.compose_substrate_packet(ro_conn, "claude-code")
+            finally:
+                ro_conn.close()
+
+            self.assertEqual(packet["agent"], "claude-code")
+            self.assertIsInstance(packet["ts"], float)
+            # Two claude_memory rows seeded above should appear.
+            self.assertEqual(len(packet["self_memories"]), 2)
+            ids = sorted(m["id"] for m in packet["self_memories"])
+            self.assertEqual(ids, [1, 2])
+
+    def test_compose_substrate_packet_accepts_db_path_string(self) -> None:
+        """Pass a tempfile path string — _get_conn should open ro and work."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = str(Path(tmpdir) / "memory.db")
+            writer = _build_real_sqlite_substrate(db_path)
+            writer.close()
+            packet = sps.compose_substrate_packet(db_path, "claude-code")
+            self.assertEqual(packet["agent"], "claude-code")
+            self.assertEqual(len(packet["self_memories"]), 2)
+
+    def test_compose_substrate_packet_accepts_pathlib_path(self) -> None:
+        """Pass a pathlib.Path — should work the same as string path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "memory.db"
+            writer = _build_real_sqlite_substrate(str(db_path))
+            writer.close()
+            packet = sps.compose_substrate_packet(db_path, "claude-code")
+            self.assertEqual(packet["agent"], "claude-code")
+            self.assertEqual(len(packet["self_memories"]), 2)
+
+    def test_compose_substrate_packet_backward_compat_with_mem_object(self) -> None:
+        """Existing MagicMock mem-object path must still work unchanged."""
+        # Empty rows — packet is the all-empty shape, but the dispatch path
+        # must exercise the .store.conn branch (NOT the sqlite3-direct or
+        # path branch).
+        mem = _MockMem([[]] * 10)
+        packet = sps.compose_substrate_packet(mem, "valiendo")
+        self.assertEqual(
+            set(packet.keys()),
+            {"agent", "ts", "self_memories", "self_reflections",
+             "top_entities", "dream_insights", "peer_portraits"},
+        )
+        # Must have run multiple queries via mem.store (NOT bypassed it).
+        self.assertGreater(len(mem.store.queries), 0)
+
+    def test_get_conn_dispatch_precedence_nm_before_sqlite(self) -> None:
+        """If an object has BOTH .store.conn AND .cursor(), prefer NM path."""
+        # MagicMock has .cursor() implicitly, so NM path must win on dispatch.
+        mem = _MockMem([[]])
+        conn, lock = sps._get_conn(mem)
+        self.assertIs(conn, mem.store.conn)
+        # Lock comes from store._lock (MagicMock).
+        self.assertIsNotNone(lock)
+
+    def test_get_conn_returns_none_for_unsupported_input(self) -> None:
+        """Unrecognized input → (None, None), no crash."""
+        conn, lock = sps._get_conn(42)
+        self.assertIsNone(conn)
+        self.assertIsNone(lock)
 
 
 if __name__ == "__main__":

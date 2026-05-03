@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 from pathlib import Path
@@ -387,6 +390,84 @@ class DryRunTests(unittest.TestCase):
         # Critical: zero store invocations.
         self.assertEqual(len(mem.remember_calls), 0)
         self.assertEqual(len(mem.store.store_calls), 0)
+
+
+# ---------------------------------------------------------------------------
+# S-PORTRAIT-PERF: scaffold-mode startup cost ceiling
+# ---------------------------------------------------------------------------
+
+
+class ScaffoldPerfTests(unittest.TestCase):
+    """S-PORTRAIT-PERF acceptance: scaffold mode must complete in <10s
+    against the real substrate (was 150s+ stuck loading NeuralMemory).
+
+    Skipped on CI where ~/.neural_memory/memory.db is absent.
+    """
+
+    REAL_DB = Path.home() / ".neural_memory" / "memory.db"
+
+    def test_scaffold_mode_completes_under_10_seconds_against_real_substrate(self):
+        if not self.REAL_DB.exists():
+            self.skipTest(
+                f"real substrate not present at {self.REAL_DB} — CI/clean-env skip"
+            )
+
+        repo_root = Path(__file__).resolve().parent.parent
+        cycle_script = repo_root / "tools" / "self_portrait_cycle.py"
+        self.assertTrue(cycle_script.exists(), "cycle script missing")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            portraits_root = Path(tmpdir) / "portraits"
+            t0 = time.time()
+            try:
+                proc = subprocess.run(
+                    [
+                        sys.executable,
+                        str(cycle_script),
+                        "--agent", "claude-code",
+                        "--mode", "scaffold",
+                        "--db", str(self.REAL_DB),
+                        "--portraits-root", str(portraits_root),
+                    ],
+                    timeout=10,
+                    capture_output=True,
+                    text=True,
+                )
+            except subprocess.TimeoutExpired as exc:
+                self.fail(
+                    f"scaffold mode exceeded 10s timeout against real substrate "
+                    f"(perf bug NOT fixed): {exc}"
+                )
+            elapsed = time.time() - t0
+
+            self.assertEqual(
+                proc.returncode, 0,
+                f"scaffold exit nonzero ({proc.returncode}); "
+                f"stderr=\n{proc.stderr}\nstdout=\n{proc.stdout}",
+            )
+            self.assertLess(
+                elapsed, 10.0,
+                f"scaffold mode took {elapsed:.2f}s vs <10s budget",
+            )
+
+            # Output is JSON on stdout.
+            result = json.loads(proc.stdout)
+            self.assertEqual(result["mode"], "scaffold")
+            self.assertEqual(result["agent_name"], "claude-code")
+
+            input_path = Path(result["substrate_packet_path"])
+            self.assertTrue(
+                input_path.exists(),
+                f"input.json not written at {input_path}",
+            )
+            # Confirm shape: 7-key packet with ts + agent + 5 substrate buckets.
+            packet = json.loads(input_path.read_text())
+            self.assertEqual(
+                set(packet.keys()),
+                {"agent", "ts", "self_memories", "self_reflections",
+                 "top_entities", "dream_insights", "peer_portraits"},
+            )
+            self.assertEqual(packet["agent"], "claude-code")
 
 
 if __name__ == "__main__":

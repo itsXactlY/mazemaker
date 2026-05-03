@@ -729,10 +729,35 @@ def _open_memory(db_path: str) -> Any:
     """Open NeuralMemory bound to the given db_path. Lazy-imported because
     NeuralMemory pulls in heavy deps (sentence-transformers, hnswlib, etc.)
     that we don't want to cost --help startup.
+
+    Use ONLY for --mode complete (STEP 7 store needs the embedder for auto-
+    embed). For --mode scaffold, use _open_substrate_lightweight() instead —
+    NM cold-start is 5s + 2GB RAM, none of which scaffold actually uses.
     """
     from memory_client import NeuralMemory  # noqa: WPS433
 
     return NeuralMemory(db_path=db_path)
+
+
+def _open_substrate_lightweight(db_path: str) -> Any:
+    """Open a read-only sqlite3 connection against the substrate.
+
+    Scaffold mode only reads via mem.store.conn (raw sqlite SELECTs). This
+    avoids the NeuralMemory cold-start cost (~5s + ~2GB RAM for embedder /
+    HNSW / reranker / multilingual model) when none of those are needed.
+
+    NEVER imports memory_client. The substrate read path in
+    self_portrait_substrate.compose_substrate_packet supports a sqlite3
+    connection directly via _get_conn dispatch.
+
+    Returns sqlite3.Connection opened with `mode=ro` URI. check_same_thread
+    is False so the conn is reusable across the cycle (we never write).
+    """
+    import sqlite3  # stdlib, free
+
+    path = Path(db_path).expanduser().resolve()
+    uri = f"file:{path}?mode=ro"
+    return sqlite3.connect(uri, uri=True, check_same_thread=False)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -754,16 +779,22 @@ def main(argv: Optional[list[str]] = None) -> int:
     portraits_root = Path(args.portraits_root)
     cycle_ts = time.time()
 
-    mem = _open_memory(args.db)
-
     if args.mode == "scaffold":
-        # Override the module-level _PORTRAITS_ROOT for the scaffold writer
-        # by passing through a wrapper: write_substrate_input_packet uses the
-        # module constant, so we temporarily monkey it. Cleaner: derive cycle
-        # dir inline.
+        # Lightweight path: open a raw sqlite3 read-only connection. Scaffold
+        # only reads via mem.store.conn / sqlite3.Connection — no embedder /
+        # HNSW / reranker needed. Saves ~5s + ~2GB RAM cold-start vs
+        # _open_memory(). NeuralMemory must NOT be imported in this branch.
         from self_portrait_substrate import compose_substrate_packet  # noqa: WPS433
 
-        packet = compose_substrate_packet(mem, args.agent)
+        conn = _open_substrate_lightweight(args.db)
+        try:
+            packet = compose_substrate_packet(conn, args.agent)
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
         cycle_dir = portraits_root / args.agent / f"cycle-{int(cycle_ts)}"
         cycle_dir.mkdir(parents=True, exist_ok=True)
         input_path = cycle_dir / "input.json"
@@ -778,6 +809,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             "peer_portraits_agents": sorted(packet.get("peer_portraits", {}).keys()),
         }
     else:
+        # Complete mode: STEP 7 store needs the embedder (auto-embed via
+        # NeuralMemory.remember()), so pay the full cold-start here.
+        mem = _open_memory(args.db)
+
         # Best-effort: locate a recent scaffold input.json for this agent.
         substrate_packet_path: Optional[str] = None
         agent_root = portraits_root / args.agent

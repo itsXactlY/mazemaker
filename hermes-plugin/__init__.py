@@ -26,6 +26,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -518,7 +519,7 @@ class NeuralMemoryProvider(MemoryProvider):
 
         def _run():
             try:
-                results = self._memory.recall(query, k=limit)
+                results = self._queue_prefetch_results(query, limit)
                 if not results:
                     return
                 lines = []
@@ -533,6 +534,34 @@ class NeuralMemoryProvider(MemoryProvider):
 
         self._prefetch_thread = threading.Thread(target=_run, daemon=True)
         self._prefetch_thread.start()
+
+    def _queue_prefetch_results(self, query: str, limit: int) -> List[Dict[str, Any]]:
+        """Recall queue_prefetch results with optional hybrid recall.
+
+        The call runs in a background thread, so avoid signal/thread preemption:
+        measure hybrid latency and fall back after a slow return or exception.
+        """
+        if os.environ.get("NM_HERMES_HYBRID_RECALL") != "1":
+            return self._memory.recall(query, k=limit)
+
+        started = time.perf_counter()
+        try:
+            results = self._memory.hybrid_recall(query, k=limit, rerank=False)
+        except Exception as e:
+            logger.warning(
+                "Neural prefetch hybrid_recall failed; falling back to recall: %s",
+                e,
+            )
+            return self._memory.recall(query, k=limit)
+
+        elapsed = time.perf_counter() - started
+        if elapsed > 2.0:
+            logger.warning(
+                "Neural prefetch hybrid_recall took %.2fs; falling back to recall",
+                elapsed,
+            )
+            return self._memory.recall(query, k=limit)
+        return results
 
     def _is_garbage(self, text: str) -> bool:
         """Check if text is meta-reflection garbage, not real content."""

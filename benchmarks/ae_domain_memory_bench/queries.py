@@ -89,7 +89,12 @@ _ELC = [
     _q("ELC-037", "electrical_contracting", "What was the decision on dedicated microwave circuit?", ["sparse","temporal","procedural"]),
     _q("ELC-038", "electrical_contracting", "Which customer asked for exterior lighting on a timer?", ["entity","sparse","temporal"]),
     _q("ELC-039", "electrical_contracting", "Find memories about open neutral diagnosis.", ["sparse","causal","dense"]),
-    _q("ELC-040", "electrical_contracting", "What was the plan for permit inspection rework?", ["temporal","procedural","sparse"], ground_truth_ids=[274, 286]),
+    # ELC-040 QUARANTINED (T13 — 2026-05-03 per S6-DIAG): GT [274, 286] =
+    # "Lennar lot 27 needs panel labels." (33 chars, toy seed). Zero overlap
+    # with "permit", "inspection", or "rework" tokens — labeler stretched the
+    # toy panel-labels memory across three different ELC queries (014/027/040).
+    # WRONG_CONTENT. Moved to category="quarantined_electrical".
+    _q("ELC-040", "quarantined_electrical", "What was the plan for permit inspection rework?", ["temporal","procedural","sparse"], ground_truth_ids=[]),
 ]
 
 
@@ -106,7 +111,13 @@ _SPA = [
     _q("SPA-007", "spanish_whatsapp", "Encuentra mensaje sobre panel en mal estado.", ["sparse","entity"]),
     _q("SPA-008", "spanish_whatsapp", "Donde hablamos de terminar manana?", ["temporal","multilingual_dense"]),
     _q("SPA-009", "spanish_whatsapp", "Busca mensaje sobre inspeccion fallida.", ["sparse","temporal","entity"]),
-    _q("SPA-010", "spanish_whatsapp", "Que se dijo sobre comprar breakers?", ["materials","sparse","temporal"], ground_truth_ids=[6700, 7377, 10202, 12695, 15092]),
+    # SPA-010 QUARANTINED (T13 — 2026-05-03 per S6-DIAG): GT 5x duplicates of
+    # "falta el breaker de 20 amperes" (intent=materials_missing). Query asks
+    # "what was said about BUYING breakers?" — semantically OPPOSITE of "the
+    # breaker is MISSING." Labeler joined on shared "breaker" token but
+    # buying-intent and missing-intent are inverse. WRONG_CONTENT.
+    # Moved to category="quarantined_spanish".
+    _q("SPA-010", "quarantined_spanish", "Que se dijo sobre comprar breakers?", ["materials","sparse","temporal"], ground_truth_ids=[]),
     _q("SPA-011", "spanish_whatsapp", "Encuentra notas sobre escalera o ladder en el sitio.", ["sparse","multilingual_dense"]),
     _q("SPA-012", "spanish_whatsapp", "Quien dijo que el cliente no estaba en casa?", ["entity","temporal"]),
     _q("SPA-013", "spanish_whatsapp", "Busca mensaje sobre cerrar la electricidad.", ["procedural","dense"]),
@@ -147,7 +158,14 @@ _MAT = [
     _q("MAT-001", "materials_sku", "Find memories mentioning a Square D 20 amp breaker.", ["sparse","materials_entity"], ground_truth_ids=[10836, 11846]),
     _q("MAT-002", "materials_sku", "Which job needed Siemens breakers?", ["sparse","entity"]),
     _q("MAT-003", "materials_sku", "Find notes about 12/2 romex purchase.", ["sparse","materials"], ground_truth_ids=[10927, 11135]),
-    _q("MAT-004", "materials_sku", "What materials were needed for the panel upgrade?", ["entity","temporal","materials"], ground_truth_ids=[5961]),
+    # MAT-004 QUARANTINED (T13 — 2026-05-03 per S6-DIAG): GT [5961] is the
+    # 231-char "Service install (boxes + bushings)" doctrine fragment about
+    # 2-inch grounding bushings — a SINGLE-ITEM doctrine note, not a "panel
+    # upgrade BOM" / materials-needed list. Query expects an enumerated
+    # materials list; GT is one bushing spec. WRONG_CONTENT (no BOM in
+    # corpus yet — needs AE-side enrichment per Cluster B).
+    # Moved to category="quarantined_materials".
+    _q("MAT-004", "quarantined_materials", "What materials were needed for the panel upgrade?", ["entity","temporal","materials"], ground_truth_ids=[]),
     _q("MAT-005", "materials_sku", "Which memory mentions EMT connectors?", ["sparse","materials"], ground_truth_ids=[10982]),
     _q("MAT-006", "materials_sku", "Find SKU context for GFCI outlets.", ["sparse","materials"], ground_truth_ids=[4666]),
     _q("MAT-007", "materials_sku", "Which job required a meter socket?", ["sparse","entity","materials"]),
@@ -203,7 +221,13 @@ _LOT = [
     _q("LOT-005", "lennar_lots", "Which lot needed panel labels corrected?", ["entity","sparse"], ground_truth_ids=[274, 286]),
     _q("LOT-006", "lennar_lots", "Find memory about Sarah's Lennar contact update.", ["entity","temporal"], ground_truth_ids=[264, 268, 280, 282]),
     _q("LOT-007", "lennar_lots", "What was the last action item for lot 44?", ["entity","temporal","procedural"]),
-    _q("LOT-008", "lennar_lots", "Which lot had delayed material delivery?", ["entity","materials","temporal"], ground_truth_ids=[5531]),
+    # LOT-008 QUARANTINED (T13 — 2026-05-03 per S6-DIAG): GT [5531] is the
+    # "[Recent Amperage invoices by lot (Q1 2026)]" pure-table memory (lot /
+    # invoice# / date / amount). Zero mention of "delay", "delivery", or any
+    # timing event — just a spend total. Query asks for a delivery-DELAY
+    # event record; GT is an invoice ledger. WRONG_CONTENT.
+    # Moved to category="quarantined_lots".
+    _q("LOT-008", "quarantined_lots", "Which lot had delayed material delivery?", ["entity","materials","temporal"], ground_truth_ids=[]),
     _q("LOT-009", "lennar_lots", "Find notes for lot address with basement rough-in.", ["entity","dense"]),
     _q("LOT-010", "lennar_lots", "Which Lennar lot mentioned failed inspection?", ["entity","sparse","temporal"], ground_truth_ids=[274, 286]),
     _q("LOT-011", "lennar_lots", "Find all lot notes from last week.", ["temporal","entity"]),
@@ -249,7 +273,14 @@ _LOT = [
 # ---------------------------------------------------------------------------
 _FIN = [
     _q("FIN-001", "financial_calendar", "Which jobs have unpaid invoices this week?", ["financial","temporal","entity"]),
-    _q("FIN-002", "financial_calendar", "Find memories about job-cost overruns for materials.", ["financial","materials","temporal"], ground_truth_ids=[2628, 2659]),
+    # FIN-002 QUARANTINED (T13 — 2026-05-03 per S6-DIAG): GT [2628, 2659] are
+    # the "V.5 vs actual = OVER-BUY pattern" doctrine docs that explicitly
+    # state over-buy is a DELIBERATE operational choice ("NOT a bug") and
+    # define 5-30% over-buy as NORMAL. Query asks about job-cost OVERRUNS
+    # (cost surprise) — semantically OPPOSITE of over-buy (intentional buffer).
+    # WRONG_CONTENT (no canonical "overrun event" memory in corpus yet).
+    # Moved to category="quarantined_financial".
+    _q("FIN-002", "quarantined_financial", "Find memories about job-cost overruns for materials.", ["financial","materials","temporal"], ground_truth_ids=[]),
     _q("FIN-003", "financial_calendar", "Which quote was approved but not scheduled?", ["financial","temporal","entity"]),
     _q("FIN-004", "financial_calendar", "What was the payment status before the latest update?", ["temporal","financial"]),
     _q("FIN-005", "financial_calendar", "Find notes about QuickBooks refresh or QBO token issue.", ["sparse","temporal","procedural"]),
@@ -359,10 +390,19 @@ _TMP = [
 # They are included in ALL_QUERIES so diagnostic mode can still surface them.
 # ---------------------------------------------------------------------------
 _QUARANTINED = [
+    # S6a (2026-05-03):
     # TMP-011: was ground_truth_ids=[5531]; 5531=Amperage invoice table (WRONG_CONTENT)
     # TMP-026: was ground_truth_ids=[264,280]; 264/280="Sarah from Lennar called." — no predecessor (WRONG_CONTENT)
     # TMP-033: was ground_truth_ids=[268,282]; 268/282="Sarah is the Lennar contact this week." — no change event (WRONG_CONTENT)
     # (entries now live in _TMP with category=quarantined_temporal — see lines above)
+    #
+    # T13 (2026-05-03 — per S6-DIAG label_error class):
+    # ELC-040: was GT=[274, 286]; "Lennar lot 27 needs panel labels" — no permit/inspection/rework tokens (WRONG_CONTENT)
+    # MAT-004: was GT=[5961]; "2-inch grounding bushings" doctrine — not a panel-upgrade BOM (WRONG_CONTENT)
+    # FIN-002: was GT=[2628, 2659]; OVER-BUY doctrine ("deliberate, NOT a bug") — opposite of OVERRUN (WRONG_CONTENT)
+    # LOT-008: was GT=[5531]; Q1 Amperage invoice table — no delivery-delay event (WRONG_CONTENT)
+    # SPA-010: was GT=[6700, 7377, 10202, 12695, 15092]; 5x dupes of "falta el breaker" (MISSING) — opposite of BUYING (WRONG_CONTENT)
+    # (entries now live in their original sections with category=quarantined_<cat>)
 ]
 
 ALL_QUERIES = _ELC + _SPA + _MAT + _LOT + _FIN + _TMP

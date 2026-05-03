@@ -306,7 +306,10 @@ _TMP = [
     _q("TMP-008", "customer_temporal", "Which quote version came before the approved one?", ["financial","temporal"], "past_window"),
     _q("TMP-009", "customer_temporal", "Find notes from before the permit was approved.", ["temporal","entity"], "past_window"),
     _q("TMP-010", "customer_temporal", "What did the crew say before the final correction?", ["spanish","temporal"], "past_window"),
-    _q("TMP-011", "customer_temporal", "Which customer contact was valid in March?", ["entity","bitemporal"], "past_window", ground_truth_ids=[5531]),
+    # TMP-011 QUARANTINED: id=5531 is a Q1 Amperage invoice table (Vibha lots),
+    # not a customer contact record — WRONG_CONTENT. No valid predecessor-contact
+    # memory exists in corpus. Moved to _QUARANTINED below.
+    _q("TMP-011", "quarantined_temporal", "Which customer contact was valid in March?", ["entity","bitemporal"], "past_window", ground_truth_ids=[]),
     _q("TMP-012", "customer_temporal", "What happened after the failed inspection?", ["temporal","graph"]),
     _q("TMP-013", "customer_temporal", "Which note superseded the old scope?", ["temporal","contradiction"], "cross_time"),
     _q("TMP-014", "customer_temporal", "Find the earliest memory about this job.", ["entity","temporal"], "past_window"),
@@ -321,14 +324,20 @@ _TMP = [
     _q("TMP-023", "customer_temporal", "Find the memory valid during the first inspection window.", ["bitemporal","entity"], "past_window"),
     _q("TMP-024", "customer_temporal", "Which customer preference changed over time?", ["entity","temporal"], "cross_time"),
     _q("TMP-025", "customer_temporal", "What did we know before the customer approved the change order?", ["temporal","financial"], "past_window"),
-    _q("TMP-026", "customer_temporal", "Find the previous lot contact before Sarah took over.", ["entity","bitemporal"], "past_window", ground_truth_ids=[264, 280]),
+    # TMP-026 QUARANTINED: ids 264/280 = "Sarah from Lennar called." (current-tense,
+    # no predecessor info). No "before Sarah" contact exists in corpus — labeling
+    # these on speculative grounds is fabrication. Moved to _QUARANTINED below.
+    _q("TMP-026", "quarantined_temporal", "Find the previous lot contact before Sarah took over.", ["entity","bitemporal"], "past_window", ground_truth_ids=[]),
     _q("TMP-027", "customer_temporal", "What was the crew assignment before today's update?", ["entity","temporal"], "past_window"),
     _q("TMP-028", "customer_temporal", "Which memory should win when two statuses conflict?", ["temporal","confidence","contradiction"]),
     _q("TMP-029", "customer_temporal", "What was the old materials list?", ["materials","temporal"], "past_window"),
     _q("TMP-030", "customer_temporal", "Find notes created after the last dream cycle.", ["temporal","benchmark_trace"]),
     _q("TMP-031", "customer_temporal", "Which fact was true only until April?", ["bitemporal","temporal"], "past_window"),
     _q("TMP-032", "customer_temporal", "What was valid before the transaction time changed?", ["bitemporal"], "past_window"),
-    _q("TMP-033", "customer_temporal", "Find the update that changed customer contact.", ["entity","temporal","graph"], ground_truth_ids=[268, 282]),
+    # TMP-033 QUARANTINED: ids 268/282 = "Sarah is the Lennar contact this week."
+    # — current assertion, not a change-event record, no valid_from/valid_to.
+    # Cannot evidence a contact transition. Moved to _QUARANTINED below.
+    _q("TMP-033", "quarantined_temporal", "Find the update that changed customer contact.", ["entity","temporal","graph"], ground_truth_ids=[]),
     _q("TMP-034", "customer_temporal", "Which memory is newest but lower confidence?", ["temporal","confidence"]),
     _q("TMP-035", "customer_temporal", "What earlier memory contradicts the latest status?", ["contradiction","temporal"], "cross_time"),
     _q("TMP-036", "customer_temporal", "Find all updates between scheduling and inspection.", ["temporal","entity"]),
@@ -338,6 +347,23 @@ _TMP = [
     _q("TMP-040", "customer_temporal", "Find the old customer preference and the new one.", ["entity","temporal","contradiction"], "cross_time"),
 ]
 
+
+# ---------------------------------------------------------------------------
+# QUARANTINED entries (S6a — 2026-05-03)
+# ---------------------------------------------------------------------------
+# These entries had ground_truth_ids that failed validation (MISSING /
+# SUPERSEDED / WRONG_CONTENT). They retain their original label_id so
+# historical artifacts stay interpretable. category="quarantined_temporal"
+# ensures they are excluded from customer_temporal R@5 scoring.
+# ground_truth_ids=[] prevents any score contribution.
+# They are included in ALL_QUERIES so diagnostic mode can still surface them.
+# ---------------------------------------------------------------------------
+_QUARANTINED = [
+    # TMP-011: was ground_truth_ids=[5531]; 5531=Amperage invoice table (WRONG_CONTENT)
+    # TMP-026: was ground_truth_ids=[264,280]; 264/280="Sarah from Lennar called." — no predecessor (WRONG_CONTENT)
+    # TMP-033: was ground_truth_ids=[268,282]; 268/282="Sarah is the Lennar contact this week." — no change event (WRONG_CONTENT)
+    # (entries now live in _TMP with category=quarantined_temporal — see lines above)
+]
 
 ALL_QUERIES = _ELC + _SPA + _MAT + _LOT + _FIN + _TMP
 

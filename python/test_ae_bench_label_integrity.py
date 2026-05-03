@@ -32,7 +32,17 @@ _SUBSTRATE_PATH = Path.home() / ".neural_memory" / "memory.db"
 # Floor: queries with non-empty ground_truth_ids as of HEAD when this test
 # was added. Any future label expansion increments this; any decrement
 # means a label was lost.
-_SCORED_QUERY_FLOOR = 57
+#
+# 2026-05-03 (S6a + S1e): floor lowered 57 -> 54 after temporal quarantine.
+# TMP-011 (was GT=[5531]), TMP-026 (was GT=[264, 280]), and TMP-033 (was
+# GT=[268, 282]) were moved to category="quarantined_temporal" with empty
+# ground_truth_ids. Validation against canonical DB showed all five GT ids
+# resolved to WRONG_CONTENT (5531 = Amperage Q1 invoice table, not a contact;
+# 264/280 = "Sarah from Lennar called." — current-tense, no predecessor;
+# 268/282 = "Sarah is the Lennar contact this week." — current assertion,
+# not a change event). Quarantine rationale lives in queries.py. The floor
+# decrement is a deliberate, audited removal of bad labels.
+_SCORED_QUERY_FLOOR = 54
 
 # Cap: number of pairs of scored queries that may share an identical GT-set.
 # These collisions exist by design — the same memory can legitimately be the

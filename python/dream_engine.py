@@ -62,7 +62,11 @@ CREATE TABLE IF NOT EXISTS connection_history (
     old_weight REAL,
     new_weight REAL,
     reason TEXT,
-    changed_at REAL NOT NULL
+    changed_at REAL NOT NULL,
+    -- FK to dream_sessions(id) — populated by dream-engine writes; NULL for
+    -- non-cycle writes (e.g. user-triggered remember() auto-connect). Lets
+    -- /dream/cycles/{id}/diff resolve via index instead of timestamp window.
+    dream_session_id INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_dream_insights_type
@@ -73,6 +77,8 @@ CREATE INDEX IF NOT EXISTS idx_conn_history_nodes
     ON connection_history(source_id, target_id);
 CREATE INDEX IF NOT EXISTS idx_conn_history_changed_at
     ON connection_history(changed_at);
+CREATE INDEX IF NOT EXISTS idx_conn_history_session
+    ON connection_history(dream_session_id);
 CREATE INDEX IF NOT EXISTS idx_dream_sessions_started_at
     ON dream_sessions(started_at);
 """
@@ -110,8 +116,11 @@ class DreamBackend:
         raise NotImplementedError
 
     def batch_strengthen_connections(self, edges: List[Tuple[int, int]],
-                                      delta: float = 0.05) -> int:
-        """Bulk strengthen. Returns count updated."""
+                                      delta: float = 0.05,
+                                      dream_session_id: Optional[int] = None) -> int:
+        """Bulk strengthen. Returns count updated.
+        When dream_session_id is given, every per-edge strengthen also writes
+        a connection_history row tagged with that session for replay/diff."""
         count = 0
         for src, tgt in edges:
             self.strengthen_connection(src, tgt, delta)
@@ -119,8 +128,12 @@ class DreamBackend:
         return count
 
     def batch_weaken_connections(self, threshold: float = 0.05,
-                                  delta: float = 0.01) -> int:
-        """Bulk weaken all connections above threshold. Returns count updated."""
+                                  delta: float = 0.01,
+                                  dream_session_id: Optional[int] = None) -> int:
+        """Bulk weaken all connections above threshold. Returns count updated.
+        When dream_session_id is given, the bulk-weaken is summarised with a
+        single connection_history row (reason='nrem_bulk_weaken') so the diff
+        endpoint can show the cycle's overall decay without exploding rows."""
         raise NotImplementedError
 
     def add_bridge(self, source_id: int, target_id: int,
@@ -137,7 +150,8 @@ class DreamBackend:
 
     def log_connection_change(self, source_id: int, target_id: int,
                                old_weight: float, new_weight: float,
-                               reason: str) -> None:
+                               reason: str,
+                               dream_session_id: Optional[int] = None) -> None:
         raise NotImplementedError
 
     def get_memory_vectors(self, memory_ids: List[int]) -> Dict[int, List[float]]:
@@ -361,8 +375,9 @@ class SQLiteDreamBackend(DreamBackend):
             new_weight = max(0.0, min(1.0, float(weight)))
             conn.execute("UPDATE connections SET weight = ? WHERE id = ?", (new_weight, row["id"]))
             conn.execute(
-                "INSERT INTO connection_history (source_id, target_id, old_weight, new_weight, reason, changed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO connection_history "
+                "(source_id, target_id, old_weight, new_weight, reason, changed_at, dream_session_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, NULL)",
                 (row["source_id"], row["target_id"], row["weight"], new_weight, reason, time.time()),
             )
             conn.commit()
@@ -439,7 +454,8 @@ class SQLiteDreamBackend(DreamBackend):
             conn.close()
 
     def batch_strengthen_connections(self, edges: List[Tuple[int, int]],
-                                      delta: float = 0.05) -> int:
+                                      delta: float = 0.05,
+                                      dream_session_id: Optional[int] = None) -> int:
         """Bulk strengthen via executemany. Returns count updated.
 
         Canonicalises every (src, tgt) pair before the UPDATE — same
@@ -447,6 +463,10 @@ class SQLiteDreamBackend(DreamBackend):
         set already stores (min, max), so this is a no-op for the
         primary caller; the canonicalisation is here so any future
         caller that forgets to swap still hits the right rows.
+
+        When dream_session_id is provided, also writes one
+        connection_history row per edge tagged with that session — this
+        is what makes NREM cycles visible in /dream/cycles/{id}/diff.
         """
         if not edges:
             return 0
@@ -467,14 +487,45 @@ class SQLiteDreamBackend(DreamBackend):
                 "WHERE source_id = ? AND target_id = ?",
                 canon,
             )
+            if dream_session_id is not None:
+                # Snapshot the new weights so the history reflects post-update
+                # values. We do a single SELECT per cycle to avoid N round-trips.
+                pairs = [(s, t) for (_d, s, t) in canon]
+                placeholders = ",".join("(?,?)" for _ in pairs)
+                flat = [v for pair in pairs for v in pair]
+                rows = conn.execute(
+                    "SELECT source_id, target_id, weight FROM connections "
+                    f"WHERE (source_id, target_id) IN ({placeholders})",
+                    flat,
+                ).fetchall()
+                now = time.time()
+                hist = [
+                    (r["source_id"], r["target_id"],
+                     max(0.0, r["weight"] - delta), r["weight"],
+                     "nrem_strengthen", now, dream_session_id)
+                    for r in rows
+                ]
+                conn.executemany(
+                    "INSERT INTO connection_history "
+                    "(source_id, target_id, old_weight, new_weight, reason, changed_at, dream_session_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    hist,
+                )
             conn.commit()
             return len(canon)
         finally:
             conn.close()
 
     def batch_weaken_connections(self, threshold: float = 0.05,
-                                  delta: float = 0.01) -> int:
-        """Bulk weaken all connections above threshold in one UPDATE."""
+                                  delta: float = 0.01,
+                                  dream_session_id: Optional[int] = None) -> int:
+        """Bulk weaken all connections above threshold in one UPDATE.
+
+        Writes ONE summary connection_history row per cycle when
+        dream_session_id is given. We don't expand into per-edge rows here
+        because batch_weaken can touch tens of thousands of edges per cycle
+        — that would inflate connection_history without adding signal.
+        """
         conn = self._connect()
         try:
             cursor = conn.execute(
@@ -482,8 +533,17 @@ class SQLiteDreamBackend(DreamBackend):
                 "WHERE weight > ?",
                 (delta, threshold)
             )
+            n = cursor.rowcount
+            if n > 0 and dream_session_id is not None:
+                conn.execute(
+                    "INSERT INTO connection_history "
+                    "(source_id, target_id, old_weight, new_weight, reason, changed_at, dream_session_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (-1, -1, float(threshold), float(delta),
+                     f"nrem_bulk_weaken:{n}", time.time(), dream_session_id),
+                )
             conn.commit()
-            return cursor.rowcount
+            return n
         finally:
             conn.close()
 
@@ -538,7 +598,8 @@ class SQLiteDreamBackend(DreamBackend):
 
     def log_connection_change(self, source_id: int, target_id: int,
                                old_weight: float, new_weight: float,
-                               reason: str) -> None:
+                               reason: str,
+                               dream_session_id: Optional[int] = None) -> None:
         # Defensive canonicalisation: every connections row is canonical
         # (source<target), so log rows must match or any join on
         # (source_id, target_id) loses half the history. Callers fixed in
@@ -549,9 +610,10 @@ class SQLiteDreamBackend(DreamBackend):
         conn = self._connect()
         try:
             conn.execute(
-                "INSERT INTO connection_history (source_id, target_id, old_weight, new_weight, reason, changed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (source_id, target_id, old_weight, new_weight, reason, time.time())
+                "INSERT INTO connection_history "
+                "(source_id, target_id, old_weight, new_weight, reason, changed_at, dream_session_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (source_id, target_id, old_weight, new_weight, reason, time.time(), dream_session_id)
             )
             conn.commit()
         finally:
@@ -861,13 +923,13 @@ class DreamEngine:
             # Batch strengthen activated edges (usually small set)
             if activated_edges:
                 stats["strengthened"] = self._backend.batch_strengthen_connections(
-                    list(activated_edges), 0.05
+                    list(activated_edges), 0.05, dream_session_id=session_id,
                 )
 
             # Bulk weaken ALL non-activated connections above threshold
             # Single SQL UPDATE instead of per-row loop
             stats["weakened"] = self._backend.batch_weaken_connections(
-                threshold=0.05, delta=0.01
+                threshold=0.05, delta=0.01, dream_session_id=session_id,
             )
 
             # Prune dead connections
@@ -943,7 +1005,8 @@ class DreamEngine:
                         if self._backend.add_bridge(mid, sim_id, bridge_weight):
                             src, tgt = (mid, sim_id) if mid < sim_id else (sim_id, mid)
                             self._backend.log_connection_change(
-                                src, tgt, 0.0, bridge_weight, "rem_bridge"
+                                src, tgt, 0.0, bridge_weight, "rem_bridge",
+                                dream_session_id=session_id,
                             )
                             stats["bridges"] += 1
 

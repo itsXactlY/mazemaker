@@ -238,6 +238,22 @@ class SQLiteStore:
         self.conn.execute("UPDATE connections SET edge_type = 'similar' WHERE edge_type IS NULL OR edge_type = ''")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_connections_valid_time ON connections(valid_from, valid_to)")
 
+        # connection_history.dream_session_id — added 2026-05-06 so the
+        # /dream/cycles/{id}/diff endpoint can resolve via FK instead of a
+        # timestamp-window scan. Legacy rows stay NULL; new dream-engine
+        # writes populate it. Index for the diff lookup.
+        try:
+            ch_cols = {r[1] for r in self.conn.execute("PRAGMA table_info(connection_history)").fetchall()}
+            if ch_cols and "dream_session_id" not in ch_cols:
+                self.conn.execute("ALTER TABLE connection_history ADD COLUMN dream_session_id INTEGER")
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conn_history_session "
+                "ON connection_history(dream_session_id)"
+            )
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+
         # Canonicalise legacy connection rows. Iter 23 made every new write
         # satisfy source<target, but rows that pre-date that fix (or that
         # came in via paths that bypassed add_connection) can still carry

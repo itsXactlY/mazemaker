@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from mazemaker import Memory
 
 EXPORT_DIR = Path(os.environ.get("HONCHO_EXPORT_DIR", Path.home() / "honcho_export"))
-DB_PATH = Path.home() / ".neural_memory" / "memory.db"
+DB_PATH = Path.home() / ".mazemaker" / "engine" / "memory.db"
 
 def load_json(name: str):
     with open(EXPORT_DIR / name) as f:

@@ -29,7 +29,7 @@ def main():
     print_header("Mazemaker Adapter - Live Demo")
     
     # Use fresh DB for demo
-    db_path = os.path.expanduser("~/.neural_memory/demo.db")
+    db_path = os.path.expanduser("~/.mazemaker/engine/demo.db")
     if os.path.exists(db_path):
         os.remove(db_path)
     

@@ -12,7 +12,7 @@ Env vars:
   EMBED_MODEL        — model name (default: BAAI/bge-m3)
   EMBED_IDLE_TIMEOUT — seconds before GPU→CPU eject (default: 20)
   EMBED_DEVICE       — force device (cuda/cpu/mps, default: auto)
-  EMBED_SOCKET       — UNIX socket path (default: ~/.neural_memory/embed.sock)
+  EMBED_SOCKET       — UNIX socket path (default: ~/.mazemaker/engine/embed.sock)
   EMBED_NO_SHARED    — set to disable shared server mode
 """
 
@@ -40,7 +40,7 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-CACHE_DIR = Path.home() / ".neural_memory"
+CACHE_DIR = Path.home() / ".mazemaker" / "engine"
 CACHE_FILE = CACHE_DIR / "embed_cache.pkl"
 MODEL_DIR = CACHE_DIR / "models"
 SOCKET_PATH = Path(os.environ.get('EMBED_SOCKET', str(CACHE_DIR / "embed.sock")))
@@ -468,7 +468,7 @@ class SentenceTransformerBackend:
     """Uses sentence-transformers (default: BAAI/bge-large-en-v1.5, 1024d)
     
     Singleton: model loaded once and shared across all instances.
-    Cached locally at ~/.neural_memory/models/.
+    Cached locally at ~/.mazemaker/engine/models/.
     
     SMART EJECT: After EMBED_IDLE_TIMEOUT seconds of inactivity, model moves
     to CPU to free GPU memory. Automatically reloads on next embed() call.

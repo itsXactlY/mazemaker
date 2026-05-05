@@ -11,8 +11,8 @@ class NeuralMemoryBackup:
     """Backup and recovery system for Mazemaker database."""
     
     def __init__(self, db_path=None):
-        self.db_path = db_path or str(Path.home() / ".neural_memory" / "memory.db")
-        self.backup_dir = Path.home() / ".neural_memory" / "backups"
+        self.db_path = db_path or str(Path.home() / ".mazemaker" / "engine" / "memory.db")
+        self.backup_dir = Path.home() / ".mazemaker" / "engine" / "backups"
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         self.max_backups = 10  # Keep last N backups
     

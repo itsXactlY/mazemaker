@@ -137,7 +137,7 @@ def test_10():
 @_testcase("sentence_transformers: singleton", tags=["embed", "slow"])
 def test_11():
     from pathlib import Path
-    model_dir = Path.home() / ".neural_memory" / "models" / "models--BAAI--bge-m3"
+    model_dir = Path.home() / ".mazemaker" / "engine" / "models" / "models--BAAI--bge-m3"
     if not model_dir.exists():
         raise SkipTest("BAAI/bge-m3 not cached (CI environment)")
     try:
@@ -308,7 +308,7 @@ def test_21():
 def test_22():
     from memory_client import Mazemaker
     from pathlib import Path
-    model_dir = Path.home() / ".neural_memory" / "models" / "models--BAAI--bge-m3"
+    model_dir = Path.home() / ".mazemaker" / "engine" / "models" / "models--BAAI--bge-m3"
     if not model_dir.exists():
         raise SkipTest("BAAI/bge-m3 not cached — hash backend cannot create semantic connections")
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name

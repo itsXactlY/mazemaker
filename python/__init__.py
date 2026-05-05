@@ -10,7 +10,7 @@ Config (in ~/.hermes/config.yaml):
   memory:
     provider: neural
     neural:
-      db_path: ~/.neural_memory/hermes.db
+      db_path: ~/.mazemaker/engine/hermes.db
       embedding_backend: auto
       consolidation_interval: 300
       max_episodic: 50000
@@ -317,7 +317,7 @@ class NeuralMemoryProvider(MemoryProvider):
         try:
             from dream_engine import DreamEngine
 
-            db_path = self._config.get("db_path", str(Path.home() / ".neural_memory" / "memory.db"))
+            db_path = self._config.get("db_path", str(Path.home() / ".mazemaker" / "engine" / "memory.db"))
             self._dream = DreamEngine.sqlite(
                 db_path,
                 neural_memory=self._memory,
@@ -1262,7 +1262,7 @@ memory?") call `neural_graph` to summarise.
                 "key": "db_path",
                 "description": "Path to SQLite database file",
                 "required": False,
-                "default": str(Path.home() / ".neural_memory" / "memory.db"),
+                "default": str(Path.home() / ".mazemaker" / "engine" / "memory.db"),
             },
             {
                 "key": "embedding_backend",

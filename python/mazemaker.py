@@ -69,9 +69,9 @@ class Memory:
                  recall_score_floor: float = 0.0,
                  recall_score_percentile: float = 0.0):
         
-        Path.home().joinpath(".neural_memory").mkdir(parents=True, exist_ok=True)
+        Path.home().joinpath(".mazemaker", "engine").mkdir(parents=True, exist_ok=True)
 
-        self._db_path = db_path or str(Path.home() / ".neural_memory" / "memory.db")
+        self._db_path = db_path or str(Path.home() / ".mazemaker" / "engine" / "memory.db")
         self._default_chunk_size = default_chunk_size
         self._sqlite_memory = None
 
@@ -147,7 +147,7 @@ class Memory:
             self._knn = KNNEngine(embed_dim=self._dim)
             
             # Try to load saved LSTM weights
-            lstm_weights_path = Path.home() / ".neural_memory" / "lstm_weights.bin"
+            lstm_weights_path = Path.home() / ".mazemaker" / "engine" / "lstm_weights.bin"
             if lstm_weights_path.exists():
                 try:
                     self._lstm.load(str(lstm_weights_path))
@@ -686,7 +686,7 @@ class Memory:
         # 1. Save LSTM weights for next session
         if self._lstm_knn_ready and self._lstm:
             try:
-                lstm_weights_path = str(Path.home() / ".neural_memory" / "lstm_weights.bin")
+                lstm_weights_path = str(Path.home() / ".mazemaker" / "engine" / "lstm_weights.bin")
                 self._lstm.save(lstm_weights_path)
             except Exception:
                 pass

@@ -30,7 +30,7 @@ from urllib.error import HTTPError, URLError
 sys.path.insert(0, str(Path(__file__).parent))
 from mazemaker import Memory
 
-DB_PATH = Path.home() / ".neural_memory" / "memory.db"
+DB_PATH = Path.home() / ".mazemaker" / "engine" / "memory.db"
 
 
 # ---------------------------------------------------------------------------
@@ -600,7 +600,7 @@ Examples:
         if not args.no_connections:
             build_connections(args.threshold)
 
-    print("\nDone! Run 'mazemaker_remember' or check ~/.neural_memory/memory.db")
+    print("\nDone! Run 'mazemaker_remember' or check ~/.mazemaker/engine/memory.db")
 
 
 if __name__ == "__main__":

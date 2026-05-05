@@ -67,19 +67,19 @@ class CStats(ctypes.Structure):
 # SQLite persistence layer
 # ============================================================================
 
-DB_PATH = Path.home() / ".neural_memory" / "memory.db"
+DB_PATH = Path.home() / ".mazemaker" / "engine" / "memory.db"
 
 
 def _resolve_hf_snapshot(model_name: str) -> Optional[str]:
     """Return a local snapshot directory for model_name, or None if not cached.
 
-    Checks ~/.neural_memory/models first, then the default HF hub cache.
+    Checks ~/.mazemaker/engine/models first, then the default HF hub cache.
     Passing a snapshot path directly to SentenceTransformer / CrossEncoder
     avoids any network contact with the HF Hub.
     """
     safe_name = model_name.replace("/", "--")
     search_dirs = [
-        Path.home() / ".neural_memory" / "models",
+        Path.home() / ".mazemaker" / "engine" / "models",
         Path.home() / ".cache" / "huggingface" / "hub",
     ]
     for base in search_dirs:
@@ -856,7 +856,11 @@ class Mazemaker:
         #   2. cache absent → auto-build, retry load
         #   3. anything fails → log loudly so it never silently degrades
         self._gpu = None
-        if Path(db_path) == DB_PATH:
+        # Arm GPU recall whenever a db_path is given. Previously this was
+        # gated to the home-default path, which broke the customer-pod case
+        # where the engine runs in a container with db_path=/data/memory.db.
+        # Cache load fails gracefully if the cache files aren't present.
+        if db_path:
             import logging
             _glog = logging.getLogger(__name__)
             try:
@@ -874,7 +878,7 @@ class Mazemaker:
                     try:
                         from build_gpu_cache import build  # type: ignore[import]
                         from pathlib import Path as _P
-                        build(_P(db_path), _P.home() / ".neural_memory" / "gpu_cache")
+                        build(_P(db_path), _P.home() / ".mazemaker" / "engine" / "gpu_cache")
                         if eng.load(embed_fn=self.embedder.embed):
                             self._gpu = eng
                             _glog.info(

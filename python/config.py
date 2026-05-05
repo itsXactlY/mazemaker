@@ -1,7 +1,7 @@
 """Configuration for Mazemaker plugin.
 
 Defaults:
-  DB path:               ~/.neural_memory/memory.db
+  DB path:               ~/.mazemaker/engine/memory.db
   Embedding backend:     auto (sentence-transformers > tfidf > hash)
   Consolidation interval: 300s
   Max episodic memories:  50000
@@ -17,7 +17,7 @@ from typing import Any, Dict
 # Defaults
 # ---------------------------------------------------------------------------
 
-DEFAULT_DB_PATH = str(Path.home() / ".neural_memory" / "memory.db")
+DEFAULT_DB_PATH = str(Path.home() / ".mazemaker" / "engine" / "memory.db")
 DEFAULT_EMBEDDING_BACKEND = "auto"          # auto | sentence-transformers | tfidf | hash
 DEFAULT_CONSOLIDATION_INTERVAL = 0          # 0 = disabled
 DEFAULT_MAX_EPISODIC = 0                    # 0 = unlimited

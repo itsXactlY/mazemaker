@@ -38,7 +38,7 @@ class AccessLogger:
     _lock = threading.Lock()
 
     @classmethod
-    def instance(cls, log_dir: str = "~/.neural_memory/access_logs",
+    def instance(cls, log_dir: str = "~/.mazemaker/engine/access_logs",
                  max_sequence: int = 20) -> "AccessLogger":
         """Singleton accessor. Creates on first call."""
         if cls._instance is None:
@@ -47,7 +47,7 @@ class AccessLogger:
                     cls._instance = cls(log_dir=log_dir, max_sequence=max_sequence)
         return cls._instance
 
-    def __init__(self, log_dir: str = "~/.neural_memory/access_logs",
+    def __init__(self, log_dir: str = "~/.mazemaker/engine/access_logs",
                  max_sequence: int = 20):
         self._log_dir = Path(os.path.expanduser(log_dir))
         self._max_sequence = max_sequence

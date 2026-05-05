@@ -17,7 +17,7 @@ from typing import Optional
 
 import numpy as np
 
-_CACHE_DIR = Path.home() / ".neural_memory" / "gpu_cache"
+_CACHE_DIR = Path.home() / ".mazemaker" / "engine" / "gpu_cache"
 _EMBEDDINGS_PATH = _CACHE_DIR / "embeddings.npy"
 _METADATA_PATH = _CACHE_DIR / "metadata.pkl"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the ~/.neural_memory/gpu_cache/ files that gpu_recall.GpuRecallEngine
+"""Build the ~/.mazemaker/engine/gpu_cache/ files that gpu_recall.GpuRecallEngine
 loads. Until Mazemaker.remember() learns to append to the GPU tensor on the
 fly, run this after large bulk-imports to refresh the cache.
 
@@ -60,8 +60,8 @@ def build(db_path: Path, out_dir: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db",  default=str(Path.home() / ".neural_memory" / "memory.db"))
-    ap.add_argument("--out", default=str(Path.home() / ".neural_memory" / "gpu_cache"))
+    ap.add_argument("--db",  default=str(Path.home() / ".mazemaker" / "engine" / "memory.db"))
+    ap.add_argument("--out", default=str(Path.home() / ".mazemaker" / "engine" / "gpu_cache"))
     args = ap.parse_args()
     build(Path(args.db), Path(args.out))
 

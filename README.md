@@ -336,7 +336,7 @@ flowchart LR
 
     subgraph NREM["Phase 1 — NREM"]
         direction TB
-        N1[Replay 100 recent memories] --> N2[Spreading activation]
+        N1[Mixed sample: recent + random + low-salience] --> N2[Spreading activation]
         N2 --> N3{Connection active?}
         N3 -->|Yes| N4[Strengthen +0.05]
         N3 -->|No| N5[Weaken -0.01]
@@ -345,7 +345,7 @@ flowchart LR
 
     subgraph REM["Phase 2 — REM"]
         direction TB
-        R1[Find 50 isolated memories] --> R2[Search similar unconnected]
+        R1[Mixed sample of isolated memories] --> R2[Search similar unconnected]
         R2 --> R3[Create bridge connections]
         R3 --> R4[weight = similarity × 0.3]
     end
@@ -364,6 +364,23 @@ flowchart LR
 - Automatic: every 50 new memories (configurable)
 - Manual: `neural_dream` tool
 - Standalone: `python python/dream_worker.py --daemon`
+
+### Sampling
+
+NREM and REM don't pull `LIMIT N ORDER BY created_at DESC` anymore. On a
+large corpus that recycles the same recent surface forever — old
+memories never get replayed and quietly decay below the prune
+threshold. Both phases now sample via a three-slice mix:
+
+- **50%** most recent (created_at DESC)
+- **30%** random across the entire `memories` table
+- **20%** lowest-salience (the candidates most likely to get pruned next cycle)
+
+The random slice is what breaks the surface trap — every memory has a
+non-zero replay chance every cycle regardless of age. Defaults:
+`max_memories_per_cycle=2000` (NREM), `max_isolated_per_cycle=800`
+(REM). Tunable via `DreamEngine` constructor args. Insight is
+unchanged — it already operates on the full edge graph.
 
 ---
 

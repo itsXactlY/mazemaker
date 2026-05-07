@@ -566,6 +566,16 @@ flowchart LR
 - Manual: `neural_dream` tool
 - Standalone: `python python/dream_worker.py --daemon`
 
+### Standalone daemon
+
+When the in-pod dream loop competes with active writes for the SQLite
+lock (typical on 100k+ memory corpora), `python dream_worker.py` runs
+the dream cycle as its own host process — no idle gating, full GPU
+access, same database. Pair it with `MM_DREAM_DISABLED=1` on the mcp
+container to keep the in-pod engine inert. Set the env via an
+ephemeral systemd `/run` drop-in so it auto-clears on the next reboot
+and the in-pod engine re-enables itself.
+
 ### Sampling — beating the surface trap
 
 NREM and REM no longer pull `LIMIT N ORDER BY created_at DESC`. On a

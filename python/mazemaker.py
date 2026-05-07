@@ -634,6 +634,15 @@ class Memory:
     _dream_engine_singleton = None
 
     def _get_dream_engine(self):
+        # Honor MM_DREAM_DISABLED — when an external dream_worker.py owns
+        # consolidation we don't want every mazemaker_dream MCP call to
+        # also fire a synchronous cycle on the same SQLite DB.
+        import os
+        if os.getenv("MM_DREAM_DISABLED", "").lower() in ("1", "true", "yes"):
+            raise RuntimeError(
+                "in-pod dream engine disabled via MM_DREAM_DISABLED — "
+                "expected: external dream_worker.py is running"
+            )
         if self._dream_engine_singleton is None:
             from dream_engine import DreamEngine  # type: ignore[import]
             # Pass `neural_memory=self._sqlite_memory` so REM/Insight phases

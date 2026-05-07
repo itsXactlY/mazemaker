@@ -38,12 +38,16 @@ class GpuRecallEngine:
         self._dim = 1024
         self._loaded = False
 
-    def load(self, embed_fn=None) -> bool:
+    def load(self, embed_fn=None, embed_batch_fn=None) -> bool:
         """Load embeddings onto GPU.
 
         Args:
             embed_fn: Optional callable(text) -> list[float] for query embedding.
                       If None, uses sentence-transformers.
+            embed_batch_fn: Optional callable(list[str]) -> list[list[float]]
+                            for batched query embedding. Used by recall_batch
+                            to encode N queries in a single backend call,
+                            collapsing the per-query embed-server IPC overhead.
 
         Returns:
             True if loaded successfully.
@@ -78,6 +82,7 @@ class GpuRecallEngine:
 
         # Store embed function
         self._embed_fn = embed_fn
+        self._embed_batch_fn = embed_batch_fn
 
         self._loaded = True
         return True
@@ -168,6 +173,68 @@ class GpuRecallEngine:
             })
 
         return results
+
+    def recall_batch(self, queries: "list[str]", k: int = 5) -> "list[list[dict]]":
+        """Batched semantic recall — encodes all N queries in a single
+        embed_batch call and runs ONE matmul (B, dim) × (N_corpus, dim).T
+        followed by topk along the batch axis. Bypasses N rounds of
+        embed-server IPC + N CPU-Python result-build loops.
+
+        Returns a list of result lists, indexed parallel to `queries`.
+        Falls back to a sequential loop when the batch embed function
+        wasn't supplied to load() — the public API stays the same.
+        """
+        if not self._loaded or not queries:
+            return [[] for _ in queries]
+
+        import torch
+
+        if self._embed_batch_fn is None:
+            return [self.recall(q, k=k) for q in queries]
+
+        try:
+            vecs = self._embed_batch_fn(list(queries))
+        except Exception:
+            return [self.recall(q, k=k) for q in queries]
+        if not vecs or len(vecs) != len(queries):
+            return [self.recall(q, k=k) for q in queries]
+
+        Q = torch.tensor(vecs, device=self._device, dtype=torch.float32)
+        if Q.ndim != 2 or Q.shape[1] != self._dim:
+            return [[] for _ in queries]
+
+        # Lazy build / reuse normalised corpus tensor (same as recall())
+        if self._emb_tensor_normed is None:
+            norms = torch.norm(self._emb_tensor, dim=1, keepdim=True)
+            norms = torch.clamp(norms, min=1e-12)
+            self._emb_tensor_normed = self._emb_tensor / norms
+
+        # Row-normalise queries
+        q_norms = torch.norm(Q, dim=1, keepdim=True)
+        q_norms = torch.clamp(q_norms, min=1e-12)
+        Q = Q / q_norms
+
+        # Batch cosine: (B, dim) @ (dim, N) → (B, N)
+        sims = torch.matmul(Q, self._emb_tensor_normed.T)
+
+        eff_k = min(k, sims.shape[1])
+        top_k = torch.topk(sims, eff_k, dim=1)
+        idx_cpu = top_k.indices.cpu().numpy()
+        val_cpu = top_k.values.cpu().numpy()
+
+        out: "list[list[dict]]" = []
+        for b in range(idx_cpu.shape[0]):
+            row = []
+            for j in range(eff_k):
+                idx = int(idx_cpu[b, j])
+                row.append({
+                    "id": self._ids[idx],
+                    "label": self._labels[idx],
+                    "content": self._contents[idx],
+                    "similarity": float(val_cpu[b, j]),
+                })
+            out.append(row)
+        return out
 
     def stats(self) -> dict:
         """Return engine stats."""

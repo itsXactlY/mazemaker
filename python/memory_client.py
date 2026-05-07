@@ -899,7 +899,7 @@ class Mazemaker:
             try:
                 from gpu_recall import GpuRecallEngine
                 eng = GpuRecallEngine()
-                if eng.load(embed_fn=self.embedder.embed):
+                if eng.load(embed_fn=self.embedder.embed, embed_batch_fn=getattr(self.embedder, "embed_batch", None)):
                     self._gpu = eng
                     _glog.info(
                         "GPU recall ARMED: %d vectors on %s",
@@ -912,7 +912,7 @@ class Mazemaker:
                         from build_gpu_cache import build  # type: ignore[import]
                         from pathlib import Path as _P
                         build(_P(db_path), _P.home() / ".mazemaker" / "engine" / "gpu_cache")
-                        if eng.load(embed_fn=self.embedder.embed):
+                        if eng.load(embed_fn=self.embedder.embed, embed_batch_fn=getattr(self.embedder, "embed_batch", None)):
                             self._gpu = eng
                             _glog.info(
                                 "GPU recall ARMED post-build: %d vectors",
@@ -1608,6 +1608,30 @@ class Mazemaker:
             scored.append(item)
         scored.sort(key=lambda x: -float(x.get("relevance", 0.0)))
         return scored + tail
+
+    def recall_batch(self, queries: "list[str]", k: int = 5) -> "list[list[dict]]":
+        """Batched semantic recall.
+
+        Caller-friendly wrapper that drives `GpuRecallEngine.recall_batch`
+        when CUDA is armed (one matmul, one embed-server round-trip for the
+        whole batch) and falls through to per-query `recall()` otherwise.
+        Used by the dream loop's REM phase to collapse 800 sequential
+        recalls into a single GPU batch.
+
+        Returns a list of result lists, parallel to `queries`. Each result
+        list mirrors the shape of `recall()` enough for REM
+        (`{id, similarity, ...}`).
+        """
+        if not queries:
+            return []
+        if self._gpu is not None and hasattr(self._gpu, "recall_batch"):
+            try:
+                out = self._gpu.recall_batch(queries, k=k)
+                if out and len(out) == len(queries):
+                    return out
+            except Exception:
+                pass
+        return [self.recall(q, k=k) for q in queries]
 
     def recall(
         self,

@@ -175,6 +175,31 @@ class DreamBackend:
         """
         raise NotImplementedError
 
+    def add_bridges_batch(
+        self,
+        bridges: "List[Tuple[int, int, float]]",
+        dream_session_id: "Optional[int]" = None,
+        reason: str = "rem_bridge",
+    ) -> int:
+        """Insert many bridges in ONE transaction. Returns count of newly
+        inserted edges. Same semantics as add_bridge — self-loops dropped,
+        existing edges skipped, source<target canonicalised — but bypasses
+        the per-edge fsync of one commit per call. Default fallback path
+        loops add_bridge for backends that don't override; SQLite has a
+        proper bulk implementation."""
+        if not bridges:
+            return 0
+        new_count = 0
+        for s, t, w in bridges:
+            if self.add_bridge(s, t, w):
+                src, tgt = (s, t) if s < t else (t, s)
+                self.log_connection_change(
+                    src, tgt, 0.0, w, reason,
+                    dream_session_id=dream_session_id,
+                )
+                new_count += 1
+        return new_count
+
     def prune_weak(self, threshold: float = 0.05) -> int:
         raise NotImplementedError
 
@@ -735,6 +760,90 @@ class SQLiteDreamBackend(DreamBackend):
         finally:
             conn.close()
 
+    def add_bridges_batch(
+        self,
+        bridges: List[Tuple[int, int, float]],
+        dream_session_id: Optional[int] = None,
+        reason: str = "rem_bridge",
+    ) -> int:
+        """Bulk-insert REM bridges in one transaction. Drops self-loops,
+        canonicalises (source<target), de-duplicates within the batch and
+        against the existing connections table, and INSERTs only the truly
+        new edges via executemany. log_connection_change is bulk-inserted
+        in the same transaction. One commit per cycle instead of one per
+        bridge — typical REM phase: 6000 bridges goes from 12000 commits
+        to 1."""
+        if not bridges:
+            return 0
+
+        # Canonicalise + within-batch dedupe
+        canon: List[Tuple[int, int, float]] = []
+        seen: Set[Tuple[int, int]] = set()
+        for s, t, w in bridges:
+            if s == t:
+                continue
+            if s > t:
+                s, t = t, s
+            if (s, t) in seen:
+                continue
+            seen.add((s, t))
+            canon.append((s, t, max(0.0, min(1.0, float(w)))))
+
+        if not canon:
+            return 0
+
+        conn = self._connect()
+        try:
+            # Diff against existing edges via a temp staging table — handles
+            # batches > 999 (SQLite's IN-clause parameter ceiling) and lets
+            # us join directly against `connections` without chunking.
+            conn.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS _bridge_staging "
+                "(source_id INTEGER, target_id INTEGER, weight REAL)"
+            )
+            conn.execute("DELETE FROM _bridge_staging")
+            conn.executemany(
+                "INSERT INTO _bridge_staging (source_id, target_id, weight) VALUES (?, ?, ?)",
+                canon,
+            )
+
+            new_rows = conn.execute("""
+                SELECT s.source_id, s.target_id, s.weight
+                FROM _bridge_staging s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM connections c
+                    WHERE c.source_id = s.source_id
+                      AND c.target_id = s.target_id
+                )
+            """).fetchall()
+
+            if not new_rows:
+                conn.commit()
+                return 0
+
+            now = time.time()
+            conn.executemany(
+                "INSERT INTO connections "
+                "(source_id, target_id, weight, edge_type, created_at) "
+                "VALUES (?, ?, ?, 'bridge', ?)",
+                [(int(r[0]), int(r[1]), float(r[2]), now) for r in new_rows],
+            )
+            if dream_session_id is not None:
+                conn.executemany(
+                    "INSERT INTO connection_history "
+                    "(source_id, target_id, old_weight, new_weight, reason, "
+                    "changed_at, dream_session_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        (int(r[0]), int(r[1]), 0.0, float(r[2]), reason, now, dream_session_id)
+                        for r in new_rows
+                    ],
+                )
+            conn.commit()
+            return len(new_rows)
+        finally:
+            conn.close()
+
     def prune_weak(self, threshold: float = 0.05) -> int:
         conn = self._connect()
         try:
@@ -1161,42 +1270,77 @@ class DreamEngine:
             if not isolated:
                 return stats
 
-            for mem in isolated:
+            if not self._memory:
+                return stats
+
+            # Collect inputs for one batched recall — drops empty-content
+            # rows up-front so the batch index aligns with the kept memories.
+            kept = [m for m in isolated if m.get("content")]
+            if not kept:
+                return stats
+
+            queries = [m["content"][:200] for m in kept]
+            stats["explored"] = len(kept)
+
+            # ── Batched semantic search ──────────────────────────────────
+            # Single embed_batch IPC + single matmul (B, 1024) @ (1024, N)
+            # on CUDA, vs N sequential embed-server round-trips. On a 800-
+            # batch / 193k-corpus this collapses ~6min of REM Python loop
+            # into a few hundred ms of GPU compute.
+            try:
+                if hasattr(self._memory, "recall_batch"):
+                    similar_lists = self._memory.recall_batch(queries, k=10)
+                else:
+                    similar_lists = [
+                        self._memory.recall(q, k=10) for q in queries
+                    ]
+            except Exception as e:
+                logger.debug("REM batch recall failed: %s — falling back", e)
+                similar_lists = [self._memory.recall(q, k=10) for q in queries]
+
+            # ── Build the bridge candidate list ──────────────────────────
+            # Filter follows the same rule as the per-memory loop:
+            # 0.3 < similarity < 0.95, no self-loops. We accumulate first
+            # so the SQL write becomes a single bulk transaction below.
+            candidate_bridges: List[Tuple[int, int, float]] = []
+            for mem, similar in zip(kept, similar_lists):
                 mid = mem["id"]
-                content = mem["content"]
+                for sim in similar:
+                    sim_id = sim.get("id")
+                    sim_score = sim.get("similarity", 0.0)
+                    if not sim_id or sim_id == mid:
+                        continue
+                    if sim_score < 0.3 or sim_score > 0.95:
+                        continue
+                    bridge_weight = round(float(sim_score) * 0.3, 3)
+                    candidate_bridges.append((int(mid), int(sim_id), bridge_weight))
 
-                if not self._memory or not content:
-                    continue
-
+            # ── One transaction for the whole batch ──────────────────────
+            # add_bridges_batch handles canonicalisation, dedup against
+            # existing edges, and logs connection_history in the same
+            # transaction. ~6000 individual commits → 1 commit per cycle.
+            if candidate_bridges:
                 try:
-                    similar = self._memory.recall(content[:200], k=10)
-                    stats["explored"] += 1
-
-                    for sim in similar:
-                        sim_id = sim.get("id")
-                        sim_score = sim.get("similarity", 0)
-
-                        if not sim_id or sim_id == mid:
-                            continue
-                        if sim_score < 0.3 or sim_score > 0.95:
-                            continue
-
-                        bridge_weight = round(sim_score * 0.3, 3)
-                        # Only count + log when add_bridge actually inserted.
-                        # Pre-existing edges return False; logging a "0.0 → w"
-                        # change on those would falsify connection_history.
-                        # Canonicalise the (src, tgt) for the history row to
-                        # match the connections row's canonical orientation.
-                        if self._backend.add_bridge(mid, sim_id, bridge_weight):
-                            src, tgt = (mid, sim_id) if mid < sim_id else (sim_id, mid)
+                    new_bridges = self._backend.add_bridges_batch(
+                        candidate_bridges,
+                        dream_session_id=session_id,
+                        reason="rem_bridge",
+                    )
+                    stats["bridges"] = int(new_bridges or 0)
+                    stats["rejected"] = len(candidate_bridges) - stats["bridges"]
+                except Exception as e:
+                    logger.debug(
+                        "REM batch bridge insert failed: %s — falling back to per-edge",
+                        e,
+                    )
+                    for s, t, w in candidate_bridges:
+                        if self._backend.add_bridge(s, t, w):
+                            src, tgt = (s, t) if s < t else (t, s)
                             self._backend.log_connection_change(
-                                src, tgt, 0.0, bridge_weight, "rem_bridge",
+                                src, tgt, 0.0, w, "rem_bridge",
                                 dream_session_id=session_id,
                             )
                             stats["bridges"] += 1
-
-                except Exception:
-                    pass
 
         except Exception as e:
             logger.debug("REM phase error: %s", e)

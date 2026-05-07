@@ -240,6 +240,70 @@ class DreamPostgresStore:
                 for r in cur.fetchall()
             ]
 
+    def sample_isolated_for_dream(
+        self,
+        limit: int,
+        max_connections: int = 3,
+        recent_pct: float = 0.5,
+        random_old_pct: float = 0.3,
+        low_salience_pct: float = 0.2,
+    ) -> List[Dict[str, Any]]:
+        recent_n = max(1, int(limit * recent_pct))
+        random_n = max(0, int(limit * random_old_pct))
+        low_n = max(0, limit - recent_n - random_n)
+
+        seen: set = set()
+        out: List[Dict[str, Any]] = []
+
+        def _push(rows):
+            for r in rows:
+                rid = int(r[0])
+                if rid in seen:
+                    continue
+                seen.add(rid)
+                out.append({
+                    "id": rid,
+                    "content": r[1] or "",
+                    "connection_count": int(r[2]),
+                })
+                if len(out) >= limit:
+                    return True
+            return False
+
+        base = (
+            "SELECT m.id, m.content, COALESCE(conn.cnt, 0) AS conn_count "
+            "FROM memories m "
+            "LEFT JOIN ( "
+            "    SELECT source_id AS mid, COUNT(*) AS cnt "
+            "    FROM connections GROUP BY source_id "
+            ") conn ON m.id = conn.mid "
+            "WHERE COALESCE(conn.cnt, 0) < %s "
+        )
+
+        with self._cursor() as (_conn, cur):
+            cur.execute(base + "ORDER BY m.created_at DESC LIMIT %s",
+                        (max_connections, recent_n))
+            _push(cur.fetchall())
+
+            if random_n > 0 and len(out) < limit:
+                cur.execute(base + "ORDER BY random() LIMIT %s",
+                            (max_connections, random_n + max(0, recent_n // 4)))
+                _push(cur.fetchall())
+
+            if low_n > 0 and len(out) < limit:
+                try:
+                    cur.execute(
+                        base + "ORDER BY m.salience ASC, m.last_accessed ASC LIMIT %s",
+                        (max_connections, low_n + max(0, (recent_n + random_n) // 4)),
+                    )
+                    _push(cur.fetchall())
+                except Exception:
+                    cur.execute(base + "ORDER BY m.created_at ASC LIMIT %s",
+                                (max_connections, low_n))
+                    _push(cur.fetchall())
+
+        return out[:limit]
+
     @staticmethod
     def _canon_pair(source_id: int, target_id: int):
         """Canonicalise (source<target) and reject self-edges.
@@ -409,6 +473,68 @@ class DreamPostgresStore:
                 (limit,),
             )
             return [{"id": int(r[0]), "content": r[1] or ""} for r in cur.fetchall()]
+
+    def sample_for_dream(
+        self,
+        limit: int,
+        recent_pct: float = 0.5,
+        random_old_pct: float = 0.3,
+        low_salience_pct: float = 0.2,
+    ) -> List[Dict[str, Any]]:
+        recent_n = max(1, int(limit * recent_pct))
+        random_n = max(0, int(limit * random_old_pct))
+        low_n = max(0, limit - recent_n - random_n)
+
+        seen: set = set()
+        out: List[Dict[str, Any]] = []
+
+        def _push(rows):
+            for r in rows:
+                rid = int(r[0])
+                if rid in seen:
+                    continue
+                seen.add(rid)
+                out.append({"id": rid, "content": r[1] or ""})
+                if len(out) >= limit:
+                    return True
+            return False
+
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                "SELECT id, content FROM memories ORDER BY created_at DESC LIMIT %s",
+                (recent_n,),
+            )
+            _push(cur.fetchall())
+
+            if random_n > 0 and len(out) < limit:
+                cur.execute(
+                    "SELECT id, content FROM memories ORDER BY random() LIMIT %s",
+                    (random_n + max(0, recent_n // 4),),
+                )
+                _push(cur.fetchall())
+
+            # Postgres memories table may or may not have salience/last_accessed
+            # columns depending on which schema migration the deployment ran.
+            # Try the salience-aware sort and fall back to created_at ASC if
+            # the columns aren't there — the goal (reach old memories) is
+            # still served by the random pool above.
+            if low_n > 0 and len(out) < limit:
+                try:
+                    cur.execute(
+                        "SELECT id, content FROM memories "
+                        "ORDER BY salience ASC, last_accessed ASC LIMIT %s",
+                        (low_n + max(0, (recent_n + random_n) // 4),),
+                    )
+                    _push(cur.fetchall())
+                except Exception:
+                    cur.execute(
+                        "SELECT id, content FROM memories "
+                        "ORDER BY created_at ASC LIMIT %s",
+                        (low_n,),
+                    )
+                    _push(cur.fetchall())
+
+        return out[:limit]
 
     # -- Stats ---------------------------------------------------------------
 

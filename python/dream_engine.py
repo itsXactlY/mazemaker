@@ -100,9 +100,39 @@ class DreamBackend:
     def get_recent_memories(self, limit: int = 100) -> List[Dict[str, Any]]:
         raise NotImplementedError
 
+    def sample_for_dream(
+        self,
+        limit: int,
+        recent_pct: float = 0.5,
+        random_old_pct: float = 0.3,
+        low_salience_pct: float = 0.2,
+    ) -> List[Dict[str, Any]]:
+        # Mixed sample for NREM replay so the cycle doesn't only re-touch the
+        # newest <limit> memories and recycle the surface forever. Default mix:
+        # 50% recent, 30% random across all memories, 20% lowest-salience.
+        # Result is deduped and capped at limit.
+        # Backward-compat fallback: subclasses that don't override get pure
+        # recent — same as get_recent_memories.
+        return self.get_recent_memories(limit)
+
     def get_isolated_memories(self, max_connections: int = 3,
                                limit: int = 50) -> List[Dict[str, Any]]:
         raise NotImplementedError
+
+    def sample_isolated_for_dream(
+        self,
+        limit: int,
+        max_connections: int = 3,
+        recent_pct: float = 0.5,
+        random_old_pct: float = 0.3,
+        low_salience_pct: float = 0.2,
+    ) -> List[Dict[str, Any]]:
+        # Same mix-philosophy as sample_for_dream but constrained to memories
+        # with < max_connections edges. REM tries to bridge orphaned memories,
+        # so picking only "recent isolated" means anything that got isolated
+        # six months ago and was never revisited stays a permanent orphan.
+        # Backward-compat fallback: subclasses get pure recent.
+        return self.get_isolated_memories(max_connections, limit)
 
     def get_connections(self) -> List[Dict[str, Any]]:
         raise NotImplementedError
@@ -301,6 +331,61 @@ class SQLiteDreamBackend(DreamBackend):
         finally:
             conn.close()
 
+    def sample_for_dream(
+        self,
+        limit: int,
+        recent_pct: float = 0.5,
+        random_old_pct: float = 0.3,
+        low_salience_pct: float = 0.2,
+    ) -> List[Dict[str, Any]]:
+        recent_n = max(1, int(limit * recent_pct))
+        random_n = max(0, int(limit * random_old_pct))
+        low_n = max(0, limit - recent_n - random_n)
+
+        seen: Set[int] = set()
+        out: List[Dict[str, Any]] = []
+
+        def _push(rows):
+            for r in rows:
+                rid = r["id"]
+                if rid in seen:
+                    continue
+                seen.add(rid)
+                out.append({"id": rid, "content": r["content"] or ""})
+                if len(out) >= limit:
+                    return True
+            return False
+
+        conn = self._connect()
+        try:
+            _push(conn.execute(
+                "SELECT id, content FROM memories ORDER BY created_at DESC LIMIT ?",
+                (recent_n,),
+            ).fetchall())
+
+            # Random across the whole table — this is what breaks the
+            # recent-only surface trap. Over-fetch a touch to absorb dedup
+            # collisions with the recent slice.
+            if random_n > 0 and len(out) < limit:
+                _push(conn.execute(
+                    "SELECT id, content FROM memories ORDER BY RANDOM() LIMIT ?",
+                    (random_n + max(0, recent_n // 4),),
+                ).fetchall())
+
+            # Lowest salience first, tie-break on stale last_accessed. These
+            # are the candidates most likely to get pruned next NREM if they
+            # don't get re-activated — give them a chance to be heard.
+            if low_n > 0 and len(out) < limit:
+                _push(conn.execute(
+                    "SELECT id, content FROM memories "
+                    "ORDER BY salience ASC, last_accessed ASC LIMIT ?",
+                    (low_n + max(0, (recent_n + random_n) // 4),),
+                ).fetchall())
+
+            return out[:limit]
+        finally:
+            conn.close()
+
     def get_isolated_memories(self, max_connections: int = 3,
                                limit: int = 50) -> List[Dict[str, Any]]:
         conn = self._connect()
@@ -318,6 +403,72 @@ class SQLiteDreamBackend(DreamBackend):
                 {"id": r["id"], "content": r["content"] or "", "connection_count": r["cnt"]}
                 for r in rows
             ]
+        finally:
+            conn.close()
+
+    def sample_isolated_for_dream(
+        self,
+        limit: int,
+        max_connections: int = 3,
+        recent_pct: float = 0.5,
+        random_old_pct: float = 0.3,
+        low_salience_pct: float = 0.2,
+    ) -> List[Dict[str, Any]]:
+        recent_n = max(1, int(limit * recent_pct))
+        random_n = max(0, int(limit * random_old_pct))
+        low_n = max(0, limit - recent_n - random_n)
+
+        seen: Set[int] = set()
+        out: List[Dict[str, Any]] = []
+
+        def _push(rows):
+            for r in rows:
+                rid = r["id"]
+                if rid in seen:
+                    continue
+                seen.add(rid)
+                out.append({
+                    "id": rid,
+                    "content": r["content"] or "",
+                    "connection_count": r["cnt"],
+                })
+                if len(out) >= limit:
+                    return True
+            return False
+
+        # Subquery is identical across the three slices — only the ORDER BY
+        # changes. Materialise the connection-count once via the correlated
+        # subquery; SQLite is fine with it on tables of this size, and the
+        # WHERE clause is the same across all three reads.
+        base_select = (
+            "SELECT m.id, m.content, "
+            "(SELECT COUNT(*) FROM connections "
+            " WHERE source_id = m.id OR target_id = m.id) AS cnt "
+            "FROM memories m "
+            "WHERE (SELECT COUNT(*) FROM connections "
+            "       WHERE source_id = m.id OR target_id = m.id) < ? "
+        )
+
+        conn = self._connect()
+        try:
+            _push(conn.execute(
+                base_select + "ORDER BY m.created_at DESC LIMIT ?",
+                (max_connections, recent_n),
+            ).fetchall())
+
+            if random_n > 0 and len(out) < limit:
+                _push(conn.execute(
+                    base_select + "ORDER BY RANDOM() LIMIT ?",
+                    (max_connections, random_n + max(0, recent_n // 4)),
+                ).fetchall())
+
+            if low_n > 0 and len(out) < limit:
+                _push(conn.execute(
+                    base_select + "ORDER BY m.salience ASC, m.last_accessed ASC LIMIT ?",
+                    (max_connections, low_n + max(0, (recent_n + random_n) // 4)),
+                ).fetchall())
+
+            return out[:limit]
         finally:
             conn.close()
 
@@ -738,13 +889,24 @@ class DreamEngine:
         neural_memory: Optional[Any] = None,
         idle_threshold: float = 300.0,     # 5 min idle
         memory_threshold: int = 50,         # dream every N new memories
-        max_memories_per_cycle: int = 100,
+        max_memories_per_cycle: int = 2000,
+        max_isolated_per_cycle: int = 800,
+        sample_recent_pct: float = 0.5,
+        sample_random_pct: float = 0.3,
+        sample_low_salience_pct: float = 0.2,
     ):
         self._backend = backend
         self._memory = neural_memory        # Mazemaker instance for think/recall
         self._idle_threshold = idle_threshold
         self._memory_threshold = memory_threshold
         self._max_memories = max_memories_per_cycle
+        self._max_isolated = max_isolated_per_cycle
+        # NREM sampling mix — defaults give 50% recent, 30% random across
+        # all memories, 20% lowest-salience. Recent-only would mean older
+        # memories are never replayed and quietly decay below prune threshold.
+        self._sample_recent_pct = sample_recent_pct
+        self._sample_random_pct = sample_random_pct
+        self._sample_low_salience_pct = sample_low_salience_pct
 
         self._stop_event = threading.Event()  # set = stop requested
         self._thread: Optional[threading.Thread] = None
@@ -901,7 +1063,12 @@ class DreamEngine:
         session_id = self._backend.start_session("nrem")
 
         try:
-            memories = self._backend.get_recent_memories(self._max_memories)
+            memories = self._backend.sample_for_dream(
+                self._max_memories,
+                recent_pct=self._sample_recent_pct,
+                random_old_pct=self._sample_random_pct,
+                low_salience_pct=self._sample_low_salience_pct,
+            )
             if not memories:
                 return stats
 
@@ -972,7 +1139,13 @@ class DreamEngine:
         session_id = self._backend.start_session("rem")
 
         try:
-            isolated = self._backend.get_isolated_memories(max_connections=3, limit=50)
+            isolated = self._backend.sample_isolated_for_dream(
+                self._max_isolated,
+                max_connections=3,
+                recent_pct=self._sample_recent_pct,
+                random_old_pct=self._sample_random_pct,
+                low_salience_pct=self._sample_low_salience_pct,
+            )
             if not isolated:
                 return stats
 

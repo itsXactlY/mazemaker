@@ -671,9 +671,16 @@ class Memory:
         raise ValueError(f"unknown dream phase: {phase}")
 
     def dream_stats(self) -> dict:
-        """Aggregate dream-engine stats from the backend."""
-        eng = self._get_dream_engine()
-        return eng._backend.get_dream_stats()
+        """Aggregate dream-engine stats from the backend.
+
+        Read-only; bypasses the _get_dream_engine guard so dream_stats
+        keeps working when MM_DREAM_DISABLED is set (external dream_worker
+        is still writing rows that this method reads).
+        """
+        from dream_engine import SQLiteDreamBackend  # type: ignore[import]
+        if self._dream_engine_singleton is not None:
+            return self._dream_engine_singleton._backend.get_dream_stats()
+        return SQLiteDreamBackend(self._db_path).get_dream_stats()
 
     def stats(self) -> dict:
         """System statistics. SQLite primary."""

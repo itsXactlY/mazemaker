@@ -304,8 +304,20 @@ class NeuralMemoryProvider(MemoryProvider):
         re-initialising Mazemaker after a session split or model switch),
         stop it first.  Without this each call leaks a daemon thread plus
         its DB handle.
+
+        Honors `MM_DREAM_DISABLED=1` (or `=true`) — used when an external
+        dream_worker.py daemon owns consolidation and the in-pod engine
+        would otherwise compete for the SQLite write lock and double-fire
+        cycles.
         """
         from pathlib import Path
+        import os
+
+        if os.getenv("MM_DREAM_DISABLED", "").lower() in ("1", "true", "yes"):
+            logger.info("Dream engine disabled via MM_DREAM_DISABLED env var "
+                        "— external dream_worker.py is expected to handle cycles")
+            self._dream = None
+            return
 
         if self._dream is not None:
             try:

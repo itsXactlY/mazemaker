@@ -365,6 +365,29 @@ flowchart LR
 - Manual: `neural_dream` tool
 - Standalone: `python python/dream_worker.py --daemon`
 
+### Standalone daemon — `dream_worker.py`
+
+When the in-pod dream loop fights with `mazemaker_remember` writers
+for the SQLite lock (typical on 100k+ memory pods), pull the dream
+loop OUT of the pod and run it as its own process:
+
+```fish
+# 1. Disable in-pod engine for this session (ephemeral — clears on reboot)
+systemctl --user edit --runtime mazemaker-mcp.service
+# add:  [Service]
+#       Environment="MM_DREAM_DISABLED=1"
+systemctl --user daemon-reload && systemctl --user restart mazemaker-mcp.service
+
+# 2. Run the standalone daemon — same DB, same tables, no idle gating
+cd ~/projects/mazemaker/python
+python dream_worker.py --max-memories 2000 --max-isolated 800
+```
+
+The daemon loops `_run_dream_cycle()` continuously without `should_dream`
+checks. GPU is used automatically when `embedding_backend=auto`
+detects CUDA. After a reboot the `/run` drop-in is cleared and the
+in-pod engine re-enables on its own.
+
 ### Sampling
 
 NREM and REM don't pull `LIMIT N ORDER BY created_at DESC` anymore. On a

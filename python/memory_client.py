@@ -7,6 +7,7 @@ hybrid retrieval, typed temporal graph edges, and PPR thinking.
 from __future__ import annotations
 
 import ctypes
+import logging
 import math
 import os
 import re
@@ -16,6 +17,8 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -309,7 +312,13 @@ class SQLiteStore:
                    )
             """)
             # Step 2: drop the non-canonical duplicate.
-            self.conn.execute("""
+            #
+            # We capture rowcount + emit an INFO log on non-zero so the
+            # mass-deletes from this sweep stop being silent. Previously a
+            # restart could delete 1M+ legacy duplicates and the only signal
+            # was a sudden drop in `connections` count between two reads —
+            # nothing in dream_sessions or any log line accounted for it.
+            cur = self.conn.execute("""
                 DELETE FROM connections
                  WHERE source_id > target_id
                    AND EXISTS (
@@ -318,12 +327,21 @@ class SQLiteStore:
                           AND c2.target_id = connections.source_id
                    )
             """)
+            canon_dups = int(cur.rowcount or 0)
             # Step 3: swap survivors in place so they're canonical going forward.
-            self.conn.execute("""
+            cur = self.conn.execute("""
                 UPDATE connections
                    SET source_id = target_id, target_id = source_id
                  WHERE source_id > target_id
             """)
+            canon_swaps = int(cur.rowcount or 0)
+            if canon_dups or canon_swaps:
+                logger.info(
+                    "canonicalisation sweep: deleted %d non-canonical duplicates, "
+                    "swapped %d non-canonical singletons (one-shot legacy migration; "
+                    "no-op once the table is fully canonical)",
+                    canon_dups, canon_swaps,
+                )
         except sqlite3.OperationalError:
             # Schema oddity (very old DB without these columns) — leave as-is;
             # subsequent writes are canonical regardless.
@@ -581,6 +599,95 @@ class SQLiteStore:
                     (source, target, weight, edge_type, now, event_time, ingestion_time, valid_from, valid_to),
                 )
             self.conn.commit()
+
+    def add_connections_batch(
+        self,
+        pairs,
+        edge_type: str = "similar",
+    ) -> int:
+        """Bulk-insert undirected weighted edges in a single transaction.
+
+        Replaces N sequential ``add_connection`` calls (each its own commit)
+        for hot paths like dream-cycle Insight that emit thousands of
+        derived_from edges per cluster.
+
+        ``pairs`` is an iterable of ``(source, target, weight)`` tuples.
+        Self-loops are dropped, endpoints are normalised to (low, high)
+        order so undirected edges canonicalise, weights are clamped to
+        [0, 1]. Existing edges with the same (source, target, edge_type)
+        are skipped (duplicate suppression by SELECT-then-diff). Returns
+        number of NEW edges actually inserted.
+
+        Performance: ~50× faster than a per-edge loop on SQLite WAL,
+        because we batch the work into one fsync rather than one per row.
+        """
+        normalised: list[tuple[int, int, float]] = []
+        seen: set[tuple[int, int]] = set()
+        for s, t, w in pairs:
+            si, ti = int(s), int(t)
+            if si == ti:
+                continue
+            if si > ti:
+                si, ti = ti, si
+            if (si, ti) in seen:
+                continue
+            seen.add((si, ti))
+            wf = max(0.0, min(1.0, float(w)))
+            normalised.append((si, ti, wf))
+
+        if not normalised:
+            return 0
+
+        now = time.time()
+        with self._lock:
+            # Discover existing (source_id, target_id) pairs for this edge_type
+            # in a single scan via a temp staging table — keeps the diff to
+            # one query regardless of pair count.
+            self.conn.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS _conn_stage("
+                "source_id INTEGER, target_id INTEGER, weight REAL)"
+            )
+            try:
+                self.conn.execute("DELETE FROM _conn_stage")
+                self.conn.executemany(
+                    "INSERT INTO _conn_stage VALUES (?, ?, ?)",
+                    normalised,
+                )
+                rows = self.conn.execute(
+                    "SELECT s.source_id, s.target_id "
+                    "  FROM _conn_stage s "
+                    " WHERE EXISTS ("
+                    "       SELECT 1 FROM connections c "
+                    "        WHERE c.source_id = s.source_id "
+                    "          AND c.target_id = s.target_id "
+                    "          AND COALESCE(c.edge_type, 'similar') = ?)",
+                    (edge_type,),
+                ).fetchall()
+                existing = {(r["source_id"], r["target_id"]) for r in rows}
+
+                to_insert = [
+                    (s, t, w, edge_type, now, now, now, now, None)
+                    for (s, t, w) in normalised
+                    if (s, t) not in existing
+                ]
+                if to_insert:
+                    self.conn.executemany(
+                        "INSERT INTO connections "
+                        "(source_id, target_id, weight, edge_type, created_at, "
+                        " event_time, ingestion_time, valid_from, valid_to) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        to_insert,
+                    )
+                self.conn.commit()
+                return len(to_insert)
+            finally:
+                # Free the staging rows but keep the temp table cached for
+                # the next call — a fresh CREATE on every call is cheap but
+                # not free, and DELETE-from-temp is rounding error.
+                try:
+                    self.conn.execute("DELETE FROM _conn_stage")
+                except Exception:
+                    pass
 
     def get_all_connections(self) -> list[dict]:
         """Return every edge as a list — used for bulk graph hydration.
@@ -1661,12 +1768,30 @@ class Mazemaker:
         # results). e.g. score_percentile=0.5 keeps the top half of
         # ranked candidates. Off by default (0.0).
         score_percentile: Optional[float] = None,
+        # include_echoes: when False (default), strip per-turn conversation
+        # logs (`auto:turn:*`, `auto:claude:*`, `auto:hermes:*`, anything
+        # starting with `auto:`) from the candidate set BEFORE relevance
+        # scoring. The 193k-memory corpus is ~98% auto-saved conversation
+        # echoes; these crowd out facts because their semantic embedding
+        # is dominated by the verbatim user question, not the synthesised
+        # answer. Recall callers (Hermes, Claude, MCP) want facts and
+        # synthesised insights only — set True only for session-replay
+        # use cases that genuinely need raw turn content.
+        include_echoes: bool = False,
     ) -> list[dict]:
         if k <= 0:
             return []
         query_vec = query_vec or self.embedder.embed(query)
         now = time.time()
         limit = max(k * 4, self._retrieval_candidates)
+        # Echo filter is cheap up-front: pull more candidates from each
+        # channel so that after we drop user-question echoes we still have
+        # enough facts to fill k. Without this, queries like "trailer
+        # status" (where the corpus has tons of `auto:hermes:*:u` echoes
+        # of the exact same question) would degenerate to an empty result
+        # set.
+        if not include_echoes:
+            limit = limit * 2
         if hybrid is None:
             # `lean`/`trim` are cost-conscious skynet variants that zero
             # dead-weight channels per benchmark findings — still hybrid.
@@ -1690,6 +1815,29 @@ class Mazemaker:
                 fused[mid]["channel_scores"]["ppr"] = score * self._channel_weights.get("ppr", 0.55) / self._rrf_k
 
         mems = self.store.get_many(list(fused.keys()), include_embedding=True)
+
+        # ── Echo filter ──────────────────────────────────────────────────
+        # Drop pure user-question echoes — labels ending in `:u` are
+        # `auto:hermes:<session>:t<N>:u` memories holding the verbatim
+        # user input only. Same goes for content-empty user turn dumps.
+        # Everything else (auto:turn:* full Claude-Code dumps with both
+        # USER and ASSISTANT sections, auto:hermes:*:a assistant turns,
+        # auto:claude:* legacy per-turn, derived:cluster summaries, all
+        # curated labels) carries real signal and stays.
+        # We do this BEFORE the per-memory connection fetch so SQL
+        # round-trips are spent only on results that will actually
+        # be returned.
+        if not include_echoes:
+            fact_ids: list[int] = []
+            for mid, mem in mems.items():
+                label = (mem.get("label") or "")
+                if label.endswith(":u"):
+                    continue
+                fact_ids.append(mid)
+            mems = {mid: mems[mid] for mid in fact_ids}
+            fused = {mid: fused[mid] for mid in fact_ids if mid in fused}
+            if not fused:
+                return []
 
         # Pre-fetch connections per result-memory and collect every neighbour
         # id we'll need to render. The previous code did one get_connections

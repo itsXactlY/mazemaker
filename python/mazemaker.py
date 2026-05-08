@@ -514,12 +514,19 @@ class Memory:
     def recall(self, query: str, k: int = 5,
                mmr_lambda: Optional[float] = None,
                score_floor: Optional[float] = None,
-               score_percentile: Optional[float] = None) -> list[dict]:
+               score_percentile: Optional[float] = None,
+               include_echoes: bool = False) -> list[dict]:
         """Semantic search with LSTM+kNN enhancement. Always uses SQLite for recall.
 
         mmr_lambda, score_floor, and score_percentile allow per-call override
         of the defaults configured at construction. None means "use the
         constructor default".
+
+        include_echoes: when False (default), per-turn conversation logs
+        labelled `auto:*` are filtered out so only curated and synthesised
+        facts are surfaced. The corpus is ~98% auto-saved conversation
+        echoes which would otherwise drown out the real answers. Set True
+        only for session-replay tools that need raw turn content.
 
         score_percentile is the calibrated [0,1] alternative to score_floor:
         operating on rank percentile rather than raw RRF relevance, so
@@ -536,6 +543,7 @@ class Memory:
             query, k * 3, query_vec=embedding,
             mmr_lambda=mmr_lambda, score_floor=score_floor,
             score_percentile=score_percentile,
+            include_echoes=include_echoes,
         )
         enhanced = self._enhance_recall(embedding, base_results, k)
         for r in enhanced:

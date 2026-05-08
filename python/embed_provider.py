@@ -506,10 +506,26 @@ class SentenceTransformerBackend:
                 return
             except Exception:
                 pass  # No server running, start one or load directly
-        
+
         self._is_client = False
         self._client = None
-        
+
+        # EMBED_CLIENT_ONLY=1 → never spawn an embed-server, never load
+        # the model in-process. The dedicated embedding-worker container
+        # is the only authoritative loader; everyone else just attaches.
+        # Without this guard, race conditions at boot let multiple
+        # processes load BGE-M3 concurrently, each one ~1.4 GB of VRAM
+        # gone forever — by the time the dedicated server is ready the
+        # GPU is already full of orphan model copies.
+        if os.environ.get('EMBED_CLIENT_ONLY'):
+            raise RuntimeError(
+                "EMBED_CLIENT_ONLY=1 set but shared embed-server is not "
+                "reachable at the configured socket. Refusing to spawn a "
+                "redundant model copy. Start mazemaker-embedding-worker.service "
+                "first, or unset EMBED_CLIENT_ONLY for ad-hoc client+server "
+                "fallback behaviour."
+            )
+
         # Try to become the server
         if not os.environ.get('EMBED_NO_SHARED'):
             server = SharedEmbedServer(
@@ -528,7 +544,7 @@ class SentenceTransformerBackend:
                     return
                 except:
                     pass
-        
+
         # Fallback: load model directly (old behavior)
         self._load_direct()
     

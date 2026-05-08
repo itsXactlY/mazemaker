@@ -230,6 +230,20 @@ class DreamBackend:
                     confidence: float = 0.0) -> None:
         raise NotImplementedError
 
+    def add_insights_batch(self, items) -> int:
+        """Bulk-insert insights in one transaction.
+
+        ``items`` is an iterable of
+        ``(session_id, insight_type, source_memory_id, content, confidence)``
+        tuples. Returns the number of rows inserted. Default implementation
+        loops the per-row method for backends without bulk support.
+        """
+        n = 0
+        for sid, t, src, content, conf in items:
+            self.add_insight(sid, t, src, content, conf)
+            n += 1
+        return n
+
     def prune_connection_history(self, keep_days: int = 7) -> int:
         """Delete history entries older than keep_days. Returns count deleted."""
         raise NotImplementedError
@@ -894,6 +908,35 @@ class SQLiteDreamBackend(DreamBackend):
         finally:
             conn.close()
 
+    def add_insights_batch(self, items) -> int:
+        """Bulk-insert insights — one transaction, one fsync.
+
+        Replaces N sequential ``add_insight`` calls (each its own commit)
+        for the dream-cycle Insight phase, where 6000+ cluster + bridge
+        insights would otherwise generate 6000 commits and stall the
+        writer for tens of seconds. Returns the number of rows inserted.
+        """
+        rows = []
+        now = time.time()
+        for sid, ins_type, src, content, conf in items:
+            rows.append((int(sid), str(ins_type), int(src), str(content),
+                         float(conf), now))
+        if not rows:
+            return 0
+
+        conn = self._connect()
+        try:
+            conn.executemany(
+                "INSERT INTO dream_insights "
+                "(session_id, insight_type, source_memory_id, content, confidence, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+            conn.commit()
+            return len(rows)
+        finally:
+            conn.close()
+
     def prune_connection_history(self, keep_days: int = 7) -> int:
         """Delete history entries older than keep_days."""
         conn = self._connect()
@@ -1261,7 +1304,32 @@ class DreamEngine:
                     logger.info("Pruned %d old dream sessions", pruned_sessions)
                 pruned_orphans = self._backend.prune_orphans()
                 if pruned_orphans:
+                    # Roll orphan deletes into the per-session counter so
+                    # `dream_sessions.connections_pruned` accounts for every
+                    # path that drops rows from `connections`. Previously
+                    # orphans only surfaced as a log line, which made the
+                    # cumulative `edges pruned` stat under-count whenever a
+                    # batch of orphan rows showed up after a memory delete.
+                    stats["pruned"] = int(stats.get("pruned", 0) or 0) + int(pruned_orphans)
                     logger.info("Pruned %d orphan connections", pruned_orphans)
+
+                # Time-bounded derived:cluster prune. Insight emits up
+                # to MAX_CLUSTERS_PER_CYCLE (50) cluster summaries per
+                # cycle — ephemeral output, not durable knowledge. With
+                # centroid drift the exact-content dedup misses, and
+                # cluster identity (which members are grouped) shifts
+                # cycle-to-cycle anyway. A short TTL keeps the table
+                # bounded around recent cycles' output.
+                #   50 clusters × 277 cycles/h × (TTL_h) = steady-state size
+                # 5 min TTL → ~1 150 cluster summaries on average, fresh.
+                pruned_clusters = self._prune_old_derived_clusters(
+                    keep_seconds=5 * 60,
+                )
+                if pruned_clusters:
+                    logger.info(
+                        "Pruned %d aged derived:cluster memories (>5min)",
+                        pruned_clusters,
+                    )
             except Exception as e:
                 logger.debug("Maintenance cleanup error: %s", e)
 
@@ -1385,80 +1453,196 @@ class DreamEngine:
     def _phase_insights(self) -> Dict[str, Any]:
         """Insight: Community detection, bridge identification, abstraction.
 
-        1. Find connected components (communities)
-        2. Identify bridge nodes connecting communities
-        3. Create insight memories for dense clusters
+        Pipeline (timings emitted at INFO so we can spot regressions):
+          1. Load full connections table (~1.16 M rows, ~0.6 s).
+          2. Build adjacency + node-set in numpy (vectorised, ~0.3 s on 1 M).
+          3. C++ Louvain modularity-optimisation (~1.3 s on 1 M edges).
+          4. Vectorised bridge-node scan via per-edge community lookup.
+          5. Emit cluster insights with capped theme-sample SQL.
+          6. Emit bridge insights, all batched into one transaction.
+          7. Flush all dream_insights rows via add_insights_batch (1 commit).
         """
+        import numpy as np
         stats = {"communities": 0, "bridges": 0, "insights": 0, "derived_facts": 0}
         session_id = self._backend.start_session("insight")
+        t_phase = time.perf_counter()
 
         try:
+            t0 = time.perf_counter()
             edges = self._backend.get_connections()
             if not edges:
                 return stats
+            # Exclude derived_from edges. Those are synthetic links from
+            # `derived:cluster` summary memories to their member nodes —
+            # output of the previous cycle's Insight. Letting them into
+            # Louvain creates a feedback loop: the previous cycle's
+            # clusters become nodes themselves, the new cycle clusters
+            # those clusters, the graph fragments into thousands of
+            # tiny meta-components, and derived:cluster blows up by the
+            # ~256 ratio per cycle. The signal-bearing edge types are
+            # similar / bridge / causal — those go in.
+            edges = [e for e in edges if (e.get("edge_type") or "similar") != "derived_from"]
+            if not edges:
+                return stats
+            t_load = time.perf_counter() - t0
 
-            # Build adjacency
-            adj: Dict[int, List[Tuple[int, float]]] = defaultdict(list)
-            nodes = set()
-            for e in edges:
-                s, t, w = e["source_id"], e["target_id"], e["weight"]
-                adj[s].append((t, w))
-                adj[t].append((s, w))
-                nodes.add(s)
-                nodes.add(t)
+            # ── Vectorised adjacency build ────────────────────────────────
+            # Pre-extract three flat int/float arrays so the rest of the
+            # pipeline can index without re-walking dicts. NumPy's C loops
+            # are 10-30x faster than the Python list-of-tuples adjacency
+            # the original code built for 1 M edges.
+            t0 = time.perf_counter()
+            src_arr = np.fromiter((e["source_id"] for e in edges),
+                                   dtype=np.int64, count=len(edges))
+            dst_arr = np.fromiter((e["target_id"] for e in edges),
+                                   dtype=np.int64, count=len(edges))
+            w_arr   = np.fromiter((e.get("weight", 0.0) or 0.0 for e in edges),
+                                   dtype=np.float32, count=len(edges))
+            unique_nodes = np.unique(np.concatenate([src_arr, dst_arr]))
+            nodes = set(unique_nodes.tolist())
 
-            communities = self._detect_communities(edges, nodes, adj)
+            # Lazy adjacency for the bridge-community count below — only
+            # needed for nodes that actually become bridges, so build per
+            # endpoint after we know which nodes are bridges (cheaper than
+            # a full O(E) Python adjacency dict for 1 M edges).
+            t_adj = time.perf_counter() - t0
+
+            # ── C++ Louvain ───────────────────────────────────────────────
+            t0 = time.perf_counter()
+            communities = self._detect_communities(edges, nodes, None)
             stats["communities"] = len(communities)
+            t_louvain = time.perf_counter() - t0
 
-            # Map nodes to communities
-            node_to_comm = {}
+            # node_to_comm[node_id] = community_index. Vectorise lookup:
+            # build a parallel array indexed by position in unique_nodes.
+            t0 = time.perf_counter()
+            node_to_comm: Dict[int, int] = {}
             for i, comm in enumerate(communities):
                 for node in comm:
                     node_to_comm[node] = i
 
-            # Find bridge nodes
-            bridge_nodes = set()
-            for e in edges:
-                s_comm = node_to_comm.get(e["source_id"], -1)
-                t_comm = node_to_comm.get(e["target_id"], -1)
-                if s_comm != t_comm and s_comm >= 0 and t_comm >= 0:
-                    bridge_nodes.add(e["source_id"])
-                    bridge_nodes.add(e["target_id"])
+            # ── Vectorised bridge-node scan ──────────────────────────────
+            # Map every src/dst to its community in one pass over the edge
+            # arrays, then mark endpoints whose communities differ.
+            n_edges = src_arr.shape[0]
+            src_comm = np.fromiter(
+                (node_to_comm.get(int(s), -1) for s in src_arr),
+                dtype=np.int32, count=n_edges,
+            )
+            dst_comm = np.fromiter(
+                (node_to_comm.get(int(d), -1) for d in dst_arr),
+                dtype=np.int32, count=n_edges,
+            )
+            cross = (src_comm != dst_comm) & (src_comm >= 0) & (dst_comm >= 0)
+            bridge_nodes_arr = np.unique(
+                np.concatenate([src_arr[cross], dst_arr[cross]])
+            )
+            bridge_nodes = bridge_nodes_arr.tolist()
             stats["bridges"] = len(bridge_nodes)
+            t_bridges = time.perf_counter() - t0
 
-            # Create cluster insights
-            for i, comm in enumerate(communities):
-                if len(comm) < 3:
+            # ── Stage cluster + bridge insights into one buffer ─────────
+            # Single dream_insights commit at the end via add_insights_batch.
+            #
+            # Cluster-emission budget. Two thresholds + a hard cap so we
+            # never write more than ~50 derived:cluster memories per cycle:
+            #   - MIN_CLUSTER_SIZE: clusters smaller than this are noise.
+            #     A 195 k-memory corpus produces thousands of 3-5 member
+            #     fragments when the graph is sparse; emitting all of them
+            #     wallpapers the writer for 30+ s and starves recall.
+            #   - MAX_CLUSTERS_PER_CYCLE: even with the size threshold the
+            #     biggest N clusters carry the meaningful structure. Skip
+            #     the tail.
+            # Communities arrive sorted DESC by size (see _detect_communities)
+            # so taking the prefix == taking the largest.
+            MIN_CLUSTER_SIZE = 10
+            MAX_CLUSTERS_PER_CYCLE = 50
+
+            t0 = time.perf_counter()
+            insight_rows: List[Tuple[int, str, int, str, float]] = []
+            emitted = 0
+
+            for comm in communities:
+                if len(comm) < MIN_CLUSTER_SIZE:
                     continue
+                if emitted >= MAX_CLUSTERS_PER_CYCLE:
+                    break
+                emitted += 1
+                # _extract_theme caps its own SQL fan-out — see method.
+                # Returns a real excerpt from the cluster's centroid member,
+                # so the resulting derived:cluster memory's embedding
+                # actually represents the cluster's semantic content (was
+                # previously a keyword-frequency soup that embedded poorly).
                 theme = self._extract_theme(comm)
                 confidence = min(len(comm) / 10.0, 1.0)
-                content = f"Cluster of {len(comm)} related memories: {theme}"
-                self._backend.add_insight(session_id, "cluster", comm[0], content, confidence)
+                # Excerpt-first content layout: the theme leads, the
+                # `[cluster:N]` suffix is purely informational and won't
+                # dominate the embedding. A recall query like "trailer
+                # status" now hits the cluster memory directly because
+                # its embedding reflects the excerpt content.
+                content = f"{theme}\n[cluster:{len(comm)}m]"
+                insight_rows.append(
+                    (session_id, "cluster", int(comm[0]), content, confidence)
+                )
                 stats["insights"] += 1
                 if self._write_derived_cluster_memory(comm, content, confidence) is not None:
                     stats["derived_facts"] += 1
+            t_clusters = time.perf_counter() - t0
 
-            # Create bridge insights — use the adjacency map we already built
-            # (one O(E) construction up front) instead of rescanning the
-            # entire edge list per bridge node. The previous loop was
-            # O(|bridges| * |edges|), which on a 10K-edge / 500-bridge graph
-            # meant 5M iterations every Insight phase.
+            # Build the per-bridge community count without a full adjacency
+            # dict: scan the cross-community edges once, group by endpoint,
+            # and tally distinct neighbour-community counts via dict-of-sets
+            # only for the bridge endpoints. ~10-50x cheaper than walking
+            # the full Python adjacency for every bridge node.
+            t0 = time.perf_counter()
+            bridge_set = set(bridge_nodes)
+            bridge_neighbors_comm: Dict[int, set] = defaultdict(set)
+            cross_idx = np.flatnonzero(cross)
+            for idx in cross_idx:
+                s = int(src_arr[idx]); d = int(dst_arr[idx])
+                sc = int(src_comm[idx]); dc = int(dst_comm[idx])
+                if s in bridge_set:
+                    bridge_neighbors_comm[s].add(dc)
+                if d in bridge_set:
+                    bridge_neighbors_comm[d].add(sc)
+
             for bnode in bridge_nodes:
-                bridging_communities = set()
-                for neighbor, _w in adj.get(bnode, ()):
-                    bridging_communities.add(node_to_comm.get(neighbor, -1))
-                bridging_communities.discard(-1)
+                bcs = bridge_neighbors_comm.get(bnode)
+                if bcs is None or len(bcs) < 2:
+                    continue
+                content = (
+                    f"Bridge connecting {len(bcs)} communities, "
+                    f"memory #{bnode}"
+                )
+                insight_rows.append(
+                    (session_id, "bridge", int(bnode), content, 0.8)
+                )
+                stats["insights"] += 1
+            t_bridge_scan = time.perf_counter() - t0
 
-                if len(bridging_communities) >= 2:
-                    content = (
-                        f"Bridge connecting {len(bridging_communities)} communities, "
-                        f"memory #{bnode}"
-                    )
-                    self._backend.add_insight(session_id, "bridge", bnode, content, 0.8)
-                    stats["insights"] += 1
+            # ── One commit for every dream_insights row of this cycle ───
+            t0 = time.perf_counter()
+            if insight_rows:
+                if hasattr(self._backend, "add_insights_batch"):
+                    self._backend.add_insights_batch(insight_rows)
+                else:
+                    for sid, ity, src, content, conf in insight_rows:
+                        self._backend.add_insight(sid, ity, src, content, conf)
+            t_flush = time.perf_counter() - t0
+
+            logger.info(
+                "Insight cycle: communities=%d bridges=%d insights=%d derived=%d "
+                "[load=%.2fs adj=%.2fs louvain=%.2fs xcomm=%.2fs clusters=%.2fs "
+                "bridge_scan=%.2fs flush=%.2fs total=%.2fs]",
+                stats["communities"], stats["bridges"], stats["insights"],
+                stats["derived_facts"],
+                t_load, t_adj, t_louvain, t_bridges, t_clusters,
+                t_bridge_scan, t_flush,
+                time.perf_counter() - t_phase,
+            )
 
         except Exception as e:
-            logger.debug("Insight phase error: %s", e)
+            logger.debug("Insight phase error: %s", e, exc_info=True)
         finally:
             try:
                 self._backend.finish_session(session_id, stats)
@@ -1469,17 +1653,42 @@ class DreamEngine:
 
     def _detect_communities(self, edges: List[Dict[str, Any]], nodes: set,
                             adj: Dict[int, List[Tuple[int, float]]]) -> List[List[int]]:
-        """Louvain community detection with deterministic BFS fallback.
+        """Louvain community detection with three-tier fallback.
 
-        At scale (>~100k edges) NetworkX's pure-Python Louvain takes
-        minutes per cycle and starves the dream loop, leaving Insight
-        sessions hanging with finished_at=NULL while the next NREM/REM
-        already wants the lock. The BFS fallback below is O(V+E) and
-        finishes in ~1s for a 1M-edge graph, so we shortcut to it once
-        the graph crosses the threshold. Communities returned are
-        connected components rather than modularity-optimal — coarser,
-        but actionable for cluster/bridge insight emission.
+        Tier 1: C++ libmazemaker.so Louvain (cpp_bridge.detect_communities).
+                Sub-second on 1M-edge graphs, modularity-optimal partition,
+                C++26 implementation — preferred path on every cycle.
+        Tier 2: NetworkX pure-Python Louvain. Used when the C++ shared lib
+                isn't built or fails to load. Reasonable for <100k edges,
+                stretches into minutes above that.
+        Tier 3: BFS connected components (O(V+E)). Last-resort coarse
+                partition that always finishes in ~1s.
         """
+        # ── Tier 1: C++ Louvain ────────────────────────────────────────
+        try:
+            from cpp_bridge import detect_communities as _cpp_louvain
+        except Exception:
+            _cpp_louvain = None
+        if _cpp_louvain is not None:
+            try:
+                cpp_edges = (
+                    (e["source_id"], e["target_id"], float(e.get("weight", 0.0) or 0.0))
+                    for e in edges
+                )
+                res = _cpp_louvain(cpp_edges, seed=42)
+                logger.debug(
+                    "C++ Louvain: %d edges → %d communities, Q=%.4f, %d iters, %.1f ms",
+                    len(edges), len(res["communities"]), res["modularity"],
+                    res["iterations"], res["elapsed_ms"],
+                )
+                if res["communities"]:
+                    out = [sorted(int(n) for n in c) for c in res["communities"]]
+                    out.sort(key=lambda c: (-len(c), c[0]))
+                    return out
+            except Exception as exc:
+                logger.debug("C++ Louvain failed (%s); falling back to NetworkX/BFS", exc)
+
+        # ── Tier 2: NetworkX Louvain (capped at 100k edges) ─────────────
         LOUVAIN_EDGE_LIMIT = 100_000
         if HAS_NETWORKX and len(edges) <= LOUVAIN_EDGE_LIMIT:
             try:
@@ -1500,6 +1709,16 @@ class DreamEngine:
         # is O(N) — the latter turns this BFS into O(V*E) on dense graphs
         # and was making Insight phase stretch into the minutes once the
         # graph crossed the LOUVAIN_EDGE_LIMIT threshold.
+        # _phase_insights now passes adj=None and builds it lazily here so
+        # the hot path (C++ Louvain) avoids the full O(E) Python adjacency
+        # build entirely; only the cold-fallback BFS pays the cost.
+        if adj is None:
+            adj = defaultdict(list)
+            for e in edges:
+                s, t = e["source_id"], e["target_id"]
+                w = float(e.get("weight", 0.0) or 0.0)
+                adj[s].append((t, w))
+                adj[t].append((s, w))
         from collections import deque
         visited = set()
         communities: List[List[int]] = []
@@ -1562,13 +1781,22 @@ class DreamEngine:
                 pass
 
         # No exact duplicate found: create one.
+        #
+        # detect_conflicts=False is deliberate: derived:cluster content has
+        # a stable templated form ("Cluster of N related memories: theme")
+        # that won't semantically collide with real memories, and the
+        # exact-content reuse above already absorbs duplicates from prior
+        # cycles. Conflict detection runs a full semantic recall against
+        # the 193k-corpus per derived memory — that was ~500 ms per cluster
+        # and dominated the Insight phase (cluster step at 138 s for 269
+        # communities).
         if derived_id is None:
             try:
                 created = self._memory.remember(
                     content,
                     label="derived:cluster",
                     auto_connect=False,
-                    detect_conflicts=True,
+                    detect_conflicts=False,
                 )
                 if isinstance(created, list):
                     created = created[0]
@@ -1577,6 +1805,14 @@ class DreamEngine:
                 return None
 
         # Ensure derived_from links to source memories exist.
+        #
+        # Cap members per cluster: a single Louvain community can hold tens
+        # of thousands of memories on a well-connected corpus, and writing
+        # 20k+ derived_from edges per cycle drowns the SQLite writer for
+        # minutes (each add_connection used to commit on its own — fsync
+        # per row). The cap keeps the link skeleton useful for navigation
+        # without turning Insight into a write-storm.
+        DERIVED_LINK_CAP = 200
         try:
             if store is None:
                 store = getattr(self._memory, "store", None)
@@ -1584,10 +1820,19 @@ class DreamEngine:
                     store = self._memory._sqlite_memory.store
             if store is not None:
                 link_weight = max(0.35, min(0.95, confidence))
-                for source_id in comm:
-                    sid = int(source_id)
-                    if sid != int(derived_id):
-                        store.add_connection(int(derived_id), sid, link_weight, edge_type="derived_from")
+                d_id = int(derived_id)
+                members = comm[:DERIVED_LINK_CAP]
+                pairs = [
+                    (d_id, int(sid), link_weight)
+                    for sid in members
+                    if int(sid) != d_id
+                ]
+                if pairs and hasattr(store, "add_connections_batch"):
+                    store.add_connections_batch(pairs, edge_type="derived_from")
+                else:
+                    # Fallback for backends without batch support.
+                    for d, s, w in pairs:
+                        store.add_connection(d, s, w, edge_type="derived_from")
         except Exception:
             pass
 
@@ -1595,44 +1840,174 @@ class DreamEngine:
 
     # -- Helpers -------------------------------------------------------------
 
-    def _extract_theme(self, node_ids: List[int]) -> str:
-        """Extract common themes from node IDs (simple keyword frequency)."""
-        # If we have memory access, get contents via store (thread-safe)
-        contents = []
-        if self._memory and hasattr(self._memory, 'store'):
-            try:
-                placeholders = ",".join("?" * len(node_ids))
-                with self._memory.store._lock:
-                    rows = self._memory.store.conn.execute(
-                        f"SELECT content FROM memories WHERE id IN ({placeholders})",
-                        tuple(node_ids)
-                    ).fetchall()
-                    contents = [r[0] for r in rows if r[0]]
-            except Exception:
-                pass
+    def _prune_old_derived_clusters(self, keep_seconds: int = 24 * 3600) -> int:
+        """Delete derived:cluster memories older than keep_seconds.
 
-        if not contents:
+        Insight emits these as cycle-output cluster summaries; they're
+        not curated knowledge. Without a TTL the synthetic-cluster table
+        grows ~17 k rows per hour because centroid-driven content
+        differs between cycles and exact-content dedup misses. The
+        derived_from edges to source members are also dropped (cascade
+        through prune_orphans on the next NREM pass), so the cluster
+        skeleton rebuilds from scratch each day from current data —
+        which is the whole point of cycling.
+        """
+        store = getattr(self._memory, "store", None) if self._memory else None
+        if store is None and self._memory is not None and hasattr(self._memory, "_sqlite_memory"):
+            store = getattr(self._memory._sqlite_memory, "store", None)
+        if store is None:
+            return 0
+        cutoff = time.time() - keep_seconds
+        try:
+            with store._lock:
+                cur = store.conn.execute(
+                    "DELETE FROM memories "
+                    "WHERE label = 'derived:cluster' AND created_at < ?",
+                    (cutoff,),
+                )
+                n = int(cur.rowcount or 0)
+                store.conn.commit()
+                return n
+        except Exception as exc:
+            logger.debug("derived:cluster prune failed: %s", exc)
+            return 0
+
+    def _extract_theme(self, node_ids: List[int]) -> str:
+        """Pick a representative excerpt from the cluster's most-central member.
+
+        Replaces the old keyword-frequency soup (which produced unreadable
+        word lists like "trailer, status, v13, scenes, audit") with
+        content-aware selection:
+
+        1. Sample up to 256 members. Cluster cohesion plateaus quickly;
+           running on a 20 000-member community would burn compute since
+           the central tendency converges within ~100 docs.
+        2. Fetch contents + embeddings via store.get_many. Compute the
+           cluster centroid (mean of L2-normalised embeddings), then the
+           cosine similarity of every sampled member to the centroid.
+           argmax = the most central member.
+        3. Strip template lead-ins (session/role/turn headers + the
+           `=== USER ===` / `=== ASSISTANT ===` conversation markers,
+           skipping the user-question section because that's the echo
+           noise we just filtered out of recall). Return the first ~240
+           chars of the surviving signal.
+
+        The derived:cluster memory's embedding now reflects the semantic
+        mass of the cluster, so a recall query like "trailer status"
+        matches the cluster memory directly — replacing the role that the
+        now-filtered `auto:turn:*` echoes used to play.
+        """
+        THEME_SAMPLE = 256
+        sample_ids = node_ids if len(node_ids) <= THEME_SAMPLE else node_ids[:THEME_SAMPLE]
+
+        # Resolve the underlying SQLiteStore. The daemon passes a Memory
+        # wrapper (mazemaker.py), the in-pod plugin passes a Mazemaker
+        # engine directly (memory_client.py). Same dual-shape resolution
+        # pattern that _write_derived_cluster_memory already uses.
+        store = getattr(self._memory, "store", None) if self._memory else None
+        if store is None and self._memory is not None and hasattr(self._memory, "_sqlite_memory"):
+            store = getattr(self._memory._sqlite_memory, "store", None)
+        if store is None:
             return f"{len(node_ids)} memories"
 
-        word_freq: Dict[str, int] = defaultdict(int)
-        stopwords = {
-            "the", "a", "an", "is", "was", "are", "were", "be", "been",
-            "have", "has", "had", "do", "does", "did", "will", "would",
-            "could", "should", "may", "might", "can", "shall", "to", "of",
-            "in", "for", "on", "with", "at", "by", "from", "as", "into",
-            "it", "its", "this", "that", "user", "assistant", "and", "or",
-            "but", "not", "if", "then", "so", "just", "also", "very",
-            "really", "like", "get", "got", "want", "need", "think",
-            "know", "see", "look", "make", "let", "use", "still",
-        }
-        for c in contents:
-            for w in c.lower().split():
-                w = w.strip(".,!?;:'\"()[]{}#@")
-                if len(w) > 3 and w not in stopwords:
-                    word_freq[w] += 1
+        try:
+            mems = store.get_many(sample_ids, include_embedding=True)
+        except Exception:
+            mems = {}
 
-        top = sorted(word_freq.items(), key=lambda x: -x[1])[:5]
-        return ", ".join(w for w, _ in top) if top else "mixed topics"
+        # Reject labels that are pure user-question echoes — they have no
+        # answer content (just "whats the status of the trailer?" etc.)
+        # and otherwise dominate the centroid for clusters that formed
+        # around repeated questions. Also reject other derived:cluster
+        # memories so we don't recurse on prior cycles' synthetic outputs;
+        # we want the original signal at the leaves of the graph.
+        def _is_signal_candidate(m: dict) -> bool:
+            if not (m.get("content") and m.get("embedding")):
+                return False
+            label = m.get("label") or ""
+            if label.endswith(":u"):
+                return False
+            if label == "derived:cluster":
+                return False
+            return True
+        candidates = [m for m in mems.values() if _is_signal_candidate(m)]
+        # If everything got filtered (e.g. cluster is purely echoes +
+        # prior derived clusters), fall back to the unfiltered pool so
+        # we still produce a non-trivial theme rather than the count.
+        if not candidates:
+            candidates = [m for m in mems.values() if m.get("content") and m.get("embedding")]
+        if not candidates:
+            return f"{len(node_ids)} memories"
+
+        # Centroid pick. Falls back to first candidate on numerical edge
+        # cases (zero-norm centroid means embeddings cancelled — should
+        # never happen with non-trivial clusters but guard anyway).
+        best_idx = 0
+        try:
+            import numpy as np
+            embeds = np.asarray(
+                [m["embedding"] for m in candidates], dtype=np.float32
+            )
+            norms = np.linalg.norm(embeds, axis=1, keepdims=True)
+            norms = np.where(norms < 1e-9, 1.0, norms)
+            embeds_n = embeds / norms
+            centroid = embeds_n.mean(axis=0)
+            c_norm = float(np.linalg.norm(centroid))
+            if c_norm >= 1e-9:
+                sims = embeds_n @ (centroid / c_norm)
+                best_idx = int(np.argmax(sims))
+        except Exception:
+            pass
+
+        raw = candidates[best_idx].get("content") or ""
+        excerpt = self._strip_template_leadins(raw)
+        if not excerpt:
+            return f"{len(node_ids)} memories"
+
+        LIMIT = 240
+        if len(excerpt) > LIMIT:
+            excerpt = excerpt[:LIMIT].rsplit(" ", 1)[0] + "…"
+        return excerpt
+
+    def _strip_template_leadins(self, content: str) -> str:
+        """Remove session/turn framing from auto-saved conversation content.
+
+        Auto-saved memories begin with template headers
+        (``session:...``, ``role: user``, ``turn: 4``, ``paragraph: 1/2``)
+        and conversation markers (``=== USER ===``, ``=== ASSISTANT ===``).
+        Those are noise for theme extraction. We drop them, and when both
+        sides of a conversation are present we keep only the assistant
+        side — the user side is the question, which is the same kind of
+        echo we filter out of recall.
+        """
+        if not isinstance(content, str):
+            return ""
+        skip_prefixes = (
+            "session:", "role:", "turn:", "parent_id:",
+            "parent_label:", "paragraph:",
+        )
+        out_lines: List[str] = []
+        suppressing_user_section = False
+        budget = 600
+        for line in content.split("\n"):
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith(skip_prefixes):
+                continue
+            if s == "=== USER ===":
+                suppressing_user_section = True
+                continue
+            if s == "=== ASSISTANT ===" or s == "=== SYSTEM ===":
+                suppressing_user_section = False
+                continue
+            if suppressing_user_section:
+                continue
+            out_lines.append(s)
+            budget -= len(s) + 1
+            if budget <= 0:
+                break
+        return " ".join(out_lines).strip()
 
     def get_stats(self) -> Dict[str, Any]:
         """Get dream engine statistics."""

@@ -1007,56 +1007,83 @@ class Mazemaker:
                 logging.getLogger(__name__).warning("C++ bridge unavailable, falling back to Python: %s", e)
                 self._cpp = None
 
-        # GPU recall engine — loud logging on every step so silent CPU
-        # fallbacks become visible. Per "GPU > CPU IMMER" policy:
-        #   1. cache present → load
-        #   2. cache absent → auto-build, retry load
-        #   3. anything fails → log loudly so it never silently degrades
+        # GPU recall engine — three-tier resolution:
+        #   (1) REMOTE: client-only mode (EMBED_CLIENT_ONLY=1) AND the shared
+        #       embed-server has a recall engine attached. Saves ~3 GB VRAM
+        #       per client pod by routing recall through the same UNIX socket
+        #       as embed. The single canonical GpuRecallEngine lives on the
+        #       host (dream_worker) and serves all pods.
+        #   (2) LOCAL: cache present at ~/.mazemaker/engine/gpu_cache → load
+        #   (3) AUTO-BUILD: cache absent → build from db, then load
+        # Anything that fails logs loudly so silent CPU fallbacks are visible.
         self._gpu = None
-        # Arm GPU recall whenever a db_path is given. Previously this was
-        # gated to the home-default path, which broke the customer-pod case
-        # where the engine runs in a container with db_path=/data/memory.db.
-        # Cache load fails gracefully if the cache files aren't present.
         if db_path:
             import logging
             _glog = logging.getLogger(__name__)
-            try:
-                from gpu_recall import GpuRecallEngine
-                eng = GpuRecallEngine()
-                if eng.load(embed_fn=self.embedder.embed, embed_batch_fn=getattr(self.embedder, "embed_batch", None)):
-                    self._gpu = eng
-                    _glog.info(
-                        "GPU recall ARMED: %d vectors on %s",
-                        eng._emb_tensor.shape[0] if eng._emb_tensor is not None else 0,
-                        eng._device,
-                    )
-                else:
-                    _glog.warning("GPU recall cache absent — auto-building from %s", db_path)
-                    try:
-                        from build_gpu_cache import build  # type: ignore[import]
-                        from pathlib import Path as _P
-                        build(_P(db_path), _P.home() / ".mazemaker" / "engine" / "gpu_cache")
-                        if eng.load(embed_fn=self.embedder.embed, embed_batch_fn=getattr(self.embedder, "embed_batch", None)):
-                            self._gpu = eng
+
+            # Tier 1: remote recall via shared embed socket
+            tried_remote = False
+            if os.environ.get("EMBED_CLIENT_ONLY"):
+                try:
+                    backend = getattr(self.embedder, "backend", None)
+                    sclient = getattr(backend, "_shared_client", None) or getattr(backend, "_client", None)
+                    if sclient is not None and hasattr(sclient, "recall_status"):
+                        from embed_provider import RemoteGpuRecallClient
+                        remote = RemoteGpuRecallClient(sclient)
+                        tried_remote = True
+                        if remote.probe():
+                            self._gpu = remote
                             _glog.info(
-                                "GPU recall ARMED post-build: %d vectors",
-                                eng._emb_tensor.shape[0] if eng._emb_tensor is not None else 0,
+                                "GPU recall ARMED (remote, via shared embed socket): %d vectors on canonical server",
+                                remote._n,
                             )
-                        else:
-                            _glog.warning(
-                                "GPU recall not loaded after build (db likely empty on fresh install) — recall will run on CPU/numpy until first remember()"
-                            )
-                    except BaseException as exc_b:
-                        # BaseException catches SystemExit too — older
-                        # build_gpu_cache.py raised it on empty-db, which
-                        # killed engine startup on fresh customer pods.
-                        _glog.warning(
-                            "GPU recall auto-build skipped (recall will run on CPU/numpy): %s",
-                            exc_b,
+                except Exception as exc_r:
+                    _glog.warning("GPU recall remote-init failed (will try local): %s", exc_r)
+
+            # Tier 2/3: local engine — only if remote didn't take. In strict
+            # client-only mode, refuse to load a local engine even on remote
+            # failure: the operator's contract is "one canonical engine, no
+            # redundant pod copies".
+            if self._gpu is None and not tried_remote:
+                try:
+                    from gpu_recall import GpuRecallEngine
+                    eng = GpuRecallEngine()
+                    if eng.load(embed_fn=self.embedder.embed, embed_batch_fn=getattr(self.embedder, "embed_batch", None)):
+                        self._gpu = eng
+                        _glog.info(
+                            "GPU recall ARMED: %d vectors on %s",
+                            eng._emb_tensor.shape[0] if eng._emb_tensor is not None else 0,
+                            eng._device,
                         )
-            except BaseException as exc:
+                    else:
+                        _glog.warning("GPU recall cache absent — auto-building from %s", db_path)
+                        try:
+                            from build_gpu_cache import build  # type: ignore[import]
+                            from pathlib import Path as _P
+                            build(_P(db_path), _P.home() / ".mazemaker" / "engine" / "gpu_cache")
+                            if eng.load(embed_fn=self.embedder.embed, embed_batch_fn=getattr(self.embedder, "embed_batch", None)):
+                                self._gpu = eng
+                                _glog.info(
+                                    "GPU recall ARMED post-build: %d vectors",
+                                    eng._emb_tensor.shape[0] if eng._emb_tensor is not None else 0,
+                                )
+                            else:
+                                _glog.warning(
+                                    "GPU recall not loaded after build (db likely empty on fresh install) — recall will run on CPU/numpy until first remember()"
+                                )
+                        except BaseException as exc_b:
+                            _glog.warning(
+                                "GPU recall auto-build skipped (recall will run on CPU/numpy): %s",
+                                exc_b,
+                            )
+                except BaseException as exc:
+                    _glog.warning(
+                        "GPU recall init skipped (recall will run on CPU/numpy): %s", exc
+                    )
+            elif self._gpu is None and tried_remote:
                 _glog.warning(
-                    "GPU recall init skipped (recall will run on CPU/numpy): %s", exc
+                    "GPU recall remote unavailable + EMBED_CLIENT_ONLY=1 — recall on CPU/numpy. "
+                    "Refusing to ARM a redundant local engine (operator policy: one canonical engine)."
                 )
 
         self._graph_nodes: dict[int, dict] = {}

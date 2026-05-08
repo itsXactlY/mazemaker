@@ -123,6 +123,40 @@ def main():
         logger.info("Memory loaded — GPU is used automatically when CUDA is present "
                     "(sentence-transformers / GpuRecallEngine)")
 
+        # Expose the GpuRecallEngine on the shared embed-server socket so
+        # that client pods (mcp container, etc.) can route recall through
+        # the same UNIX socket they already use for embedding — no per-pod
+        # GpuRecallEngine ARM, no redundant 192k-corpus copy on GPU.
+        # Best-effort: if any layer is missing (no shared server, no engine
+        # loaded, etc.) the attach is silently skipped and clients fall back
+        # to their local engine (the prior architecture).
+        try:
+            inner = getattr(memory, "_sqlite_memory", None) or memory
+            backend = getattr(getattr(inner, "embedder", None), "backend", None)
+            shared_server = getattr(backend, "_shared_server", None)
+            engine = getattr(inner, "_gpu", None)
+            if shared_server is not None and engine is not None:
+                shared_server.attach_recall_engine(engine)
+                logger.info(
+                    "Recall engine attached to shared embed-server — client pods "
+                    "can now route recall via UNIX socket (one canonical engine, "
+                    "no redundant ARM)."
+                )
+            elif shared_server is None:
+                logger.info(
+                    "No shared embed-server in this process — recall stays local. "
+                    "(dream_worker isn't acting as the canonical server; another "
+                    "process already owns the embed socket.)"
+                )
+            elif engine is None:
+                logger.warning(
+                    "Shared embed-server up but local GpuRecallEngine not loaded — "
+                    "client pods will see recall_status=available:false and fall "
+                    "back to their own ARM."
+                )
+        except Exception as exc:
+            logger.warning("Recall-engine socket attach failed (non-fatal): %s", exc)
+
     backend = SQLiteDreamBackend(db_path)
     engine = DreamEngine(
         backend,

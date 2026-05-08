@@ -51,15 +51,34 @@ DIMENSION = 1024  # BAAI/bge-m3 output dim
 # ============================================================================
 
 class SharedEmbedServer:
-    """UNIX socket server that holds the embedding model.
-    
+    """UNIX socket server that holds the embedding model AND optionally the
+    GpuRecallEngine — one process owns the heavy GPU state, all other pods
+    attach as thin clients.
+
     Protocol: length-prefixed JSON over UNIX socket.
-    Request:  {"cmd": "embed", "text": "..."} or {"cmd": "embed_batch", "texts": [...]}
-    Response: {"ok": true, "vec": [...]} or {"ok": true, "vecs": [[...], ...]}
-    Error:    {"ok": false, "error": "..."}
+
+    Embedding cmds (always available):
+      {"cmd": "embed", "text": "..."}
+      {"cmd": "embed_batch", "texts": [...]}
+      {"cmd": "ping"}
+      {"cmd": "status"}
+      {"cmd": "eject"}
+
+    Recall cmds (available when a GpuRecallEngine is attached via
+    `attach_recall_engine`):
+      {"cmd": "recall", "query": "...", "k": 5}
+        → {"ok": true, "results": [{id, label, content, similarity}, ...]}
+      {"cmd": "recall_batch", "queries": [...], "k": 5}
+        → {"ok": true, "batches": [[...], ...]}
+      {"cmd": "recall_add", "id": int, "label": str, "content": str, "embedding": [...]}
+        → {"ok": true}   # pushes a new memory into the engine
+      {"cmd": "recall_status"}
+        → {"ok": true, "available": bool, "n_vectors": int}
+
+    Error shape (any cmd): {"ok": false, "error": "..."}
     """
-    
-    def __init__(self, model_name=None, device=None, idle_timeout=20):
+
+    def __init__(self, model_name=None, device=None, idle_timeout=20, recall_engine=None):
         self.model_name = model_name or os.environ.get('EMBED_MODEL', 'BAAI/bge-m3')
         self.idle_timeout = idle_timeout
         self.model = None
@@ -70,6 +89,19 @@ class SharedEmbedServer:
         self._lock = threading.Lock()
         self._running = False
         self._sock = None
+        # Optional GpuRecallEngine — when attached, this server also serves
+        # cosine-recall queries over the same socket so client pods don't
+        # need to ARM their own copy of the 192k corpus on GPU.
+        self._recall_engine = recall_engine
+
+    def attach_recall_engine(self, recall_engine) -> None:
+        """Attach a loaded GpuRecallEngine. Once attached, the server will
+        respond to `recall` / `recall_batch` / `recall_add` / `recall_status`
+        commands using it. Without this, clients see {"ok": false,
+        "error": "no recall_engine attached"} for those cmds and fall back
+        to whatever local strategy they have.
+        """
+        self._recall_engine = recall_engine
     
     def start(self):
         """Load model and start listening. Returns True if started, False if already running."""
@@ -231,35 +263,71 @@ class SharedEmbedServer:
     def _process(self, req):
         cmd = req.get("cmd")
         self._last_used = time.time()
-        # Only reload GPU for actual embedding work, not status/ping/eject
+
+        # Embedding cmds touch self.model — they must serialise on the
+        # model lock so two encode calls don't trample each other on GPU.
+        # Recall cmds do NOT take this lock: GpuRecallEngine.recall()
+        # internally calls back through SharedEmbedClient → server →
+        # embed cmd, which would reacquire this same lock from a different
+        # thread. Holding it here would deadlock the recall path against
+        # itself. Recall has its own internal sync via the engine.
         if cmd in ("embed", "embed_batch"):
             self._ensure_on_device()
-        
-        with self._lock:
-            try:
-                if cmd == "embed":
-                    vec = self.model.encode(req["text"], normalize_embeddings=True)
-                    return {"ok": True, "vec": vec.tolist()}
-                elif cmd == "embed_batch":
-                    vecs = self.model.encode(req["texts"], normalize_embeddings=True, show_progress_bar=False)
-                    return {"ok": True, "vecs": [v.tolist() for v in vecs]}
-                elif cmd == "status":
-                    device = next(self.model.parameters()).device
-                    return {
-                        "ok": True, "model": self.model_name, "dim": self.dim,
-                        "device": str(device), "original": self._original_device,
-                        "idle": round(time.time() - self._last_used, 1),
-                        "timeout": self.idle_timeout,
-                    }
-                elif cmd == "ping":
-                    return {"ok": True, "dim": self.dim}
-                elif cmd == "eject":
-                    self._eject_to_cpu()
-                    return {"ok": True}
-                else:
-                    return {"ok": False, "error": f"unknown cmd: {cmd}"}
-            except Exception as e:
-                return {"ok": False, "error": str(e)}
+            with self._lock:
+                try:
+                    if cmd == "embed":
+                        vec = self.model.encode(req["text"], normalize_embeddings=True)
+                        return {"ok": True, "vec": vec.tolist()}
+                    else:  # embed_batch
+                        vecs = self.model.encode(req["texts"], normalize_embeddings=True, show_progress_bar=False)
+                        return {"ok": True, "vecs": [v.tolist() for v in vecs]}
+                except Exception as e:
+                    return {"ok": False, "error": str(e)}
+
+        # Lock-free cmds (no model access OR access through engine which
+        # has its own locking via the GPU operations).
+        try:
+            if cmd == "status":
+                device = next(self.model.parameters()).device
+                return {
+                    "ok": True, "model": self.model_name, "dim": self.dim,
+                    "device": str(device), "original": self._original_device,
+                    "idle": round(time.time() - self._last_used, 1),
+                    "timeout": self.idle_timeout,
+                }
+            elif cmd == "ping":
+                return {"ok": True, "dim": self.dim}
+            elif cmd == "eject":
+                self._eject_to_cpu()
+                return {"ok": True}
+            elif cmd == "recall":
+                if not self._recall_engine:
+                    return {"ok": False, "error": "no recall_engine attached"}
+                results = self._recall_engine.recall(req["query"], k=int(req.get("k", 5)))
+                return {"ok": True, "results": results}
+            elif cmd == "recall_batch":
+                if not self._recall_engine:
+                    return {"ok": False, "error": "no recall_engine attached"}
+                batches = self._recall_engine.recall_batch(list(req.get("queries") or []), k=int(req.get("k", 5)))
+                return {"ok": True, "batches": batches}
+            elif cmd == "recall_add":
+                if not self._recall_engine:
+                    return {"ok": False, "error": "no recall_engine attached"}
+                self._recall_engine.add_one(
+                    int(req["id"]),
+                    str(req.get("label") or ""),
+                    str(req.get("content") or ""),
+                    req["embedding"],
+                )
+                return {"ok": True}
+            elif cmd == "recall_status":
+                available = bool(self._recall_engine and getattr(self._recall_engine, "_loaded", False))
+                n = len(getattr(self._recall_engine, "_ids", [])) if self._recall_engine else 0
+                return {"ok": True, "available": available, "n_vectors": n}
+            else:
+                return {"ok": False, "error": f"unknown cmd: {cmd}"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
     
     def _ensure_on_device(self, timeout: float = 60.0, poll_interval: float = 2.0):
         """Ensure model is on GPU, waiting if necessary. Raises on failure.
@@ -454,10 +522,105 @@ class SharedEmbedClient:
                 return resp["vecs"]
             except Exception:
                 raise RuntimeError("SharedEmbedClient: embed_batch failed after reconnect")
-    
+
+    # ---- Remote recall over the shared socket ----------------------------
+    # When the server has a GpuRecallEngine attached (dream_worker on the
+    # host owns the canonical engine), client pods should NOT load their
+    # own copy of the 192k-corpus on GPU. They route recall through the
+    # same socket as embed. Saves ~3 GB VRAM per client pod.
+
+    def recall_status(self):
+        """Returns (available: bool, n_vectors: int). Cheap probe."""
+        try:
+            resp = self._send({"cmd": "recall_status"})
+            return bool(resp.get("available", False)), int(resp.get("n_vectors", 0))
+        except Exception:
+            return False, 0
+
+    def recall(self, query, k=5):
+        try:
+            resp = self._send({"cmd": "recall", "query": query, "k": int(k)})
+            return resp.get("results", [])
+        except (socket.timeout, socket.error, OSError):
+            try:
+                self._reconnect()
+                resp = self._send({"cmd": "recall", "query": query, "k": int(k)})
+                return resp.get("results", [])
+            except Exception:
+                return []
+        except RuntimeError:
+            return []
+
+    def recall_batch(self, queries, k=5):
+        try:
+            resp = self._send({"cmd": "recall_batch", "queries": list(queries), "k": int(k)})
+            return resp.get("batches", [[] for _ in queries])
+        except (socket.timeout, socket.error, OSError):
+            try:
+                self._reconnect()
+                resp = self._send({"cmd": "recall_batch", "queries": list(queries), "k": int(k)})
+                return resp.get("batches", [[] for _ in queries])
+            except Exception:
+                return [[] for _ in queries]
+        except RuntimeError:
+            return [[] for _ in queries]
+
+    def recall_add(self, mem_id, label, content, embedding):
+        try:
+            resp = self._send({
+                "cmd": "recall_add",
+                "id": int(mem_id),
+                "label": label or "",
+                "content": content or "",
+                "embedding": list(embedding) if not isinstance(embedding, list) else embedding,
+            })
+            return bool(resp.get("ok"))
+        except Exception:
+            return False
+
     def close(self):
         if self._sock:
             self._sock.close()
+
+
+# ============================================================================
+# Remote GpuRecallEngine — facade that talks over the shared embed socket
+# ============================================================================
+class RemoteGpuRecallClient:
+    """Drop-in replacement for GpuRecallEngine that routes all calls through
+    a SharedEmbedClient. Client pods (mcp container) use this instead of the
+    local engine when EMBED_CLIENT_ONLY=1 is set AND the server reports a
+    recall engine attached. The single canonical GpuRecallEngine then lives
+    in the dream_worker host process, owning ~2-3 GB of GPU corpus instead
+    of every pod loading its own copy.
+    """
+
+    def __init__(self, client):
+        self._client = client
+        self._loaded = False
+        self._n = 0
+        # Fake out the attributes Mazemaker introspects in error paths.
+        self._ids = []
+
+    def probe(self) -> bool:
+        """Check whether the server has a recall engine attached. Sets
+        `_loaded` and returns the result."""
+        ok, n = self._client.recall_status()
+        self._loaded = ok
+        self._n = n
+        return ok
+
+    def recall(self, query, k=5):
+        return self._client.recall(query, k=k)
+
+    def recall_batch(self, queries, k=5):
+        return self._client.recall_batch(queries, k=k)
+
+    def add_one(self, mem_id, label, content, embedding):
+        # Route the new memory into the canonical engine on the server.
+        # Failure here is non-fatal — the SQL row is the source of truth,
+        # the GPU tensor will be re-synced on the next dream cycle anyway.
+        self._client.recall_add(mem_id, label, content, embedding)
 
 
 # ============================================================================
@@ -534,7 +697,13 @@ class SentenceTransformerBackend:
                 idle_timeout=self.IDLE_TIMEOUT,
             )
             if server.start():
-                # We're the server — also connect as client for embed calls
+                # We're the server — keep the reference so dream_worker (or
+                # whoever owns the Memory in this process) can attach a
+                # GpuRecallEngine via `backend._shared_server.attach_recall_engine(...)`.
+                # Without this, the canonical recall engine has no way to
+                # land on the socket and client pods can't go thin.
+                self._shared_server = server
+                # Also connect as client for embed calls
                 try:
                     self._client = SharedEmbedClient()
                     self.dim = self._client.dim

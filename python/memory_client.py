@@ -935,6 +935,13 @@ class Mazemaker:
             "bm25": 0.9,
             "entity": 1.0,
             "temporal": 0.35,
+            # `recency`: weight 1.2 — slightly above semantic so freshly-saved
+            # status updates outrank dense-keyword old memories on "status of X"
+            # / "how is Y going" queries. NEVER zeroed (kept active in lean
+            # mode) because that's where the channel earns its weight: lean
+            # zeros plain `temporal`, leaving recency-aware retrieval to this
+            # channel alone. See _recent_semantic_candidates.
+            "recency": 1.2,
             "ppr": 0.55,
             "salience": 0.25,
         }
@@ -946,6 +953,8 @@ class Mazemaker:
         # "the recommended preset for both data types at meaningful sample
         # sizes." (v6 had flagged it as over-aggressive on real prose
         # using only n=50; the n=200 follow-up flipped that finding.)
+        # `recency` survives lean — the surface-trap for fresh memories is
+        # exactly what lean's loss of `temporal` would otherwise expose.
         if self._retrieval_mode == "lean":
             self._channel_weights.update({
                 "bm25": 0.0,
@@ -1638,11 +1647,74 @@ class Mazemaker:
         scored.sort(key=lambda x: -x["score"])
         return scored[:limit]
 
+    def _recent_semantic_candidates(self, query_vec: list[float], pool: int, limit: int) -> list[dict]:
+        """Top-N newest memories scored by query similarity.
+
+        Different intent from `search_temporal` (chronological grab regardless
+        of query) and from `_semantic_candidates` (corpus-wide, recency-blind).
+        This pulls the freshest `pool` memories then ranks them by cosine to
+        the query — the slice that operators almost always mean when they ask
+        about "current state", "status", or anything implying *now*.
+
+        Without this channel, status-style queries get drowned by months of
+        old memories that happen to mention the same topic with denser
+        keyword saturation. The 193k-corpus has many such old hits per topic;
+        a single fresh status memory from today loses the global rank race
+        even though it is what the operator wants.
+
+        Engine-internal synthesis (`derived:cluster` from the Insight phase)
+        is excluded at the SQL level: each Insight cycle emits up to ~50
+        cluster summaries every few minutes, which would otherwise dominate
+        the freshest-N pool and bury the actual user-and-assistant turns
+        (curated facts, ops memos, post-decision distillates) the operator
+        meant to retrieve. derived:cluster is searchable via the semantic
+        channel; recency is reserved for non-synthetic, recently-touched
+        signal.
+        """
+        if pool <= 0 or limit <= 0:
+            return []
+        rows = self.store.conn.execute(
+            "SELECT id, content, embedding FROM memories "
+            "WHERE embedding IS NOT NULL "
+            "  AND label NOT LIKE 'derived:cluster%' "
+            "ORDER BY created_at DESC LIMIT ?",
+            (int(pool),),
+        ).fetchall()
+        scored: list[dict] = []
+        for r in rows:
+            emb = r["embedding"]
+            if not emb:
+                continue
+            try:
+                # SQLite blob → numpy float32 array (matches store layout).
+                import numpy as np
+                vec = np.frombuffer(emb, dtype=np.float32).tolist()
+            except Exception:
+                continue
+            sim = self._cosine_similarity(query_vec, vec)
+            scored.append({
+                "id": int(r["id"]),
+                "score": float(sim),
+                "similarity": float(sim),
+                "channel": "recency",
+            })
+        scored.sort(key=lambda x: -x["score"])
+        return scored[:limit]
+
     def _parallel_retrieve(self, query: str, query_vec: list[float], limit: int, now: float) -> dict[str, list[dict]]:
         # Kept intentionally stdlib. SQLite reads are cheap and each lexical method
         # opens its own reader, so this can be parallelized later without API churn.
+        #
+        # `recency` channel: top-N newest memories ranked by query similarity.
+        # Distinct from `temporal` (chronological grab, query-blind) and
+        # `semantic` (corpus-wide, recency-blind). Survives `lean` mode
+        # (where temporal is zeroed) — operators asking "status of X" almost
+        # always mean the freshest matching memory, not the densest one.
+        # Pool size 200 ≈ last few hours of activity on the 193k corpus;
+        # fresh status updates win against six months of old keyword hits.
         return {
             "semantic": self._semantic_candidates(query, query_vec, limit),
+            "recency": self._recent_semantic_candidates(query_vec, pool=200, limit=limit),
             "bm25": self.store.search_bm25(query, limit),
             "entity": self.store.search_entity(query, limit),
             "temporal": self.store.search_temporal(query, limit, now),
@@ -1828,10 +1900,30 @@ class Mazemaker:
         # round-trips are spent only on results that will actually
         # be returned.
         if not include_echoes:
+            # User-question echoes carry the role marker `:u` — either as the
+            # last segment (`auto:hermes:<sid>:t<N>:u`) or before a paragraph
+            # suffix when the body got chunked (`...:t<N>:u:p<M>`). Match both
+            # by tokenising on `:` and checking for a bare `u` segment that
+            # is either the last token or directly precedes a `p<digits>`
+            # paragraph token. This is tighter than substring matching, which
+            # would false-positive on labels like `user:something`.
+            import re
+            _PARA_RE = re.compile(r"^p\d+$")
+            def _is_user_echo(label: str) -> bool:
+                parts = label.split(":")
+                for i, seg in enumerate(parts):
+                    if seg != "u":
+                        continue
+                    if i == len(parts) - 1:
+                        return True
+                    if i == len(parts) - 2 and _PARA_RE.match(parts[i + 1]):
+                        return True
+                return False
+
             fact_ids: list[int] = []
             for mid, mem in mems.items():
                 label = (mem.get("label") or "")
-                if label.endswith(":u"):
+                if _is_user_echo(label):
                     continue
                 fact_ids.append(mid)
             mems = {mid: mems[mid] for mid in fact_ids}

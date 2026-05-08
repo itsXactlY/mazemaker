@@ -593,6 +593,27 @@ The random slice is what breaks the surface trap. Defaults:
 (REM); both tunable via `DreamEngine` constructor args. Insight is
 unchanged — it already operates on the full edge graph.
 
+### GPU acceleration
+
+When CUDA is available, every CPU-bypassable hot path of the dream
+cycle moves to the GPU:
+
+- **NREM** — Personalized PageRank as sparse mat-vec multiplies on a
+  CUDA-resident adjacency tensor (cached across cycles, rebuilt every
+  Nth NREM). Top-k runs on GPU before transfer; only ~k ints cross
+  back per think call. Label/dict resolution skipped via a dedicated
+  `think_ids()` fast path.
+- **REM** — `recall_batch(queries, k)`: ONE `embed_batch` call for
+  all N queries, ONE batched matmul `(B, dim) × (dim, N_corpus).T`,
+  ONE topk along the batch axis. Bridge writes batched into a single
+  SQL transaction (~6000 commits/cycle → 1).
+
+End-to-end cycle time on a 193k-memory / ~1M-edge corpus, RTX-class
+CUDA, default knobs: **~38s** (NREM ~16s + REM ~12s + Insight ~2s
++ overhead). The pre-GPU baseline never finished a cycle on the same
+corpus within the idle window. CPU paths remain as fallbacks — non-CUDA
+installs see no behaviour change beyond raw speed.
+
 ---
 
 ## Migrating from another memory system

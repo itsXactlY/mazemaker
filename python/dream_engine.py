@@ -1921,13 +1921,35 @@ class DreamEngine:
         # around repeated questions. Also reject other derived:cluster
         # memories so we don't recurse on prior cycles' synthetic outputs;
         # we want the original signal at the leaves of the graph.
+        # Paragraph-aware user-echo filter — same logic as Mazemaker.recall,
+        # kept synced. User-question echoes carry a `:u` segment either as
+        # the last token (`auto:hermes:<sid>:t<N>:u`) or directly before a
+        # paragraph token when chunked (`...:t<N>:u:p<M>`). Also reject
+        # `:t` and `:t:p<M>` segments — those are tool-output dumps which
+        # are equally noisy when used as cluster representatives.
+        import re as _re
+        _PARA_RE = _re.compile(r"^p\d+$")
+
+        def _has_role_segment(label: str, role: str) -> bool:
+            parts = label.split(":")
+            for i, seg in enumerate(parts):
+                if seg != role:
+                    continue
+                if i == len(parts) - 1:
+                    return True
+                if i == len(parts) - 2 and _PARA_RE.match(parts[i + 1]):
+                    return True
+            return False
+
         def _is_signal_candidate(m: dict) -> bool:
             if not (m.get("content") and m.get("embedding")):
                 return False
             label = m.get("label") or ""
-            if label.endswith(":u"):
+            if _has_role_segment(label, "u"):
                 return False
-            if label == "derived:cluster":
+            if _has_role_segment(label, "t"):
+                return False
+            if label == "derived:cluster" or label.startswith("derived:cluster"):
                 return False
             return True
         candidates = [m for m in mems.values() if _is_signal_candidate(m)]

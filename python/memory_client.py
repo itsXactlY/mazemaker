@@ -179,6 +179,14 @@ class SQLiteStore:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA wal_autocheckpoint=100000")
+        # Wait up to 30s on a busy DB rather than failing fast.  When an
+        # external dream_worker is running concurrent NREM/REM batch
+        # transactions, every Mazemaker.__init__ from the mcp container
+        # hits _ensure_schema_extensions which writes — without this
+        # busy_timeout, a single overlapping write window throws
+        # "database is locked", which the architect dashboard renders
+        # as a generic Internal-error tile.
+        self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.executescript(SCHEMA)
         self._ensure_schema_extensions()
         self._fts_available = self._ensure_fts()
@@ -2318,6 +2326,21 @@ class Mazemaker:
         phase: 'nrem' | 'rem' | 'insight' | 'all' (default).
         Returns the per-phase stats dict.
         """
+        # See mazemaker.Memory.dream — same MM_DREAM_DISABLED guard so the
+        # MCP wrapper returns a structured "skipped" response instead of
+        # surfacing a 500 error to the architect dashboard.
+        import os
+        if os.getenv("MM_DREAM_DISABLED", "").lower() in ("1", "true", "yes"):
+            return {
+                "ok": True,
+                "phase": phase,
+                "status": "skipped",
+                "note": (
+                    "in-pod dream engine disabled — external dream_worker.py "
+                    "owns consolidation. Cycles still land in dream_sessions; "
+                    "watch mazemaker_dream_stats."
+                ),
+            }
         eng = self._get_dream_engine()
         phase = (phase or "all").strip().lower()
         if phase == "all":

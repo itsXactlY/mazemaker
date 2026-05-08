@@ -681,6 +681,23 @@ class Memory:
         phase: 'nrem' | 'rem' | 'insight' | 'all' (default).
         Returns the per-phase stats dict the engine logs.
         """
+        # When MM_DREAM_DISABLED is set, return a structured "skipped"
+        # response instead of raising — the architect dashboard's M02
+        # DREAM monitor renders raised exceptions as a generic
+        # "Internal error" tile, which buries the fact that the cycle
+        # is being driven by an external dream_worker.
+        import os
+        if os.getenv("MM_DREAM_DISABLED", "").lower() in ("1", "true", "yes"):
+            return {
+                "ok": True,
+                "phase": phase,
+                "status": "skipped",
+                "note": (
+                    "in-pod dream engine disabled — external dream_worker.py "
+                    "owns consolidation. Cycles still land in dream_sessions; "
+                    "watch mazemaker_dream_stats."
+                ),
+            }
         eng = self._get_dream_engine()
         phase = (phase or "all").strip().lower()
         if phase == "all":

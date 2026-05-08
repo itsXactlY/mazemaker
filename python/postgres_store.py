@@ -19,8 +19,11 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
+import time
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -494,6 +497,301 @@ class PostgresStore:
             cur.execute("SELECT COUNT(*) FROM connections")
             cc = cur.fetchone()[0]
             return {"memories": int(mc), "connections": int(cc)}
+
+    # -- Phase B parity methods --------------------------------------------
+    # Below are the methods callers expect from SQLiteStore but that
+    # PostgresStore lacked while it was a partial mirror. Now that
+    # PostgresStore is the primary on Pro/Enterprise tiers, every read/
+    # write path memory_client and dream_engine call must be available
+    # here too.
+
+    def get_many(self, ids: list[int], include_embedding: bool = False) -> dict[int, dict]:
+        """Batch fetch memories by id. Returns {id: dict}, missing ids omitted."""
+        ids_list = [int(i) for i in ids if i is not None]
+        if not ids_list:
+            return {}
+        out: dict[int, dict] = {}
+        if include_embedding:
+            sql = (
+                "SELECT id, label, content, embedding, vector_dim, salience, "
+                "created_at, last_accessed, access_count "
+                "FROM memories WHERE id = ANY(%s)"
+            )
+        else:
+            sql = (
+                "SELECT id, label, content, salience, "
+                "created_at, last_accessed, access_count "
+                "FROM memories WHERE id = ANY(%s)"
+            )
+        with self._cursor() as (_conn, cur):
+            for i in range(0, len(ids_list), 5000):
+                cur.execute(sql, (ids_list[i:i + 5000],))
+                for row in cur.fetchall():
+                    item = self._row_to_dict(row, with_embedding=include_embedding)
+                    out[item["id"]] = item
+        return out
+
+    def find_by_label(self, label: str) -> list[dict]:
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                "SELECT id, label, content, embedding, vector_dim, salience, "
+                "created_at, last_accessed, access_count "
+                "FROM memories WHERE label = %s ORDER BY id",
+                (label,),
+            )
+            return [self._row_to_dict(r, with_embedding=True) for r in cur.fetchall()]
+
+    def add_revision(self, memory_id: int, old_content: str, new_content: str,
+                     reason: str = "conflict_fusion") -> None:
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                "INSERT INTO memory_revisions (memory_id, old_content, new_content, reason) "
+                "VALUES (%s, %s, %s, %s)",
+                (int(memory_id), old_content, new_content, reason),
+            )
+
+    def update_memory(self, memory_id: int, content: str, embedding: list[float],
+                      label: Optional[str] = None) -> None:
+        """Rewrite content/embedding without bumping access_count or last_accessed.
+
+        Same invariant as SQLiteStore.update_memory: writes don't affect the
+        access timeline; that belongs to touch().
+        """
+        dim = len(embedding)
+        self._ensure_embedding_column(dim)
+        with self._cursor() as (_conn, cur):
+            if label is None:
+                cur.execute(
+                    "UPDATE memories SET content = %s, embedding = %s, "
+                    "vector_dim = %s WHERE id = %s",
+                    (content, embedding, dim, int(memory_id)),
+                )
+            else:
+                cur.execute(
+                    "UPDATE memories SET label = %s, content = %s, "
+                    "embedding = %s, vector_dim = %s WHERE id = %s",
+                    (label, content, embedding, dim, int(memory_id)),
+                )
+
+    def add_connections_batch(self, pairs, edge_type: str = "similar") -> int:
+        """Bulk-upsert undirected weighted edges in a single transaction.
+
+        ``pairs`` is an iterable of ``(source, target, weight)``. Self-loops
+        dropped, endpoints canonicalised to (min, max) order, weights clamped
+        to [0, 1]. ON CONFLICT keeps the larger weight (MERGE-with-max).
+
+        Returns the number of rows the batch UPSERT touched. With
+        ON CONFLICT DO UPDATE this counts both new inserts AND existing
+        rows whose weight got bumped, which differs from SQLiteStore's
+        "newly inserted only" semantic — callers using the count for
+        progress reporting should treat it as an upper bound.
+        """
+        normalised: list[tuple[int, int, float]] = []
+        seen: set[tuple[int, int]] = set()
+        for s, t, w in pairs:
+            si, ti = int(s), int(t)
+            if si == ti:
+                continue
+            if si > ti:
+                si, ti = ti, si
+            if (si, ti) in seen:
+                continue
+            seen.add((si, ti))
+            wf = max(0.0, min(1.0, float(w)))
+            normalised.append((si, ti, wf))
+
+        if not normalised:
+            return 0
+
+        sql = (
+            "INSERT INTO connections (source_id, target_id, weight, edge_type) "
+            "VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (source_id, target_id) DO UPDATE SET "
+            "  weight = GREATEST(connections.weight, EXCLUDED.weight), "
+            "  edge_type = EXCLUDED.edge_type"
+        )
+        with self._cursor() as (_conn, cur):
+            cur.executemany(
+                sql,
+                [(s, t, w, edge_type) for (s, t, w) in normalised],
+            )
+        return len(normalised)
+
+    def get_all_connections(self) -> list[dict]:
+        """Return every edge as a list — used for bulk graph hydration."""
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                "SELECT source_id, target_id, weight, edge_type FROM connections"
+            )
+            return [
+                {
+                    "source": int(r[0]),
+                    "target": int(r[1]),
+                    "weight": float(r[2] or 0.0),
+                    "type": r[3] or "similar",
+                }
+                for r in cur.fetchall()
+            ]
+
+    @staticmethod
+    def _sanitize_tsquery_terms(query: str, max_tokens: int = 12) -> list[str]:
+        """Extract searchable tokens from a free-text query.
+
+        Mirrors SQLiteStore._sanitize_fts_query token rules: word
+        characters + hyphen, dropped quotes, capped at max_tokens.
+        Returned as a list so callers can build either AND (' & ') or
+        OR (' | ') tsquery strings.
+        """
+        tokens = re.findall(r"[A-Za-z0-9_][A-Za-z0-9_\-]{1,}", query or "")
+        return [t.replace('"', '') for t in tokens[:max_tokens]]
+
+    @staticmethod
+    def extract_entities(text: str) -> list[str]:
+        """Same heuristic as SQLiteStore.extract_entities — duplicated to
+        avoid a circular import (memory_client imports postgres_store)."""
+        text = text or ""
+        entities: list[str] = []
+        for tok in re.findall(r"\b[A-Za-z][A-Za-z0-9_\-]{2,}\b", text):
+            if tok[0].isupper() or any(ch.isdigit() for ch in tok) or re.search(r"[a-z][A-Z]", tok):
+                entities.append(tok)
+        for phrase in re.findall(r"['\"]([^'\"]{3,80})['\"]", text):
+            entities.append(phrase.strip())
+        seen = set()
+        out = []
+        for e in entities:
+            key = e.lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(e)
+        return out
+
+    def search_bm25(self, query: str, limit: int = 50) -> list[dict]:
+        """tsvector-based lexical search. Equivalent of SQLiteStore.search_bm25.
+
+        Postgres uses ts_rank_cd over to_tsvector('simple', content) — the
+        idx_memories_content_fts GIN index from _BASE_SCHEMA serves the
+        match. Score field mirrors SQLiteStore: reciprocal-rank
+        (1/(i+1)) so RRF fusion in memory_client._parallel_retrieve keeps
+        working across backends.
+        """
+        terms = self._sanitize_tsquery_terms(query)
+        if not terms:
+            return []
+        tsq = " & ".join(terms)
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                "SELECT id, "
+                "  ts_rank_cd(to_tsvector('simple', coalesce(content, '')), "
+                "             to_tsquery('simple', %s)) AS rank "
+                "FROM memories "
+                "WHERE to_tsvector('simple', coalesce(content, '')) @@ to_tsquery('simple', %s) "
+                "ORDER BY rank DESC LIMIT %s",
+                (tsq, tsq, int(limit)),
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "id": int(r[0]),
+                "score": 1.0 / (i + 1),
+                "rank": float(r[1] or 0.0),
+                "channel": "bm25",
+            }
+            for i, r in enumerate(rows)
+        ]
+
+    def search_entity(self, query: str, limit: int = 50) -> list[dict]:
+        """Entity-token tsvector search. OR over extracted entities."""
+        entities = self.extract_entities(query)
+        if not entities:
+            entities = [t for t in re.findall(r"\b[A-Za-z0-9_\-]{6,}\b", query or "")[:5]]
+        if not entities:
+            return []
+        cleaned = [e.replace('"', '').replace("'", "") for e in entities[:8] if e.strip()]
+        if not cleaned:
+            return []
+        tsq = " | ".join(cleaned)
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                "SELECT id FROM memories "
+                "WHERE to_tsvector('simple', coalesce(content, '')) @@ to_tsquery('simple', %s) "
+                "LIMIT %s",
+                (tsq, int(limit)),
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "id": int(r[0]),
+                "score": 1.0 / (i + 1),
+                "matched_entities": entities,
+                "channel": "entity",
+            }
+            for i, r in enumerate(rows)
+        ]
+
+    def search_temporal(self, query: str, limit: int = 50,
+                        now: Optional[float] = None) -> list[dict]:
+        """Time-window scan keyed off temporal phrases in the query."""
+        now = now or time.time()
+        q = (query or "").lower()
+        where = ""
+        params: list[Any] = []
+        if any(w in q for w in ("today", "heute")):
+            where = "WHERE created_at >= to_timestamp(%s)"
+            params.append(now - 86400)
+        elif any(w in q for w in ("yesterday", "gestern")):
+            where = "WHERE created_at BETWEEN to_timestamp(%s) AND to_timestamp(%s)"
+            params.extend([now - 2 * 86400, now - 86400])
+        elif "last week" in q or "letzte woche" in q:
+            where = "WHERE created_at >= to_timestamp(%s)"
+            params.append(now - 7 * 86400)
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                f"SELECT id, created_at, last_accessed FROM memories "
+                f"{where} ORDER BY created_at DESC LIMIT %s",
+                tuple(params + [int(limit)]),
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "id": int(r[0]),
+                "score": 1.0 / (i + 1),
+                "created_at": self._epoch(r[1]),
+                "channel": "temporal",
+            }
+            for i, r in enumerate(rows)
+        ]
+
+    def get_meta(self, key: str) -> Optional[str]:
+        with self._cursor() as (_conn, cur):
+            cur.execute("SELECT value FROM meta WHERE key = %s", (key,))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                "INSERT INTO meta (key, value, updated_at) VALUES (%s, %s, NOW()) "
+                "ON CONFLICT (key) DO UPDATE SET "
+                "  value = EXCLUDED.value, updated_at = NOW()",
+                (key, value),
+            )
+
+    def get_stats(self) -> dict:
+        """Cross-backend parity name; returns SQLiteStore.get_stats shape
+        (memories, connections, revisions, fts) so consumers don't branch."""
+        with self._cursor() as (_conn, cur):
+            cur.execute("SELECT COUNT(*) FROM memories")
+            mc = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM connections")
+            cc = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM memory_revisions")
+            rc = cur.fetchone()[0]
+        return {
+            "memories": int(mc),
+            "connections": int(cc),
+            "revisions": int(rc),
+            "fts": True,
+        }
 
     def close(self) -> None:
         try:

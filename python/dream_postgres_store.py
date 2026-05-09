@@ -372,7 +372,14 @@ class DreamPostgresStore:
             )
 
     def batch_strengthen_connections(self, edges: List[Tuple[int, int]],
-                                     delta: float = 0.05) -> int:
+                                     delta: float = 0.05,
+                                     dream_session_id: Optional[int] = None) -> int:
+        """Bulk-strengthen activated edges and capture per-edge history.
+
+        Mirrors SQLiteDreamBackend semantics: NREM logs one row per
+        affected edge so the dashboard can replay the cycle's strengthen
+        burst. dream_session_id ties them to the session row.
+        """
         if not edges:
             return 0
         canon: list[tuple] = []
@@ -383,23 +390,67 @@ class DreamPostgresStore:
             canon.append((delta, pair[0], pair[1]))
         if not canon:
             return 0
+        now = time.time()
         with self._cursor() as (_conn, cur):
             cur.executemany(
                 "UPDATE connections SET weight = LEAST(weight + %s, 1.0) "
                 "WHERE source_id = %s AND target_id = %s",
                 canon,
             )
-            return len(canon)
+            if dream_session_id is not None:
+                # Read back current weights so the audit row carries the
+                # post-strengthen value. Single round-trip via ANY().
+                pair_keys = [(p[1], p[2]) for p in canon]
+                cur.execute(
+                    "SELECT source_id, target_id, weight FROM connections "
+                    "WHERE (source_id, target_id) IN ("
+                    + ",".join("(%s,%s)" for _ in pair_keys) + ")",
+                    [v for pair in pair_keys for v in pair],
+                )
+                weights = {(int(r[0]), int(r[1])): float(r[2] or 0.0)
+                           for r in cur.fetchall()}
+                hist = []
+                for _d, s, t in canon:
+                    new_w = weights.get((s, t), 0.0)
+                    hist.append((s, t, max(0.0, new_w - delta), new_w,
+                                 "nrem_strengthen", now,
+                                 int(dream_session_id)))
+                cur.executemany(
+                    "INSERT INTO connection_history "
+                    "(source_id, target_id, old_weight, new_weight, "
+                    " reason, changed_at, dream_session_id) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    hist,
+                )
+        return len(canon)
 
     def batch_weaken_connections(self, threshold: float = 0.05,
-                                 delta: float = 0.01) -> int:
+                                 delta: float = 0.01,
+                                 dream_session_id: Optional[int] = None) -> int:
+        """Bulk-weaken every connection above the threshold.
+
+        Writes ONE summary connection_history row per cycle when
+        dream_session_id is given — batch_weaken can touch tens of
+        thousands of edges per cycle and per-edge audit rows would
+        inflate connection_history without adding signal.
+        """
         with self._cursor() as (_conn, cur):
             cur.execute(
                 "UPDATE connections SET weight = GREATEST(weight - %s, 0.0) "
                 "WHERE weight > %s",
                 (delta, threshold),
             )
-            return cur.rowcount or 0
+            n = cur.rowcount or 0
+            if dream_session_id is not None and n > 0:
+                cur.execute(
+                    "INSERT INTO connection_history "
+                    "(source_id, target_id, old_weight, new_weight, "
+                    " reason, changed_at, dream_session_id) "
+                    "VALUES (-1, -1, %s, %s, %s, %s, %s)",
+                    (delta, 0.0, f"nrem_bulk_weaken:{n}",
+                     time.time(), int(dream_session_id)),
+                )
+            return n
 
     def add_bridge(self, source_id: int, target_id: int,
                    weight: float = 0.3) -> bool:
@@ -439,20 +490,28 @@ class DreamPostgresStore:
 
     def log_connection_change(self, source_id: int, target_id: int,
                               old_weight: float, new_weight: float,
-                              reason: str) -> None:
+                              reason: str,
+                              dream_session_id: Optional[int] = None) -> None:
+        """Append a connection_history row (audit log).
+
+        Plain INSERT — connection_history is intentionally append-only;
+        a single edge has many rows over its lifetime. The legacy
+        UNIQUE (source_id, target_id) constraint that an earlier
+        bootstrap created collapsed this into a latest-event-only
+        table; that constraint was dropped as part of the schema
+        migration in _DREAM_PG_SCHEMA.
+        """
         if source_id > target_id:
             source_id, target_id = target_id, source_id
         with self._cursor() as (_conn, cur):
             cur.execute(
                 "INSERT INTO connection_history "
-                "(source_id, target_id, old_weight, new_weight, reason, changed_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s) "
-                "ON CONFLICT (source_id, target_id) DO UPDATE SET "
-                "  old_weight = EXCLUDED.old_weight, "
-                "  new_weight = EXCLUDED.new_weight, "
-                "  reason = EXCLUDED.reason, "
-                "  changed_at = EXCLUDED.changed_at",
-                (source_id, target_id, old_weight, new_weight, reason, time.time()),
+                "(source_id, target_id, old_weight, new_weight, "
+                " reason, changed_at, dream_session_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (source_id, target_id, old_weight, new_weight,
+                 reason, time.time(),
+                 int(dream_session_id) if dream_session_id is not None else None),
             )
 
     # -- Insights -------------------------------------------------------------

@@ -18,6 +18,7 @@ Requires: psycopg[binary]>=3, pgvector, psycopg_pool.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import threading
@@ -342,6 +343,30 @@ class PostgresStore:
                 (id_,),
             )
 
+    @staticmethod
+    def _sanitize_weight(w) -> float | None:
+        """Normalise a weight to a finite float in [0, 1].
+
+        Rejects NaN/Inf — those poison ``ORDER BY weight DESC`` because
+        Postgres treats NaN as greater than every real number, and
+        ``GREATEST(real, NaN) = NaN`` propagates the poison through every
+        subsequent UPSERT. SQLite parity: SQLite's ``REAL`` sort already
+        treats NaN as null-equivalent, so the SQLite path never surfaced
+        this; we mirror that semantic by refusing to store the value at
+        all. Returns None on rejection so callers can skip the row.
+        """
+        try:
+            wf = float(w)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(wf):
+            return None
+        if wf < 0.0:
+            return 0.0
+        if wf > 1.0:
+            return 1.0
+        return wf
+
     def add_connection(self, source: int, target: int, weight: float,
                        edge_type: str = "similar") -> None:
         """Upsert an edge with canonical ordering (source<target).
@@ -349,11 +374,16 @@ class PostgresStore:
         ON CONFLICT keeps the larger weight (MERGE-with-max semantics).
         and the SQLite-side iter 23 invariant. Mixed-orientation rows would
         break cross-backend graph traversal.
+
+        NaN/Inf weights are silently dropped — see ``_sanitize_weight``.
         """
         if source == target:
             return
         if source > target:
             source, target = target, source
+        wf = self._sanitize_weight(weight)
+        if wf is None:
+            return
         with self._cursor() as (_conn, cur):
             cur.execute(
                 "INSERT INTO connections (source_id, target_id, weight, edge_type) "
@@ -361,7 +391,7 @@ class PostgresStore:
                 "ON CONFLICT (source_id, target_id) DO UPDATE SET "
                 "  weight = GREATEST(connections.weight, EXCLUDED.weight), "
                 "  edge_type = EXCLUDED.edge_type",
-                (source, target, weight, edge_type),
+                (source, target, wf, edge_type),
             )
 
     # -- reads --------------------------------------------------------------
@@ -473,9 +503,13 @@ class PostgresStore:
         single union of all edges instead of a time-window slice.
         """
         with self._cursor() as (_conn, cur):
+            # ``weight = weight`` strips NaN rows (see top_weighted_edges)
+            # so spreading-activation never seeds an edge with a poison
+            # weight. Falls through to the same DESC sort otherwise.
             cur.execute(
                 "SELECT source_id, target_id, weight, edge_type "
-                "FROM connections WHERE source_id = %s OR target_id = %s "
+                "FROM connections WHERE (source_id = %s OR target_id = %s) "
+                "AND weight = weight "
                 "ORDER BY weight DESC",
                 (node_id, node_id),
             )
@@ -597,8 +631,15 @@ class PostgresStore:
                 si, ti = ti, si
             if (si, ti) in seen:
                 continue
+            wf = self._sanitize_weight(w)
+            # NaN/Inf get rejected upstream — the previous
+            # ``max(0, min(1, float(w)))`` pattern silently turned NaN
+            # into 1.0 on the Python side, which then sorted to the top
+            # of ``ORDER BY weight DESC`` because Postgres treats NaN
+            # itself as greater than every real number too.
+            if wf is None:
+                continue
             seen.add((si, ti))
-            wf = max(0.0, min(1.0, float(w)))
             normalised.append((si, ti, wf))
 
         if not normalised:
@@ -619,10 +660,16 @@ class PostgresStore:
         return len(normalised)
 
     def get_all_connections(self) -> list[dict]:
-        """Return every edge as a list — used for bulk graph hydration."""
+        """Return every edge as a list — used for bulk graph hydration.
+
+        NaN weights are filtered out so downstream graph builders don't
+        compute traversal scores against poison values. See
+        ``top_weighted_edges`` for the underlying NaN problem.
+        """
         with self._cursor() as (_conn, cur):
             cur.execute(
-                "SELECT source_id, target_id, weight, edge_type FROM connections"
+                "SELECT source_id, target_id, weight, edge_type FROM connections "
+                "WHERE weight = weight"
             )
             return [
                 {
@@ -839,10 +886,11 @@ class PostgresStore:
             return out
 
     def weighted_edges(self) -> list[tuple[int, int, float]]:
+        # ``weight = weight`` excludes NaN — see top_weighted_edges note.
         with self._cursor() as (_conn, cur):
             cur.execute(
                 "SELECT source_id, target_id, weight FROM connections "
-                "WHERE weight > 0"
+                "WHERE weight > 0 AND weight = weight"
             )
             return [
                 (int(r[0]), int(r[1]), float(r[2] or 0.0))
@@ -850,9 +898,16 @@ class PostgresStore:
             ]
 
     def top_weighted_edges(self, limit: int = 500) -> list[dict]:
+        # Postgres sorts NaN as greater than every real number, so a
+        # naked ``ORDER BY weight DESC`` surfaces NaN-weight rows first
+        # if any slipped past the writer (or were written before the
+        # writer was hardened). The ``weight = weight`` predicate
+        # evaluates to false for NaN, which both filters them out and
+        # lets the planner use idx_conn_weight for the sort.
         with self._cursor() as (_conn, cur):
             cur.execute(
                 "SELECT source_id, target_id, weight, edge_type FROM connections "
+                "WHERE weight = weight "
                 "ORDER BY weight DESC LIMIT %s",
                 (int(limit),),
             )

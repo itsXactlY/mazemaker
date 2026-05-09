@@ -578,7 +578,17 @@ class SQLiteStore:
         source, target = (int(source), int(target))
         if source > target:
             source, target = target, source
-        weight = max(0.0, min(1.0, float(weight)))
+        # NaN/Inf must never reach the table — Postgres mirror sorts
+        # NaN as greater than every real number under ORDER BY DESC,
+        # which poisons mazemaker_graph top_edges. Keep the SQLite
+        # writer in lockstep so both backends drop the same rows.
+        try:
+            wf = float(weight)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(wf):
+            return
+        weight = max(0.0, min(1.0, wf))
         now = time.time()
         event_time = event_time if event_time is not None else now
         ingestion_time = ingestion_time if ingestion_time is not None else now
@@ -631,8 +641,16 @@ class SQLiteStore:
                 si, ti = ti, si
             if (si, ti) in seen:
                 continue
+            # Reject NaN/Inf — see add_connection note. ``max(0, min(1,
+            # nan))`` would otherwise silently coerce to 1.0.
+            try:
+                wf = float(w)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(wf):
+                continue
+            wf = max(0.0, min(1.0, wf))
             seen.add((si, ti))
-            wf = max(0.0, min(1.0, float(w)))
             normalised.append((si, ti, wf))
 
         if not normalised:

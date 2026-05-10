@@ -55,8 +55,8 @@ DEFAULT_SQLITE = _default_sqlite_path()
 TEMPLATE_DIR   = Path(__file__).parent
 POLL_INTERVAL  = 2.0
 CONFIG_PATH    = os.path.expanduser("~/.hermes/config.yaml")
-NODE_LIMIT     = 100   # top hub nodes to visualise
-EDGE_LIMIT     = 500   # max edges (by weight, descending)
+NODE_LIMIT     = int(os.environ.get("MM_DASH_NODE_LIMIT", "2000"))   # top hub nodes
+EDGE_LIMIT     = int(os.environ.get("MM_DASH_EDGE_LIMIT", "8000"))   # max edges
 
 _DB_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="db-worker")
 
@@ -265,6 +265,165 @@ def _read_sqlite_body(conn, t0, db_path):
             "memories": n_mem, "connections": n_conn,
             "embedding_dim": actual_dim, "source": "SQLite",
             "path": db_path, "query_ms": ms,
+        },
+    }
+
+
+def read_postgres() -> dict:
+    """Read live graph data from the pgvector pod (Pro/Enterprise tier).
+
+    Connection params come from MM_POSTGRES_* env (host/port/db/user/
+    password) or MM_POSTGRES_DSN.  Schema mirrors SQLiteStore: memories,
+    connections, dream_sessions.  Same NODE_LIMIT / EDGE_LIMIT cap as
+    the SQLite path so the bootstrap HTML stays sane on a 245k-memory,
+    784k-edge corpus.
+    """
+    import psycopg
+    t0 = time.perf_counter()
+    dsn = os.environ.get("MM_POSTGRES_DSN") or (
+        f"host={os.environ.get('MM_POSTGRES_HOST', '127.0.0.1')} "
+        f"port={os.environ.get('MM_POSTGRES_PORT', '5432')} "
+        f"dbname={os.environ.get('MM_POSTGRES_DB', 'mazemaker')} "
+        f"user={os.environ.get('MM_POSTGRES_USER', 'mazemaker')} "
+        f"password={os.environ.get('MM_POSTGRES_PASSWORD', '')}"
+    )
+    with psycopg.connect(dsn, connect_timeout=8) as conn:
+        return _read_postgres_body(conn, t0)
+
+
+def _read_postgres_body(conn, t0):
+    cur = conn.cursor()
+
+    # Top-N hubs ordered by total degree.  Postgres has window-friendly
+    # indexes on connections.source_id / target_id, so a single query
+    # with two LATERAL joins beats the two-subquery shape we use on
+    # SQLite (where window functions are slower without statistics).
+    cur.execute(f"""
+        SELECT m.id, m.label, length(m.content) AS content_length,
+               m.salience, m.access_count, m.created_at,
+               COALESCE(out_d.out_degree, 0) AS out_degree,
+               COALESCE(in_d.in_degree, 0)  AS in_degree,
+               COALESCE(out_d.avg_weight, 0) AS avg_weight
+        FROM memories m
+        LEFT JOIN (SELECT source_id, COUNT(*) AS out_degree, AVG(weight) AS avg_weight
+                   FROM connections GROUP BY source_id) out_d ON m.id = out_d.source_id
+        LEFT JOIN (SELECT target_id, COUNT(*) AS in_degree
+                   FROM connections GROUP BY target_id) in_d ON m.id = in_d.target_id
+        ORDER BY (COALESCE(out_d.out_degree, 0) + COALESCE(in_d.in_degree, 0)) DESC
+        LIMIT %s
+    """, (NODE_LIMIT,))
+    import datetime as _dt
+    def _to_epoch(v):
+        if v is None: return 0.0
+        if isinstance(v, _dt.datetime): return v.timestamp()
+        try: return float(v)
+        except (TypeError, ValueError): return 0.0
+
+    nodes = []
+    for r in cur.fetchall():
+        lbl = r[1] or ""
+        nodes.append({
+            "id": r[0], "label": lbl[:50], "category": _categorize(lbl),
+            "content_length": r[2] or 0,
+            "salience": float(r[3] or 1.0),
+            "access_count": r[4] or 0,
+            "created_at": _to_epoch(r[5]),
+            "out_degree": r[6], "in_degree": r[7],
+            "total_degree": r[6] + r[7],
+            "avg_weight": round(float(r[8] or 0), 4),
+        })
+
+    hub_ids = [n["id"] for n in nodes]
+    if hub_ids:
+        cur.execute(
+            "SELECT source_id, target_id, weight FROM connections "
+            "WHERE source_id = ANY(%s) AND target_id = ANY(%s) "
+            "ORDER BY weight DESC LIMIT %s",
+            (hub_ids, hub_ids, EDGE_LIMIT),
+        )
+        edges = [{"source": r[0], "target": r[1],
+                  "weight": round(float(r[2]), 4)} for r in cur.fetchall()]
+    else:
+        edges = []
+
+    cur.execute("""
+        SELECT cat, COUNT(*) FROM (
+            SELECT CASE
+                WHEN label LIKE 'peer:%%'                        THEN 'Peer'
+                WHEN label LIKE 'turn:%%' OR label LIKE 'msg:%%' THEN 'Conversation'
+                WHEN label LIKE 'session:%%'                     THEN 'Session'
+                WHEN label LIKE 'doc:%%'                         THEN 'Document'
+                WHEN label LIKE 'skill:%%'                       THEN 'Skill'
+                ELSE 'Other'
+            END AS cat FROM memories
+        ) sub GROUP BY cat ORDER BY COUNT(*) DESC
+    """)
+    categories = [{"name": r[0], "count": r[1]} for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT bucket, COUNT(*) FROM (
+            SELECT CASE
+                WHEN weight >= 0.8 THEN 'Strong (0.8-1.0)'
+                WHEN weight >= 0.6 THEN 'Med-Strong (0.6-0.8)'
+                WHEN weight >= 0.4 THEN 'Medium (0.4-0.6)'
+                WHEN weight >= 0.2 THEN 'Weak (0.2-0.4)'
+                ELSE 'Very Weak (0-0.2)'
+            END AS bucket FROM connections
+        ) sub GROUP BY bucket
+    """)
+    weights = [{"bucket": r[0], "count": r[1]} for r in cur.fetchall()]
+
+    cur.execute("SELECT COUNT(*) FROM memories");      n_mem  = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM connections");   n_conn = cur.fetchone()[0]
+
+    actual_dim = 1024
+    try:
+        cur.execute("SELECT vector_dims(embedding) FROM memories "
+                    "WHERE embedding IS NOT NULL LIMIT 1")
+        row = cur.fetchone()
+        if row:
+            actual_dim = int(row[0])
+    except Exception:
+        pass
+
+    dream_sessions: list[dict] = []
+    try:
+        cur.execute(
+            "SELECT id, phase, started_at, finished_at, "
+            "       memories_processed, connections_strengthened, "
+            "       connections_pruned, bridges_found, insights_created "
+            "FROM dream_sessions ORDER BY started_at"
+        )
+        for r in cur.fetchall():
+            stats_blob = json.dumps({
+                "memories_processed": r[4],
+                "connections_strengthened": r[5],
+                "connections_pruned": r[6],
+                "bridges_found": r[7],
+                "insights_created": r[8],
+            })
+            dream_sessions.append({
+                "id": r[0], "phase": r[1],
+                "started_at": float(r[2]) if r[2] else 0,
+                "completed_at": float(r[3]) if r[3] else None,
+                "stats": stats_blob,
+            })
+    except Exception:
+        pass
+
+    ms = round((time.perf_counter() - t0) * 1000, 2)
+    _metrics["db_query_ms"] = ms
+    return {
+        "nodes": nodes, "edges": edges,
+        "categories": categories, "weights": weights,
+        "dream_sessions": dream_sessions,
+        "stats": {
+            "memories": n_mem, "connections": n_conn,
+            "embedding_dim": actual_dim, "source": "Postgres",
+            "path": f"{os.environ.get('MM_POSTGRES_HOST', '127.0.0.1')}:"
+                    f"{os.environ.get('MM_POSTGRES_PORT', '5432')}/"
+                    f"{os.environ.get('MM_POSTGRES_DB', 'mazemaker')}",
+            "query_ms": ms,
         },
     }
 
@@ -544,6 +703,25 @@ def _safe_read(read_fn, label: str) -> dict:
 
 
 def load_data(args) -> tuple[dict, callable]:
+    # Auto-promote to Postgres if MM_DB_BACKEND=postgres in env (matches
+    # the engine's own dispatch) — operator dashboards on Pro/Enterprise
+    # tier should mirror what the live engine reads from.
+    if args.source == "sqlite" and (
+        os.environ.get("MM_DB_BACKEND", "").lower() == "postgres"
+    ):
+        args.source = "postgres"
+
+    if args.source == "postgres":
+        read_fn = lambda: read_postgres()
+        data = _safe_read(read_fn, "Postgres")
+        s = data["stats"]
+        logger.info(
+            f"Postgres: {s['memories']}M  {s['connections']}C  "
+            f"({s['query_ms']}ms)  @{s.get('path', '')}"
+        )
+        _metrics["db_source"] = "Postgres"
+        return data, lambda: _safe_read(read_fn, "Postgres")
+
     if args.source == "mssql":
         dsn = _build_mssql_dsn(args)
         if not dsn:
@@ -924,7 +1102,8 @@ def main():
 
     parser = argparse.ArgumentParser(description="Mazemaker Live Dashboard Server")
     parser.add_argument("--db",             default=None,  help="Force SQLite path")
-    parser.add_argument("--source",         default="sqlite", choices=("sqlite", "mssql"),
+    parser.add_argument("--source",         default="sqlite",
+                        choices=("sqlite", "postgres", "mssql"),
                         help="Which backend to read from")
     parser.add_argument("--mssql-dsn",      default=None,
                         help="Full pyodbc connection string; falls back to hermes config backup")

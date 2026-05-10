@@ -29,6 +29,12 @@ import sys
 import time
 from pathlib import Path
 
+# Make `import license` resolve to the engine module (not Python's
+# builtin licence prompt) by ensuring this file's directory is on
+# sys.path before the import.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from license import has_feature  # noqa: E402  Pro feature gate
+
 logger = logging.getLogger("dream_worker")
 
 
@@ -99,6 +105,18 @@ def main():
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
+    # Autonomous dream-worker is a Pro feature.  Community installs can
+    # still trigger consolidation manually via the `mazemaker_dream`
+    # MCP tool call — they just don't get the overnight loop.
+    if not has_feature("dream_worker"):
+        logger.error(
+            "dream_worker is a Pro feature.  The community engine runs "
+            "dream cycles only when invoked explicitly via the "
+            "mazemaker_dream MCP tool call — no autonomous overnight "
+            "consolidation.  See https://mazemaker.online/#pricing"
+        )
+        return 3
+
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from dream_engine import DreamEngine, SQLiteDreamBackend
 
@@ -106,7 +124,18 @@ def main():
     # writes (dream_sessions / dream_insights / connection_history) to
     # the pgvector mirror. Free-tier installs leave the env unset and
     # keep using SQLiteDreamBackend as before.
+    #
+    # Postgres is a Pro feature; the env knob is honoured only when the
+    # license carries `backend=postgres`.  Otherwise we silently stay on
+    # SQLite with a one-line warning.
     backend_choice = (os.environ.get("MM_DB_BACKEND") or "").strip().lower()
+    if backend_choice == "postgres" and not has_feature("postgres"):
+        logger.warning(
+            "MM_DB_BACKEND=postgres requested but the Postgres backend "
+            "is a Pro feature; falling back to SQLite. "
+            "See https://mazemaker.online/#pricing"
+        )
+        backend_choice = ""
 
     db_path = args.db
     if backend_choice != "postgres" and not Path(db_path).exists():

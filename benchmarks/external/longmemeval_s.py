@@ -195,9 +195,14 @@ def _build_engine(args, db_path: str) -> Mazemaker:
     # without that, recall would have nothing to score against.
     if getattr(args, "enable_colbert", False):
         os.environ["MM_COLBERT_ENABLED"] = "1"
+    if getattr(args, "enable_dae", False):
+        os.environ["MM_DAE_ENABLED"] = "1"
     channel_weights = None
     if getattr(args, "colbert_weight", None) is not None:
         channel_weights = {"colbert": float(args.colbert_weight)}
+    if getattr(args, "dae_weight", None) is not None:
+        channel_weights = channel_weights or {}
+        channel_weights["dae"] = float(args.dae_weight)
     return Mazemaker(
         db_path=db_path,
         embedding_backend=args.backend,
@@ -228,6 +233,22 @@ def run_question(args, record: dict[str, Any]) -> dict[str, Any]:
                 n_ingested = ingest_session_level(nm, record)
             ingest_ms = (time.perf_counter() - t0) * 1000.0
 
+            # DAE second-pass: per-question ephemeral SQLite needs the
+            # memory_dae_embeddings table populated before recall can
+            # consult the channel.  Failures here must not abort the
+            # bench — log and continue with the primary embeddings.
+            if getattr(args, "enable_dae", False):
+                try:
+                    from dae import dae_bulk_compute
+                    dae_bulk_compute(
+                        nm,
+                        self_weight=float(args.dae_self_weight),
+                        neighbour_k=int(args.dae_neighbour_k),
+                    )
+                except Exception as _dae_err:
+                    print(f"[lme-s] WARN: dae_bulk_compute failed for "
+                          f"{qid}: {_dae_err}", file=sys.stderr, flush=True)
+
             t1 = time.perf_counter()
             recall_kwargs = dict(
                 k=args.k,
@@ -238,6 +259,10 @@ def run_question(args, record: dict[str, Any]) -> dict[str, Any]:
                 recall_kwargs["enable_colbert"] = True
             if getattr(args, "colbert_weight", None) is not None:
                 recall_kwargs["colbert_weight"] = float(args.colbert_weight)
+            if getattr(args, "enable_dae", False):
+                recall_kwargs["enable_dae"] = True
+            if getattr(args, "dae_weight", None) is not None:
+                recall_kwargs["dae_weight"] = float(args.dae_weight)
             results = nm.recall(question, **recall_kwargs)
             recall_ms = (time.perf_counter() - t1) * 1000.0
 
@@ -337,6 +362,10 @@ def write_result(args, per_question: list[dict[str, Any]], metrics: dict[str, An
             "use_cpp": False,
             "enable_colbert": bool(getattr(args, "enable_colbert", False)),
             "colbert_weight": getattr(args, "colbert_weight", None),
+            "enable_dae": bool(getattr(args, "enable_dae", False)),
+            "dae_weight": getattr(args, "dae_weight", None),
+            "dae_self_weight": getattr(args, "dae_self_weight", None),
+            "dae_neighbour_k": getattr(args, "dae_neighbour_k", None),
         },
         "dataset": {
             "name": "longmemeval_s",
@@ -408,6 +437,20 @@ def main() -> int:
     p.add_argument("--colbert-weight", type=float, default=None,
                    help="Override colbert channel weight (default: preset-driven; "
                         "skynet=1.2, advanced/hybrid=0.5, lean/trim/semantic=0)")
+    # Dream-Augmented Embeddings (DAE) opt-in. Default OFF — the DAE
+    # channel weight defaults to 0.0 in memory_client even when the
+    # Pro license gate is on, so existing baselines are unchanged.
+    # --enable-dae flips MM_DAE_ENABLED=1 (mirroring the ColBERT env
+    # flip) and the harness calls dae_bulk_compute() between ingest
+    # and recall on each ephemeral per-question SQLite.
+    p.add_argument("--enable-dae", action="store_true",
+                   help="Enable Dream-Augmented Embeddings second-pass channel")
+    p.add_argument("--dae-weight", type=float, default=None,
+                   help="Override dae channel weight (default 0.0 = off)")
+    p.add_argument("--dae-self-weight", type=float, default=0.4,
+                   help="DAE self-vs-neighbour mix (0=pure neighbours, 1=identity)")
+    p.add_argument("--dae-neighbour-k", type=int, default=20,
+                   help="Top-k neighbours for the DAE PPR-weighted mean")
     args = p.parse_args()
 
     records = load_dataset(Path(args.dataset))

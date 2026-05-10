@@ -1188,6 +1188,12 @@ class Mazemaker:
                 self._channel_weights["colbert"] = 0.5
             else:
                 self._channel_weights["colbert"] = 0.0
+        # DAE channel weight — defaults off (0.0) on every preset until
+        # the bench validates a recall lift over ColBERT@1.5.  Opt-in
+        # via env (MM_DAE_ENABLED=1) or per-recall kwargs.  Pro-gated
+        # downstream the same way ColBERT is.
+        if "dae" not in self._channel_weights:
+            self._channel_weights["dae"] = 0.0
         if isinstance(channel_weights, dict):
             self._channel_weights.update({k: float(v) for k, v in channel_weights.items() if v is not None})
 
@@ -2080,6 +2086,45 @@ class Mazemaker:
         return scored + tail
 
     # ── ColBERT late-interaction helpers ──────────────────────────────────
+    def _dae_score_candidates(
+        self,
+        query_vec: "list[float]",
+        fused: "dict[int, dict]",
+        cap: int = 200,
+    ) -> "dict[int, float]":
+        """Score the top-`cap` fused candidates via DAE-embedding cosine.
+
+        Counterpart to `_colbert_score_candidates` but for the
+        Dream-Augmented Embeddings channel: each memory has an optional
+        second embedding stored in `memory_dae_embeddings` weighted
+        toward its graph neighbourhood.  Candidates without a DAE row
+        fall through (no penalty, no boost).
+
+        Lazy: import dae helper inline so plain semantic recall doesn't
+        pay the cost.  Restricts to the top `cap` ids by current
+        fused_score — DAE is a 2nd-stage rerank, not a fresh retrieval.
+        """
+        head_ids = [
+            mid for mid, _ in sorted(
+                fused.items(), key=lambda kv: -kv[1].get("fused_score", 0.0)
+            )[:cap]
+        ]
+        if not head_ids:
+            return {}
+        try:
+            from dae import fetch_dae_vectors
+        except Exception:
+            return {}
+        vecs = fetch_dae_vectors(self.store.conn, head_ids)
+        if not vecs:
+            return {}
+        out: "dict[int, float]" = {}
+        for mid, dvec in vecs.items():
+            sim = self._cosine_similarity(query_vec, dvec)
+            if sim > 0:
+                out[int(mid)] = float(sim)
+        return out
+
     def _colbert_score_candidates(
         self,
         query: str,
@@ -2195,6 +2240,13 @@ class Mazemaker:
         # Set to 0.0 to disable for this call without touching the
         # constructor; >1.0 emphasises the rerank.
         colbert_weight: Optional[float] = None,
+        # enable_dae / dae_weight: same shape as ColBERT but for the
+        # Dream-Augmented Embeddings channel.  None (default) inherits
+        # the constructor `dae` channel weight (0 = off, scaffolding
+        # only).  True forces the channel even when the constructor has
+        # it off.  See python/dae.py for the math.
+        enable_dae: Optional[bool] = None,
+        dae_weight: Optional[float] = None,
         # include_echoes: when False (default), strip per-turn conversation
         # logs (`auto:turn:*`, `auto:claude:*`, `auto:hermes:*`, anything
         # starting with `auto:`) from the candidate set BEFORE relevance
@@ -2282,6 +2334,36 @@ class Mazemaker:
                         item["channel_scores"].get("colbert", 0.0) + contrib
                     )
                     item["colbert_raw"] = float(raw)
+
+        # DAE channel — same shape as ColBERT, scored against the
+        # `memory_dae_embeddings` table populated by `dae_bulk_compute`
+        # (bench path) or, eventually, the NREM phase (production path
+        # — pending bench validation).  Pro-gated.  Per-call kwargs
+        # override the constructor channel weight.
+        dae_weight_v = (
+            float(dae_weight) if dae_weight is not None
+            else float(self._channel_weights.get("dae", 0.0) or 0.0)
+        )
+        dae_on = (
+            (enable_dae is True)
+            or (enable_dae is None and dae_weight_v > 0.0)
+        )
+        if dae_on and not has_feature("dae"):
+            dae_on = False
+        if dae_on and dae_weight_v > 0.0 and fused:
+            dae_scores = self._dae_score_candidates(query_vec, fused)
+            if dae_scores:
+                ordered = sorted(dae_scores.items(), key=lambda kv: -kv[1])
+                for rank, (mid, raw) in enumerate(ordered, start=1):
+                    if mid not in fused:
+                        continue
+                    contrib = dae_weight_v / (self._rrf_k + rank)
+                    item = fused[mid]
+                    item["fused_score"] = item.get("fused_score", 0.0) + contrib
+                    item["channel_scores"]["dae"] = (
+                        item["channel_scores"].get("dae", 0.0) + contrib
+                    )
+                    item["dae_raw"] = float(raw)
 
         mems = self.store.get_many(list(fused.keys()), include_embedding=True)
 

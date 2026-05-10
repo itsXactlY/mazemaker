@@ -197,6 +197,197 @@ def compute_dae_embedding(
     )
 
 
+def dae_bulk_compute(
+    nm,
+    self_weight: float = DEFAULT_SELF_WEIGHT,
+    neighbour_k: int = DEFAULT_NEIGHBOUR_K,
+) -> dict:
+    """Compute and persist DAE embeddings for every memory in ``nm``.
+
+    Designed for the bench harness — the LongMemEval-S harness spins up
+    an ephemeral per-question SQLite (50-500 memories, sub-second),
+    ingests, calls this, then runs ``recall()``.  Not intended as a
+    production-corpus backfill path; that is deferred until the bench
+    validates a recall lift.
+
+    Returns a stats dict:
+      {ok: bool, written: int, skipped: int, errors: int,
+       schema_version: int, self_weight: float, neighbour_k: int}
+
+    Short-circuits cleanly when the DAE feature is gated off (community
+    / free / payg).  In that case ``ok`` is False and ``skipped`` equals
+    the corpus size — the caller can branch on ok without checking
+    has_feature directly.
+    """
+    if not is_enabled():
+        return {"ok": False, "reason": "license_gate", "written": 0,
+                "skipped": 0, "errors": 0}
+
+    store = getattr(nm, "store", None)
+    if store is None:
+        return {"ok": False, "reason": "no_store", "written": 0,
+                "skipped": 0, "errors": 0}
+
+    # Surface conn for the schema migration and the executemany write.
+    # Both SQLiteStore and PostgresStore expose `_cursor` / `conn`; we
+    # use the lowest-common-denominator: `conn` on SQLite, `_cursor`
+    # context manager on Postgres.  Bench harness uses SQLite, so we
+    # rely on `conn` here.  Postgres path is added if/when prod backfill
+    # lands.
+    conn = getattr(store, "conn", None)
+    if conn is None:
+        return {"ok": False, "reason": "no_sqlite_conn", "written": 0,
+                "skipped": 0, "errors": 0}
+    ensure_schema(conn)
+
+    # Pull every (id, embedding) — bench corpus is small (≤500), full
+    # scan is fine.  On a production-corpus backfill this would page.
+    import sqlite3
+    cur = conn.cursor()
+    cur.execute("SELECT id, embedding FROM memories ORDER BY id ASC")
+    rows = cur.fetchall()
+
+    import struct
+    def _decode(blob) -> "list[float] | None":
+        if blob is None:
+            return None
+        try:
+            n = len(blob) // 4
+            return list(struct.unpack(f"{n}f", blob))
+        except Exception:
+            return None
+
+    vectors: "dict[int, list[float]]" = {}
+    for mid, emb_blob in rows:
+        vec = _decode(emb_blob)
+        if vec:
+            vectors[int(mid)] = vec
+    if not vectors:
+        return {"ok": True, "written": 0, "skipped": 0, "errors": 0,
+                "schema_version": DAE_SCHEMA_VERSION,
+                "self_weight": self_weight, "neighbour_k": neighbour_k}
+
+    # Neighbour selection: prefer PPR-top-k via the GPU helper when the
+    # corpus is large enough to warrant it; otherwise fall back to the
+    # in-DB connection table (cheap on tiny bench corpora).  Either way
+    # we end up with a list of (mid, neighbour_ids, neighbour_weights).
+    def _neighbours_via_ppr(seed_id: int) -> "tuple[list[int], list[float]]":
+        try:
+            ids = nm._ppr_top_ids_gpu(int(seed_id), k=neighbour_k)
+        except Exception:
+            ids = []
+        if not ids:
+            return [], []
+        # Equal weights for the top-k — _ppr_top_ids_gpu doesn't return
+        # the scalar PPR values, just the rank-ordered ids. Equal-weight
+        # mean is a reasonable approximation; the rank-ordered top-k
+        # captures the structure.  If a lift is observed and we want to
+        # squeeze more, switch to the full _ppr_scores call.
+        return list(ids), [1.0] * len(ids)
+
+    def _neighbours_via_graph(seed_id: int) -> "tuple[list[int], list[float]]":
+        try:
+            r = conn.execute(
+                "SELECT target_id, weight FROM connections "
+                "WHERE source_id = ? AND weight > 0 "
+                "ORDER BY weight DESC LIMIT ?",
+                (int(seed_id), int(neighbour_k)),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return [], []
+        return [int(r0) for r0, _ in r], [float(r1) for _, r1 in r]
+
+    use_ppr = hasattr(nm, "_ppr_top_ids_gpu")
+    written = 0
+    skipped = 0
+    errors = 0
+    insert_rows: "list[tuple]" = []
+    for mid, self_vec in vectors.items():
+        nids, nweights = (
+            _neighbours_via_ppr(mid) if use_ppr else _neighbours_via_graph(mid)
+        )
+        if not nids:
+            nids, nweights = _neighbours_via_graph(mid)
+        nvecs = [vectors[n] for n in nids if n in vectors]
+        # Filter weights to match the surviving vectors
+        nweights = [w for n, w in zip(nids, nweights) if n in vectors]
+        try:
+            emb = compute_dae_embedding(
+                memory_id=mid,
+                self_vec=self_vec,
+                neighbour_vecs=nvecs,
+                neighbour_weights=nweights,
+                self_weight=self_weight,
+            )
+        except Exception:
+            errors += 1
+            continue
+        if emb is None:
+            skipped += 1
+            continue
+        try:
+            blob = struct.pack(f"{len(emb.vector)}f", *emb.vector)
+        except Exception:
+            errors += 1
+            continue
+        insert_rows.append(
+            (emb.memory_id, blob, emb.self_weight, emb.neighbour_k,
+             emb.schema_version, emb.computed_at)
+        )
+        written += 1
+
+    if insert_rows:
+        cur.executemany(
+            "INSERT OR REPLACE INTO memory_dae_embeddings "
+            "(memory_id, vector, self_weight, neighbour_k, "
+            " schema_version, computed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            insert_rows,
+        )
+        conn.commit()
+
+    return {
+        "ok": True,
+        "written": written,
+        "skipped": skipped,
+        "errors": errors,
+        "schema_version": DAE_SCHEMA_VERSION,
+        "self_weight": self_weight,
+        "neighbour_k": neighbour_k,
+    }
+
+
+def fetch_dae_vectors(conn, ids: "list[int]") -> "dict[int, list[float]]":
+    """Look up DAE vectors for a list of memory ids.
+
+    Returns {memory_id: vector}; ids without a row are absent (caller
+    treats absent ids as no-DAE-signal).  Cheap: one SQL roundtrip, the
+    caller's ``cap`` already limits ids to the RRF head.
+    """
+    if not ids:
+        return {}
+    import struct
+    placeholders = ",".join("?" * len(ids))
+    try:
+        rows = conn.execute(
+            f"SELECT memory_id, vector FROM memory_dae_embeddings "
+            f"WHERE memory_id IN ({placeholders})",
+            tuple(int(i) for i in ids),
+        ).fetchall()
+    except Exception:
+        return {}
+    out: "dict[int, list[float]]" = {}
+    for mid, blob in rows:
+        if not blob:
+            continue
+        try:
+            n = len(blob) // 4
+            out[int(mid)] = list(struct.unpack(f"{n}f", blob))
+        except Exception:
+            continue
+    return out
+
+
 def channel_status() -> dict:
     """Operator-facing snapshot of DAE state.
 

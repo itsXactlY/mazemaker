@@ -253,8 +253,12 @@ def _read_sqlite_body(conn, t0, db_path):
 
     ms = round((time.perf_counter() - t0) * 1000, 2)
     _metrics["db_query_ms"] = ms
+    # Trim node list to the visible top-N hubs.  The SQL above orders by
+    # total_degree DESC so this keeps the strongest hubs.  Without this
+    # cap the bootstrap HTML inlined every memory in the corpus (49 MB
+    # for a 195k-memory store, 30+ s render time before Chrome gave up).
     return {
-        "nodes": nodes, "edges": edges,
+        "nodes": nodes[:NODE_LIMIT], "edges": edges,
         "categories": categories, "weights": weights,
         "dream_sessions": dream_sessions,
         "stats": {

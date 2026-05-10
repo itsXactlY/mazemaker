@@ -144,7 +144,7 @@ class LicenseLoaderTests(_BaseTestCase):
         license_ = lic.load_license(self.pubkey_pem)
         self.assertEqual(license_.tier, "pro")
         for f in ("colbert", "rem", "insight", "architect",
-                  "dream_worker", "postgres"):
+                  "dream_worker", "postgres", "dae"):
             self.assertTrue(license_.has(f), f"{f} should be granted")
         self.assertFalse(license_.has("nonexistent"))
 

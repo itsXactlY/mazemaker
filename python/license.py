@@ -115,6 +115,13 @@ KNOWN_FEATURES = frozenset({
     "architect",     # Architect UI server-side data API
     "dream_worker",  # Autonomous overnight dream-worker loop
     "postgres",      # Postgres + pgvector backend adapter
+    "dae",           # Dream-Augmented Embeddings — second embedding
+                     # built during NREM consolidation, weighted toward
+                     # graph neighbours.  Module-loadable in Pro builds;
+                     # NOT wired as a default recall channel until a
+                     # bench validates a recall lift over hybrid +
+                     # ColBERT.  Feature-flag exists so module init
+                     # short-circuits cleanly on community/free.
 })
 
 
@@ -180,7 +187,7 @@ def _features_for_tier(tier: str, backend: str) -> frozenset:
     if tier not in PRO_TIERS:
         return frozenset()
 
-    feats = {"colbert", "rem", "insight", "architect", "dream_worker"}
+    feats = {"colbert", "rem", "insight", "architect", "dream_worker", "dae"}
     if backend == "postgres":
         feats.add("postgres")
     return frozenset(feats)

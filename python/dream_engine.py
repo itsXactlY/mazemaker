@@ -1161,6 +1161,9 @@ class DreamEngine:
 
             try:
                 total_stats["nrem"] = self._phase_nrem()
+                # REM + Insight phases gate themselves — community
+                # installs see {"skipped": "pro_feature"} from those
+                # methods.  NREM consolidation always runs.
                 total_stats["rem"] = self._phase_rem()
                 total_stats["insights"] = self._phase_insights()
 
@@ -1351,7 +1354,19 @@ class DreamEngine:
         1. Find isolated memories (few connections)
         2. Search via embedding similarity for unconnected but similar
         3. Create tentative bridge connections (weight 0.1-0.3)
+
+        Pro feature.  Community installs early-return without touching
+        the dream-session table — they get NREM-only consolidation.
         """
+        if not has_feature("rem"):
+            logger.info(
+                "REM phase skipped — Pro feature.  Engine running "
+                "NREM-only consolidation.  See "
+                "https://mazemaker.online/#pricing"
+            )
+            return {"skipped": "pro_feature", "explored": 0,
+                    "bridges": 0, "rejected": 0}
+
         stats = {"explored": 0, "bridges": 0, "rejected": 0}
         session_id = self._backend.start_session("rem")
 
@@ -1463,6 +1478,14 @@ class DreamEngine:
           7. Flush all dream_insights rows via add_insights_batch (1 commit).
         """
         import numpy as np
+        if not has_feature("insight"):
+            logger.info(
+                "Insight phase skipped — Pro feature.  No derived:* "
+                "cluster memories will be crystallised this cycle.  "
+                "See https://mazemaker.online/#pricing"
+            )
+            return {"skipped": "pro_feature", "communities": 0,
+                    "bridges": 0, "insights": 0, "derived_facts": 0}
         stats = {"communities": 0, "bridges": 0, "insights": 0, "derived_facts": 0}
         session_id = self._backend.start_session("insight")
         t_phase = time.perf_counter()

@@ -113,7 +113,13 @@ CREATE TABLE IF NOT EXISTS memories (
     salience      DOUBLE PRECISION DEFAULT 1.0,
     created_at    TIMESTAMPTZ DEFAULT NOW(),
     last_accessed TIMESTAMPTZ DEFAULT NOW(),
-    access_count  INTEGER DEFAULT 0
+    access_count  INTEGER DEFAULT 0,
+    -- ColBERT-style late-interaction token cache. Optional; populated
+    -- by remember() only when MM_COLBERT_ENABLED=1. ~64 KB/row at 32
+    -- tokens × 1024 dims fp16; mirrored from the SQLite primary's
+    -- `colbert_tokens` BLOB column. See python/colbert_helper.py for
+    -- the byte layout (CB1 magic header) and the design rationale.
+    colbert_tokens BYTEA
 );
 
 CREATE TABLE IF NOT EXISTS connections (
@@ -240,6 +246,12 @@ class PostgresStore:
         """Create base tables, extension, and re-register vector adapter."""
         with self._cursor() as (conn, cur):
             cur.execute(_BASE_SCHEMA)
+            # Idempotent migration for pre-existing DBs that predate the
+            # colbert_tokens column. Postgres's IF NOT EXISTS clause makes
+            # this no-op when already applied.
+            cur.execute(
+                "ALTER TABLE memories ADD COLUMN IF NOT EXISTS colbert_tokens BYTEA"
+            )
             # Re-register vector now that the extension definitely exists,
             # in case _configure_conn ran before CREATE EXTENSION.
             try:
@@ -607,6 +619,48 @@ class PostgresStore:
                     "embedding = %s, vector_dim = %s WHERE id = %s",
                     (label, content, embedding, dim, int(memory_id)),
                 )
+
+    # ---- ColBERT token cache (mirror of SQLiteStore methods) ---------------
+    def set_colbert_tokens(self, memory_id: int, blob: Optional[bytes]) -> None:
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                "UPDATE memories SET colbert_tokens = %s WHERE id = %s",
+                (blob, int(memory_id)),
+            )
+
+    def get_colbert_tokens_many(self, ids: "list[int]") -> "dict[int, bytes]":
+        ids = [int(i) for i in ids if i is not None]
+        if not ids:
+            return {}
+        out: dict[int, bytes] = {}
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                "SELECT id, colbert_tokens FROM memories "
+                "WHERE id = ANY(%s) AND colbert_tokens IS NOT NULL",
+                (ids,),
+            )
+            for r in cur.fetchall():
+                blob = r[1]
+                if blob:
+                    out[int(r[0])] = bytes(blob)
+        return out
+
+    def stream_missing_colbert(self, batch_size: int = 1000, start_after_id: int = 0):
+        last_id = int(start_after_id or 0)
+        while True:
+            with self._cursor() as (_conn, cur):
+                cur.execute(
+                    "SELECT id, content FROM memories "
+                    "WHERE id > %s AND colbert_tokens IS NULL "
+                    "ORDER BY id ASC LIMIT %s",
+                    (last_id, int(batch_size)),
+                )
+                rows = cur.fetchall()
+            if not rows:
+                return
+            for r in rows:
+                yield int(r[0]), (r[1] or "")
+            last_id = int(rows[-1][0])
 
     def add_connections_batch(self, pairs, edge_type: str = "similar") -> int:
         """Bulk-upsert undirected weighted edges in a single transaction.

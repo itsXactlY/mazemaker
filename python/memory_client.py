@@ -226,6 +226,19 @@ class SQLiteStore:
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS db_meta (key TEXT PRIMARY KEY, value TEXT)"
         )
+        # ColBERT-style late-interaction token cache. Optional/nullable —
+        # existing memories left as NULL; recall gracefully skips this
+        # channel for any memory missing the blob. See colbert_helper.py
+        # for the design and byte layout. ~64 KB per populated row at 32
+        # tokens × 1024 dims fp16; opt-in only via MM_COLBERT_ENABLED=1
+        # because 230k memories = 14.7 GB extra disk.
+        mem_cols = {r[1] for r in self.conn.execute("PRAGMA table_info(memories)").fetchall()}
+        if "colbert_tokens" not in mem_cols:
+            try:
+                self.conn.execute("ALTER TABLE memories ADD COLUMN colbert_tokens BLOB")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(connections)").fetchall()}
         migrations = {
             "event_time": "ALTER TABLE connections ADD COLUMN event_time REAL",
@@ -383,10 +396,38 @@ class SQLiteStore:
         dim = len(blob) // 4
         return list(struct.unpack(f"{dim}f", blob))
 
+    # FTS5 stopwords — natural-language scaffolding tokens that bloat the
+    # AND-form of multi-word queries until BM25 returns 0 hits despite
+    # the corpus containing the answer. Cherry-picked from upstream PR #5
+    # (commit 2d9b5b9): the AE-domain bench saw 0/240 sparse hits before
+    # this filter, 240/240 after.
+    _FTS_STOPWORDS = frozenset({
+        "the", "a", "an", "is", "are", "was", "were", "be", "been",
+        "and", "or", "but", "of", "in", "on", "at", "to", "for", "by",
+        "with", "from", "as", "this", "that", "these", "those", "it",
+        "its", "what", "when", "where", "why", "how", "who", "which",
+        "do", "does", "did", "have", "has", "had", "will", "would",
+        "should", "could", "can", "may", "might", "i", "we", "you",
+        "they", "he", "she", "find", "show", "list", "give", "tell",
+        "memories", "mention", "memory", "notes", "note", "about",
+    })
+
     @staticmethod
     def _sanitize_fts_query(query: str, mode: str = "and") -> str:
-        tokens = re.findall(r"[A-Za-z0-9_][A-Za-z0-9_\-]{1,}", query or "")
-        tokens = [t.replace('"', '') for t in tokens[:12]]
+        # Preserve slash + hyphen inside tokens ("12/2 romex", "lot-27").
+        # Lowercase for stopword matching; FTS5 is case-insensitive anyway.
+        raw = re.findall(r"[A-Za-z0-9_][A-Za-z0-9_/\-]{1,}", (query or "").lower())
+        tokens = []
+        for t in raw[:24]:
+            t = t.replace('"', '')
+            # Need at least 2 alphanumerics so "1-2" / "a-" don't slip through.
+            if len(re.sub(r"[^A-Za-z0-9]", "", t)) < 2:
+                continue
+            if t in SQLiteStore._FTS_STOPWORDS:
+                continue
+            tokens.append(t)
+            if len(tokens) >= 12:
+                break
         if not tokens:
             return ""
         op = " OR " if mode == "or" else " "
@@ -538,6 +579,56 @@ class SQLiteStore:
                     (label, content, blob, memory_id),
                 )
             self.conn.commit()
+
+    # ---- ColBERT token cache ------------------------------------------------
+    def set_colbert_tokens(self, memory_id: int, blob: Optional[bytes]) -> None:
+        """Set or clear the colbert token blob for a memory id."""
+        with self._lock:
+            self.conn.execute(
+                "UPDATE memories SET colbert_tokens = ? WHERE id = ?",
+                (blob, int(memory_id)),
+            )
+            self.conn.commit()
+
+    def get_colbert_tokens_many(self, ids: "list[int]") -> "dict[int, bytes]":
+        """Bulk-fetch colbert blobs for the given ids. Missing/null entries
+        are simply absent from the returned dict (caller must handle)."""
+        ids = [int(i) for i in ids if i is not None]
+        if not ids:
+            return {}
+        out: dict[int, bytes] = {}
+        # SQLite's 999-parameter cap — chunk for safety on large rerank windows.
+        for start in range(0, len(ids), 900):
+            chunk = ids[start:start + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self.conn.execute(
+                f"SELECT id, colbert_tokens FROM memories "
+                f"WHERE id IN ({placeholders}) AND colbert_tokens IS NOT NULL",
+                tuple(chunk),
+            ).fetchall()
+            for r in rows:
+                blob = r["colbert_tokens"]
+                if blob:
+                    out[int(r["id"])] = bytes(blob)
+        return out
+
+    def stream_missing_colbert(self, batch_size: int = 1000, start_after_id: int = 0):
+        """Yield (id, content) pairs for memories that don't yet have a
+        colbert blob. Used by the migration script. Streams in id order
+        so the caller can persist a checkpoint after each batch."""
+        last_id = int(start_after_id or 0)
+        while True:
+            rows = self.conn.execute(
+                "SELECT id, content FROM memories "
+                "WHERE id > ? AND colbert_tokens IS NULL "
+                "ORDER BY id ASC LIMIT ?",
+                (last_id, int(batch_size)),
+            ).fetchall()
+            if not rows:
+                return
+            for r in rows:
+                yield int(r["id"]), (r["content"] or "")
+            last_id = int(rows[-1]["id"])
 
     def touch(self, id_: int):
         with self._lock:
@@ -762,20 +853,29 @@ class SQLiteStore:
         ]
 
     def search_bm25(self, query: str, limit: int = 50) -> list[dict]:
-        fts_query = self._sanitize_fts_query(query, mode="and")
-        if self._fts_available and fts_query:
-            try:
-                conn = self._connect_reader()
+        # Two-pass FTS5 query (cherry-picked behaviour from upstream PR #5,
+        # commit 2d9b5b9): AND-form first (precise), fall back to OR-form
+        # when AND produces zero hits. NL queries with even one out-of-corpus
+        # token would otherwise return empty — the OR fallback lets BM25
+        # rank by how many tokens *did* match.
+        if self._fts_available:
+            for mode in ("and", "or"):
+                fts_query = self._sanitize_fts_query(query, mode=mode)
+                if not fts_query:
+                    continue
                 try:
-                    rows = conn.execute(
-                        "SELECT rowid AS id, bm25(memories_fts) AS rank FROM memories_fts WHERE memories_fts MATCH ? ORDER BY rank LIMIT ?",
-                        (fts_query, limit),
-                    ).fetchall()
-                    return [{"id": int(r["id"]), "score": 1.0 / (i + 1), "rank": float(r["rank"]), "channel": "bm25"} for i, r in enumerate(rows)]
-                finally:
-                    conn.close()
-            except sqlite3.OperationalError:
-                pass
+                    conn = self._connect_reader()
+                    try:
+                        rows = conn.execute(
+                            "SELECT rowid AS id, bm25(memories_fts) AS rank FROM memories_fts WHERE memories_fts MATCH ? ORDER BY rank LIMIT ?",
+                            (fts_query, limit),
+                        ).fetchall()
+                        if rows:
+                            return [{"id": int(r["id"]), "score": 1.0 / (i + 1), "rank": float(r["rank"]), "channel": "bm25"} for i, r in enumerate(rows)]
+                    finally:
+                        conn.close()
+                except sqlite3.OperationalError:
+                    continue
         # Fallback lexical overlap.
         q = set(re.findall(r"\w+", (query or "").lower()))
         if not q:
@@ -1062,8 +1162,36 @@ class Mazemaker:
             self._channel_weights.update({
                 "salience": 0.0,
             })
+        # ColBERT late-interaction channel default weight per preset:
+        # skynet=1.2 (the precision lever), advanced/hybrid=0.5,
+        # semantic/lean/trim=0. Default-off for the base preset to
+        # preserve existing benchmark numbers when the column is empty.
+        # Caller-supplied channel_weights (below)
+        # override this. Kept OUT of the default dict above so users
+        # explicitly opt in via env (MM_COLBERT_ENABLED) or per-recall
+        # kwargs.
+        if "colbert" not in self._channel_weights:
+            if self._retrieval_mode == "skynet":
+                self._channel_weights["colbert"] = 1.2
+            elif self._retrieval_mode in ("advanced", "hybrid"):
+                self._channel_weights["colbert"] = 0.5
+            else:
+                self._channel_weights["colbert"] = 0.0
         if isinstance(channel_weights, dict):
             self._channel_weights.update({k: float(v) for k, v in channel_weights.items() if v is not None})
+
+        # ColBERT global toggle:
+        #   - MM_COLBERT_ENABLED=1 → write top-32 token blob on every
+        #     remember(), and use the colbert channel in recall().
+        #   - MM_COLBERT_ENABLED=0 (default) → skip the blob write
+        #     entirely. Recall still uses any existing blobs (so a
+        #     migration-then-disable workflow keeps cheap reads),
+        #     unless the colbert weight is also 0.
+        # The opt-in default exists because populating the blob costs
+        # ~64 KB/memory; on a 230k-memory corpus that's 14.7 GB extra
+        # disk — kept opt-in so the cheap-recall path stays small.
+        self._colbert_write_enabled = (os.environ.get("MM_COLBERT_ENABLED", "0").strip().lower()
+                                       in ("1", "true", "yes", "on"))
 
         self._hnsw_enabled = use_hnsw
         if self._hnsw_enabled is None:
@@ -1535,6 +1663,18 @@ class Mazemaker:
                     fused = self._fuse_conflict(old_content, text)
                     self.store.add_revision(int(other["id"]), old_content, text, "conflict_fusion")
                     self.store.update_memory(int(other["id"]), fused, embedding, label=label)
+                    # ColBERT tokens were extracted from the OLD content
+                    # — re-encode for the fused text so the rerank channel
+                    # stays consistent. Same opt-in gate as the fresh-write
+                    # path. Failure is non-fatal.
+                    if self._colbert_write_enabled:
+                        try:
+                            from colbert_helper import encode_tokens, pack_tokens
+                            arr = encode_tokens(fused)
+                            if arr is not None:
+                                self.store.set_colbert_tokens(int(other["id"]), pack_tokens(arr))
+                        except Exception:
+                            logger.debug("colbert: refresh on conflict-fuse failed", exc_info=True)
                     # Cache MUST mirror what was actually written to DB.
                     # Was setting content=text here while DB held `fused`,
                     # so recall via _graph_nodes saw the raw new content but
@@ -1550,6 +1690,19 @@ class Mazemaker:
 
         mem_id = self.store.store(label, text, embedding)
         self._graph_nodes[mem_id] = {"embedding": embedding, "label": label, "content": text, "connections": {}}
+
+        # ColBERT token cache. Opt-in via MM_COLBERT_ENABLED. Failure here
+        # is non-fatal — the dense embedding is the source of truth; the
+        # colbert blob is purely a precision-lever rerank channel. Logged
+        # at debug so a misconfigured environment doesn't spam the log.
+        if self._colbert_write_enabled:
+            try:
+                from colbert_helper import encode_tokens, pack_tokens
+                arr = encode_tokens(text)
+                if arr is not None:
+                    self.store.set_colbert_tokens(mem_id, pack_tokens(arr))
+            except Exception:
+                logger.debug("colbert: token-cache write failed for mem_id=%s", mem_id, exc_info=True)
 
         if self._cpp:
             try:
@@ -1903,6 +2056,67 @@ class Mazemaker:
         scored.sort(key=lambda x: -float(x.get("relevance", 0.0)))
         return scored + tail
 
+    # ── ColBERT late-interaction helpers ──────────────────────────────────
+    def _colbert_score_candidates(
+        self,
+        query: str,
+        fused: "dict[int, dict]",
+        cap: int = 100,
+    ) -> "dict[int, float]":
+        """Score the top-`cap` fused candidates via BGE-M3 token-level
+        max-sim. Returns {memory_id: float} for candidates that had a
+        cached blob; absent ids fell through (no penalty, just no boost).
+
+        Lazy in two ways:
+          1. Imports colbert_helper only when called (no model load on
+             plain semantic recall).
+          2. Restricts to the top `cap` ids by current fused_score —
+             ColBERT is a 2nd-stage rerank, not a fresh retrieval.
+        """
+        try:
+            from colbert_helper import (
+                encode_tokens,
+                unpack_tokens,
+                score_late_interaction,
+            )
+        except Exception:
+            return {}
+        head_ids = [
+            mid for mid, _ in sorted(
+                fused.items(), key=lambda kv: -kv[1].get("fused_score", 0.0)
+            )[:cap]
+        ]
+        if not head_ids:
+            return {}
+        try:
+            blobs = self.store.get_colbert_tokens_many(head_ids)
+        except Exception:
+            return {}
+        if not blobs:
+            return {}
+        try:
+            q_arr = encode_tokens(query)
+        except Exception:
+            return {}
+        if q_arr is None:
+            return {}
+        import numpy as np
+        docs: "list[Optional[np.ndarray]]" = []
+        order: "list[int]" = []
+        for mid in head_ids:
+            blob = blobs.get(mid)
+            if not blob:
+                continue
+            arr = unpack_tokens(blob)
+            if arr is None:
+                continue
+            docs.append(arr.astype(np.float32))
+            order.append(mid)
+        if not docs:
+            return {}
+        scores = score_late_interaction(q_arr.astype(np.float32), docs)
+        return {mid: float(s) for mid, s in zip(order, scores)}
+
     def recall_batch(self, queries: "list[str]", k: int = 5) -> "list[list[dict]]":
         """Batched semantic recall.
 
@@ -1947,6 +2161,17 @@ class Mazemaker:
         # results). e.g. score_percentile=0.5 keeps the top half of
         # ranked candidates. Off by default (0.0).
         score_percentile: Optional[float] = None,
+        # enable_colbert: explicitly turn the ColBERT-style late-interaction
+        # rerank channel on or off for this call. None (default) inherits the
+        # constructor's `colbert` channel weight (0 = off). True forces the
+        # channel even for memories without cached blobs (they simply get
+        # 0 contribution and don't poison the fusion).
+        enable_colbert: Optional[bool] = None,
+        # colbert_weight: per-call override for the colbert channel
+        # contribution. None inherits the constructor channel weight.
+        # Set to 0.0 to disable for this call without touching the
+        # constructor; >1.0 emphasises the rerank.
+        colbert_weight: Optional[float] = None,
         # include_echoes: when False (default), strip per-turn conversation
         # logs (`auto:turn:*`, `auto:claude:*`, `auto:hermes:*`, anything
         # starting with `auto:`) from the candidate set BEFORE relevance
@@ -1992,6 +2217,43 @@ class Mazemaker:
             for mid, score in sorted(ppr_scores.items(), key=lambda kv: -kv[1])[:limit]:
                 fused.setdefault(mid, {"id": mid, "fused_score": 0.0, "channel_scores": {}, "semantic_similarity": 0.0})
                 fused[mid]["channel_scores"]["ppr"] = score * self._channel_weights.get("ppr", 0.55) / self._rrf_k
+
+        # ── ColBERT late-interaction rerank ──────────────────────────────
+        # BGE-M3 already emits token-level embeddings; we pre-cache the
+        # top-32 per memory in the `colbert_tokens` BLOB column. At
+        # recall, score the top-100 fused candidates with ColBERT
+        # max-sim and add as a new fusion channel. Default-off; enabled
+        # per call via enable_colbert=True or globally via the `colbert`
+        # channel weight in skynet/advanced
+        # presets. Memories without a cached blob simply skip this
+        # channel; relevance still comes through the other six.
+        cb_weight = (
+            float(colbert_weight) if colbert_weight is not None
+            else float(self._channel_weights.get("colbert", 0.0) or 0.0)
+        )
+        cb_on = (
+            (enable_colbert is True)
+            or (enable_colbert is None and cb_weight > 0.0)
+        )
+        if cb_on and cb_weight > 0.0 and fused:
+            colbert_scores = self._colbert_score_candidates(query, fused)
+            if colbert_scores:
+                # Rank-based RRF contribution mirrors the other channels in
+                # _rrf_fuse: score-by-rank into the same RRF denominator,
+                # weighted by the channel weight. This keeps ColBERT
+                # additive — it can lift a precise candidate from rank 50
+                # to top-5 without overwhelming the multi-channel signal.
+                ordered = sorted(colbert_scores.items(), key=lambda kv: -kv[1])
+                for rank, (mid, raw) in enumerate(ordered, start=1):
+                    if mid not in fused:
+                        continue
+                    contrib = cb_weight / (self._rrf_k + rank)
+                    item = fused[mid]
+                    item["fused_score"] = item.get("fused_score", 0.0) + contrib
+                    item["channel_scores"]["colbert"] = (
+                        item["channel_scores"].get("colbert", 0.0) + contrib
+                    )
+                    item["colbert_raw"] = float(raw)
 
         mems = self.store.get_many(list(fused.keys()), include_embedding=True)
 
@@ -2092,6 +2354,7 @@ class Mazemaker:
                 "temporal_score": round(temporal_score, 4),
                 "salience_factor": round(salience_factor, 4),
                 "ppr_score": round(ppr, 4),
+                "colbert_score": round(float(data.get("colbert_raw", 0.0) or 0.0), 4),
                 "combined": round(relevance, 6),
                 "relevance": round(relevance, 6),
                 "channel_scores": {ch: round(float(v), 6) for ch, v in data.get("channel_scores", {}).items()},
@@ -2102,7 +2365,20 @@ class Mazemaker:
             })
 
         results.sort(key=lambda x: -x["relevance"])
-        use_rerank = self._rerank if rerank is None else bool(rerank)
+        # Rerank default: explicit kwarg wins; otherwise inherit constructor
+        # value, but for the latency-tolerant modes (`advanced` / `skynet`)
+        # auto-promote to True. Lean / trim / hybrid / semantic stay opt-in
+        # because their whole point is short p50. Cherry-picked policy
+        # change from upstream PR #5 brainstorm — the cross-encoder lift on
+        # recall@5 (~+10pp on noisy queries) is the whole reason the
+        # modes exist.
+        if rerank is None:
+            if self._retrieval_mode in ("advanced", "skynet"):
+                use_rerank = True
+            else:
+                use_rerank = self._rerank
+        else:
+            use_rerank = bool(rerank)
         if use_rerank:
             results = self._rerank_results(query, results, k)
 

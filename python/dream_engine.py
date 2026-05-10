@@ -259,6 +259,13 @@ class DreamBackend:
     def get_dream_stats(self) -> Dict[str, Any]:
         raise NotImplementedError
 
+    def recent_cluster_anchors(self, window_seconds: float) -> "Set[int]":
+        """Source-memory ids already emitted as `cluster` insights inside
+        the last ``window_seconds``. Used by `_phase_insight` to rotate
+        away from re-emitting the same top-N largest communities every
+        cycle. Default: empty set (no rotation, backwards-compat)."""
+        return set()
+
 
 # ---------------------------------------------------------------------------
 # SQLite Dream Backend
@@ -937,6 +944,19 @@ class SQLiteDreamBackend(DreamBackend):
         finally:
             conn.close()
 
+    def recent_cluster_anchors(self, window_seconds: float) -> Set[int]:
+        cutoff = time.time() - float(window_seconds)
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT source_memory_id FROM dream_insights "
+                "WHERE insight_type = 'cluster' AND created_at >= ?",
+                (cutoff,),
+            ).fetchall()
+            return {int(r[0]) for r in rows if r[0] is not None}
+        finally:
+            conn.close()
+
     def prune_connection_history(self, keep_days: int = 7) -> int:
         """Delete history entries older than keep_days."""
         conn = self._connect()
@@ -1580,16 +1600,36 @@ class DreamEngine:
             # so taking the prefix == taking the largest.
             MIN_CLUSTER_SIZE = 10
             MAX_CLUSTERS_PER_CYCLE = 50
+            # Rotation window: skip communities whose anchor (lowest member
+            # id, deterministic) has been emitted within this window.  6h
+            # is large enough that the same Top-50 mega-clusters don't
+            # re-emit every cycle, small enough that the corpus does
+            # eventually cycle back through (after drift) for refresh.
+            ANCHOR_REEMIT_WINDOW_S = 6 * 3600
+
+            recent_anchors = self.backend.recent_cluster_anchors(
+                ANCHOR_REEMIT_WINDOW_S
+            )
 
             t0 = time.perf_counter()
             insight_rows: List[Tuple[int, str, int, str, float]] = []
             emitted = 0
+            skipped_recent = 0
 
             for comm in communities:
                 if len(comm) < MIN_CLUSTER_SIZE:
                     continue
                 if emitted >= MAX_CLUSTERS_PER_CYCLE:
                     break
+                # Stable anchor: lowest member id.  `comm[0]` is whatever
+                # order the community detector returned, which drifts
+                # cycle-to-cycle on the same underlying community; min(id)
+                # is deterministic given the same membership set, so the
+                # rotation window actually catches duplicates.
+                anchor = min(int(x) for x in comm)
+                if anchor in recent_anchors:
+                    skipped_recent += 1
+                    continue
                 emitted += 1
                 # _extract_theme caps its own SQL fan-out — see method.
                 # Returns a real excerpt from the cluster's centroid member,
@@ -1605,11 +1645,12 @@ class DreamEngine:
                 # its embedding reflects the excerpt content.
                 content = f"{theme}\n[cluster:{len(comm)}m]"
                 insight_rows.append(
-                    (session_id, "cluster", int(comm[0]), content, confidence)
+                    (session_id, "cluster", anchor, content, confidence)
                 )
                 stats["insights"] += 1
                 if self._write_derived_cluster_memory(comm, content, confidence) is not None:
                     stats["derived_facts"] += 1
+            stats["clusters_skipped_recent"] = skipped_recent
             t_clusters = time.perf_counter() - t0
 
             # Build the per-bridge community count without a full adjacency

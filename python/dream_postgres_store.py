@@ -529,6 +529,16 @@ class DreamPostgresStore:
                  content, confidence, time.time()),
             )
 
+    def recent_cluster_anchors(self, window_seconds: float) -> set:
+        cutoff = time.time() - float(window_seconds)
+        with self._cursor() as (_conn, cur):
+            cur.execute(
+                "SELECT DISTINCT source_memory_id FROM dream_insights "
+                "WHERE insight_type = 'cluster' AND created_at >= %s",
+                (cutoff,),
+            )
+            return {int(r[0]) for r in cur.fetchall() if r[0] is not None}
+
     def get_insights(self, limit: int = 50) -> List[Dict[str, Any]]:
         with self._cursor() as (_conn, cur):
             cur.execute(

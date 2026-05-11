@@ -26,7 +26,6 @@ Volume=%h/.bench-pod:/work:z
 #   localhost/bench-mazemaker:0.1.0
 #   localhost/bench-hindsight:0.1.0
 #   localhost/bench-letta:0.1.0
-#   localhost/bench-mem0:0.1.0
 #   localhost/bench-amem:0.1.0
 #   localhost/bench-cognee:0.1.0
 #   localhost/bench-ollama:0.1.0

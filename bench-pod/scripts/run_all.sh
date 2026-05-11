@@ -21,7 +21,7 @@ bash "$POD_ROOT/scripts/install_quadlet.sh" || log "  (skipped)"
 
 log "3/4 run runners"
 cd "$POD_ROOT"
-for r in mazemaker hindsight letta mem0 amem cognee; do
+for r in mazemaker hindsight letta amem cognee; do
     log "  runner: $r"
     "$PY" -m "runners.${r}_runner" --work "$WORK" >"$WORK/logs/${r}.log" 2>&1 \
         || log "    rc!=0 (check $WORK/logs/${r}.log; comparator will mark accordingly)"

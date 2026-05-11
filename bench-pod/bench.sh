@@ -49,7 +49,7 @@ for arg in "$@"; do
             cat <<EOF
 Comparison Pod v$VERSION
 
-  --only=<system>      Run a single runner (mazemaker|hindsight|letta|mem0|amem|cognee)
+  --only=<system>      Run a single runner (mazemaker|hindsight|letta|amem|cognee)
   --skip-fetch         Skip dataset fetch/verify
   --skip-preflight     Skip the runtime preflight (dangerous)
   --version            Print version and exit
@@ -135,7 +135,7 @@ fi
 # Run runners
 # ---------------------------------------------------------------------------
 
-ALL_RUNNERS=(mazemaker hindsight letta mem0 amem cognee)
+ALL_RUNNERS=(mazemaker hindsight letta amem cognee)
 if [ -n "$ONLY" ]; then
     case " ${ALL_RUNNERS[*]} " in
         *" $ONLY "*) RUNNERS=("$ONLY") ;;

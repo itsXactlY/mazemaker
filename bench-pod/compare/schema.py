@@ -22,7 +22,7 @@ RESULT_RECORD_SCHEMA: dict[str, Any] = {
         "bench_pod_version": {"type": "string"},
         "system": {
             "type": "string",
-            "enum": ["mazemaker", "hindsight", "letta", "mem0", "amem", "cognee"],
+            "enum": ["mazemaker", "hindsight", "letta", "amem", "cognee"],
         },
         "system_version": {"type": "string"},
         "system_config": {"type": "object"},

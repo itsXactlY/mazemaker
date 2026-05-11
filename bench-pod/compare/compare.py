@@ -17,7 +17,7 @@ from typing import Any
 
 from compare.schema import validate
 
-SYSTEMS_ORDER = ["mazemaker", "hindsight", "letta", "mem0", "amem", "cognee"]
+SYSTEMS_ORDER = ["mazemaker", "hindsight", "letta", "amem", "cognee"]
 
 
 # ---------------------------------------------------------------------------

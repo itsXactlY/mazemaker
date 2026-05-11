@@ -14,10 +14,10 @@ template, and Mazemaker runner all work end-to-end. The five
 competitor runners are stubs that import cleanly and respond to
 `--help` but do not yet execute their target systems.
 
-**v0.2 (next release):** Hindsight, Letta (formerly MemGPT), Mem0,
-A-MEM, and Cognee runners. Each will follow the locked methodology
-documented at `https://mazemaker.online/destruction/<system>/` and
-emit `ResultRecord` JSON to `/work/results/<system>.json`.
+**v0.2 (next release):** Hindsight, Letta (formerly MemGPT), A-MEM,
+and Cognee runners. Each follows the locked methodology documented at
+`https://mazemaker.online/comparison/<system>/` and emits
+`ResultRecord` JSON to `/work/results/<system>.json`.
 
 ## One-liner
 
@@ -66,7 +66,7 @@ This pod uses **Podman + Quadlet only**. There is no `docker`, no
 `~/.config/containers/systemd/bench/` and are managed via
 `systemctl --user`.
 
-LLM extraction for systems that need it (Mem0, A-MEM, Cognee) is
+LLM extraction for systems that need it (A-MEM, Cognee) is
 routed to an in-pod `ollama` instance. The `OPENAI_API_KEY` env var is
 unset to ensure no traffic leaks to OpenAI.
 
@@ -78,7 +78,7 @@ unset to ensure no traffic leaks to OpenAI.
   in the parent repo.
 - **A-MEM:** GPL — we do not vendor; the runner spawns the upstream
   project in its own container.
-- **Hindsight, Letta, Mem0, Cognee:** their own licenses. The runners
+- **Hindsight, Letta, Cognee:** their own licenses. The runners
   are thin shims; no upstream source is copied.
 - **Benchmark datasets:** LongMemEval-S follows the upstream license
   at `xiaowu0162/long-mem-eval`. The synthetic_v1 dataset shipped in

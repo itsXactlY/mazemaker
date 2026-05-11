@@ -25,7 +25,7 @@ from typing import Any, Iterator, Optional
 
 POD_VERSION = "0.1.0"
 
-VALID_SYSTEMS = ("mazemaker", "hindsight", "letta", "mem0", "amem", "cognee")
+VALID_SYSTEMS = ("mazemaker", "hindsight", "letta", "amem", "cognee")
 
 
 # ---------------------------------------------------------------------------

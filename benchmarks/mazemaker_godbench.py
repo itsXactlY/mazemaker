@@ -258,15 +258,18 @@ def rank_of_gold(results: list[dict], gold_ids: set[str]) -> Optional[int]:
 def run_question(nm: Mazemaker, record: dict, k: int = 10,
                  recall_mode: str = "skynet", rerank: bool = True,
                  enable_colbert: bool = True, enable_dae: bool = True,
+                 recall_k: Optional[int] = None,
                  ) -> QuestionResult:
     qid = record["question_id"]
     gold_ids = set(record.get("answer_session_ids") or [])
     is_abs = qid.endswith("_abs")
 
+    fetch_k = int(recall_k) if recall_k and recall_k > k else k
+
     t0 = time.perf_counter()
     results = nm.recall(
         record["question"],
-        k=k,
+        k=fetch_k,
         hybrid=(recall_mode in {"hybrid", "advanced", "skynet", "lean", "trim"}),
         rerank=rerank,
         enable_colbert=enable_colbert,
@@ -579,7 +582,10 @@ def _pg_reset_schema(schema: str) -> None:
 
 
 def build_god_engine(schema: str, recall_mode: str = "skynet",
-                     rerank: bool = True, reset_schema: bool = True) -> Mazemaker:
+                     rerank: bool = True, reset_schema: bool = True,
+                     retrieval_candidates: int = 64,
+                     colbert_weight: float = 1.5,
+                     dae_weight: float = 1.0) -> Mazemaker:
     """Build a PG-backed Mazemaker for bulk ingest + full magic.
 
     Everything — graph, dream, supersession, DAE, recall — runs on the
@@ -625,7 +631,8 @@ def build_god_engine(schema: str, recall_mode: str = "skynet",
         lazy_graph=True,
         think_engine="ppr",
         rerank=rerank,
-        channel_weights={"colbert": 1.5, "dae": 1.0},
+        retrieval_candidates=int(retrieval_candidates),
+        channel_weights={"colbert": float(colbert_weight), "dae": float(dae_weight)},
     )
     # Lock the vector column to bge-m3's 1024-d output before any write,
     # so the first ingest batch doesn't pay a column-add stall.
@@ -675,6 +682,21 @@ def main():
     p.add_argument("--rerank", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--colbert", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--dae", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--colbert-weight", type=float, default=1.5,
+                    help="ColBERT channel weight in RRF fusion (default 1.5)")
+    p.add_argument("--dae-weight", type=float, default=1.0,
+                    help="DAE channel weight in RRF fusion (default 1.0)")
+    p.add_argument("--retrieval-candidates", type=int, default=64,
+                    help="Per-channel candidate pool size at engine init "
+                         "(default 64). Higher = RRF fusion sees deeper recall "
+                         "list. Costs proportionally more semantic+BM25+ColBERT "
+                         "compute per query.")
+    p.add_argument("--recall-k", type=int, default=10,
+                    help="Internal fetch pool size (default 10). When >10, "
+                         "engine fetches more candidates → wider rerank window "
+                         "(cross-encoder reranks max(k*3, k, 12) of the fused pool). "
+                         "Scoring still computes R@1/5/10 on the ordered result list, "
+                         "so increasing this only matters when rerank can reorder.")
     p.add_argument("--dream", action="store_true",
                     help="Run dream ablation after baseline recall")
     p.add_argument("--batch-size", type=int, default=100,
@@ -768,7 +790,10 @@ def main():
     print(f"\n[engine] Building single PG-backed Mazemaker...")
     t_eng = time.perf_counter()
     nm = build_god_engine(schema, recall_mode=args.recall_mode, rerank=args.rerank,
-                          reset_schema=not args.read_cache)
+                          reset_schema=not args.read_cache,
+                          retrieval_candidates=args.retrieval_candidates,
+                          colbert_weight=args.colbert_weight,
+                          dae_weight=args.dae_weight)
     eng_s = time.perf_counter() - t_eng
     print(f"  engine ready in {eng_s:.1f}s — schema: {schema}")
 
@@ -876,6 +901,7 @@ def main():
                 rerank=args.rerank,
                 enable_colbert=args.colbert,
                 enable_dae=args.dae,
+                recall_k=args.recall_k,
             )
         except Exception as e:
             row = QuestionResult(

@@ -566,6 +566,8 @@ class DreamPostgresStore(DreamBackend):
                 "  WHERE c.source_id = s.source_id "
                 "    AND c.target_id = s.target_id"
                 ") "
+                "  AND EXISTS (SELECT 1 FROM memories m WHERE m.id = s.source_id) "
+                "  AND EXISTS (SELECT 1 FROM memories m WHERE m.id = s.target_id) "
                 "RETURNING source_id, target_id, weight"
             )
             new_rows = cur.fetchall()
@@ -616,6 +618,15 @@ class DreamPostgresStore(DreamBackend):
                 (source_id, target_id),
             )
             if cur.fetchone():
+                return False
+            cur.execute(
+                "SELECT "
+                "  EXISTS(SELECT 1 FROM memories WHERE id = %s), "
+                "  EXISTS(SELECT 1 FROM memories WHERE id = %s)",
+                (source_id, target_id),
+            )
+            src_ok, tgt_ok = cur.fetchone()
+            if not (src_ok and tgt_ok):
                 return False
             cur.execute(
                 "INSERT INTO connections (source_id, target_id, weight) "

@@ -20,6 +20,7 @@ import argparse
 import json
 import math
 import os
+import re
 import statistics
 import sys
 import time
@@ -255,26 +256,86 @@ def rank_of_gold(results: list[dict], gold_ids: set[str]) -> Optional[int]:
     return None
 
 
+# Minimal English stopword set for deterministic keyword-stripping. Does
+# NOT depend on NLTK or any external NLP library — hand-curated to match
+# what a question rewriter would drop without ever inspecting the gold or
+# the question type. Used by multi-perspective recall below.
+_STOPWORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "doing", "done",
+    "i", "me", "my", "myself", "we", "us", "our", "you", "your",
+    "he", "him", "his", "she", "her", "it", "its", "they", "them", "their",
+    "what", "which", "who", "whom", "this", "that", "these", "those",
+    "and", "or", "but", "if", "then", "else", "so", "of", "in", "on", "at",
+    "to", "from", "for", "with", "by", "about", "as", "into", "than",
+    "tell", "say", "said", "mention", "mentioned", "remember", "recall",
+    "would", "could", "should", "will", "shall", "can", "may", "might",
+    "when", "where", "why", "how", "ever",
+})
+
+def _keyword_query(q: str) -> str:
+    """Stopword-stripped version of *q*. Deterministic, no question-type
+    awareness, no question-content rewriting — just removes function words
+    that dilute the embedding's topical signal."""
+    toks = [t for t in re.findall(r"[A-Za-z][A-Za-z0-9'_-]*", q.lower())
+            if t not in _STOPWORDS]
+    return " ".join(toks) if toks else q
+
+
+def _rrf_fuse(result_lists: list, k: int, rrf_k: int = 60) -> list:
+    """RRF-fuse N result lists keyed by ``id``. Returns top-k merged."""
+    scores: dict = {}
+    seen: dict = {}
+    for rlist in result_lists:
+        for rank, r in enumerate(rlist):
+            rid = r.get("id")
+            if rid is None:
+                continue
+            scores[rid] = scores.get(rid, 0.0) + 1.0 / (rrf_k + rank)
+            if rid not in seen:
+                seen[rid] = r
+    ranked = sorted(scores, key=lambda i: -scores[i])
+    return [seen[i] for i in ranked[:k]]
+
+
 def run_question(nm: Mazemaker, record: dict, k: int = 10,
                  recall_mode: str = "skynet", rerank: bool = True,
                  enable_colbert: bool = True, enable_dae: bool = True,
                  recall_k: Optional[int] = None,
+                 multi_recall: bool = False,
                  ) -> QuestionResult:
     qid = record["question_id"]
     gold_ids = set(record.get("answer_session_ids") or [])
     is_abs = qid.endswith("_abs")
 
     fetch_k = int(recall_k) if recall_k and recall_k > k else k
+    hybrid = (recall_mode in {"hybrid", "advanced", "skynet", "lean", "trim"})
 
     t0 = time.perf_counter()
-    results = nm.recall(
-        record["question"],
-        k=fetch_k,
-        hybrid=(recall_mode in {"hybrid", "advanced", "skynet", "lean", "trim"}),
-        rerank=rerank,
-        enable_colbert=enable_colbert,
-        enable_dae=enable_dae,
-    )
+    if multi_recall:
+        # Two deterministic perspectives, RRF-fused. The keyword variant is
+        # produced by a fixed stopword strip — no LLM, no question-type
+        # branching, identical for every question. Each variant runs through
+        # the full skynet+ColBERT+rerank pipeline; fusion happens AFTER each
+        # has been independently ranked, so weak channels in one perspective
+        # can't drag down the other.
+        q_orig = record["question"]
+        q_kw = _keyword_query(q_orig)
+        rlists = []
+        for q in (q_orig, q_kw):
+            rl = nm.recall(q, k=fetch_k, hybrid=hybrid, rerank=rerank,
+                           enable_colbert=enable_colbert, enable_dae=enable_dae)
+            rlists.append(rl)
+        results = _rrf_fuse(rlists, k=fetch_k)
+    else:
+        results = nm.recall(
+            record["question"],
+            k=fetch_k,
+            hybrid=hybrid,
+            rerank=rerank,
+            enable_colbert=enable_colbert,
+            enable_dae=enable_dae,
+        )
     lat_ms = (time.perf_counter() - t0) * 1000.0
 
     rank = rank_of_gold(results, gold_ids) if gold_ids else None
@@ -682,6 +743,11 @@ def main():
     p.add_argument("--rerank", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--colbert", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--dae", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--multi-recall", action="store_true",
+                    help="Run two perspectives per question (original + "
+                         "stopword-stripped keyword form), RRF-fuse the "
+                         "result lists. Both perspectives go through the "
+                         "full skynet+ColBERT+rerank pipeline. Doubles latency.")
     p.add_argument("--colbert-weight", type=float, default=1.5,
                     help="ColBERT channel weight in RRF fusion (default 1.5)")
     p.add_argument("--dae-weight", type=float, default=1.0,
@@ -902,6 +968,7 @@ def main():
                 enable_colbert=args.colbert,
                 enable_dae=args.dae,
                 recall_k=args.recall_k,
+                multi_recall=args.multi_recall,
             )
         except Exception as e:
             row = QuestionResult(

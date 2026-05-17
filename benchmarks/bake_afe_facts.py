@@ -100,9 +100,17 @@ def main():
         dsn = _u.urlunparse(p._replace(path=f"/{CACHE_DB}"))
         with psycopg.connect(dsn, autocommit=True) as conn:
             with conn.cursor() as cur:
+                # Connections FK references memories; must clear edges
+                # first or the DELETE on memories aborts.
                 cur.execute(
-                    f'DELETE FROM "{CACHE_SCHEMA}".memories '
-                    f'WHERE label LIKE \'%::afe::%\''
+                    f'DELETE FROM "{CACHE_SCHEMA}".connections '
+                    f'WHERE source_id IN ('
+                    f'  SELECT id FROM "{CACHE_SCHEMA}".memories '
+                    f'  WHERE label LIKE \'%::afe::%\''
+                    f') OR target_id IN ('
+                    f'  SELECT id FROM "{CACHE_SCHEMA}".memories '
+                    f'  WHERE label LIKE \'%::afe::%\''
+                    f')'
                 )
                 cur.execute(
                     f'DELETE FROM "{CACHE_SCHEMA}".memories '

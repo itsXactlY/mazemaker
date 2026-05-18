@@ -41,3 +41,9 @@ smoke/
 probing_eval/
 external/benchmarks/logs/
 benchmarks/logs/
+
+# Operator-internal architecture notes (personal scratchpad; not for
+# git). The engine code and benchmark code referenced inside it ARE
+# committed to this repo as of 2026-05-18.
+docs/PROPRIETARY_STACK_INTERNAL.md
+

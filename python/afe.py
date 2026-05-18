@@ -32,8 +32,12 @@ source via a 'supports' connection edge.
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 from typing import List, Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -88,6 +92,13 @@ def _looks_atomic(s: str) -> bool:
     s = s.strip()
     if len(s) < 4 or len(s) > 280:
         return False
+    # User-side preference/possession/identity statements are valid
+    # atomic facts even without numerics or proper nouns — e.g.
+    # "user prefers non-smoking rooms". The Stage C prompt asks for
+    # exactly this format, so accept it explicitly.
+    sl = s.lower()
+    if sl.startswith(("user ", "the user ")):
+        return True
     # Reject pure prose: no numbers/proper-nouns/structured token
     if not _NUMERIC_TOKEN_RE.search(s) and not re.search(r"\b[A-Z][a-z]+ [A-Z][a-z]+", s):
         return False
@@ -276,17 +287,34 @@ def _stage_c_llm(content: str, model: str) -> List[Dict[str, Any]]:
             "assistant. Output ONLY the JSON array, nothing else.\n\n"
             f"PASSAGE:\n{content[:TRUNCATE_AT]}\n\nFACTS:"
         )
+        # Force ollama to skip the streaming progress UI; without this it
+        # writes ANSI cursor-movement escapes ('\x1b[2D\x1b[K', etc.) into
+        # the JSON stream, which json.loads then rejects. NO_COLOR + a
+        # dumb TERM is the documented quiet-mode incantation.
+        _env = dict(os.environ, NO_COLOR="1", TERM="dumb")
         result = subprocess.run(
             ["ollama", "run", model],
             input=prompt,
             capture_output=True,
             text=True,
             timeout=60,
+            env=_env,
         )
         if result.returncode != 0:
             return []
         import json
-        out = result.stdout.strip()
+        out = result.stdout
+        # Strip ANSI control sequences (CSI: ESC [ ... letter; OSC, etc.)
+        # — ollama leaks streaming-UI bytes into stdout even when piped.
+        out = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", out)
+        out = re.sub(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)", "", out)
+        # Ollama's streaming wrapper also inserts raw newlines mid-string
+        # when its TUI hits the terminal width, producing invalid JSON
+        # like `"...hotel i\nin Shinjuku..."`. Collapse all unescaped
+        # control bytes (0x00-0x1f except tab) inside the response to
+        # spaces — facts are single-line by contract.
+        out = re.sub(r"[\x00-\x08\x0a-\x1f]", " ", out)
+        out = out.strip()
         # Strip code fences
         out = re.sub(r"^```(?:json)?\s*|\s*```$", "", out, flags=re.MULTILINE).strip()
         # Find first JSON array
@@ -305,15 +333,33 @@ def _stage_c_llm(content: str, model: str) -> List[Dict[str, Any]]:
                     "source_span": (0, len(content)),
                     "stage": "C",
                 })
-            elif isinstance(f, dict) and "text" in f and _looks_atomic(f["text"]):
-                facts.append({
-                    "text": f["text"][:280],
-                    "entity": f.get("entity"),
-                    "predicate": f.get("predicate"),
-                    "value": f.get("value"),
-                    "source_span": (0, len(content)),
-                    "stage": "C",
-                })
+            elif isinstance(f, dict):
+                # Smaller models (qwen2.5:3b, gemma) wrap each fact in
+                # {"Fact": "..."} or {"fact": "..."} despite the prompt
+                # asking for plain strings. Accept any single-string-
+                # value dict so we don't drop the whole batch.
+                txt = None
+                for key in ("text", "fact", "Fact", "FACT",
+                            "statement", "value", "atom"):
+                    v = f.get(key)
+                    if isinstance(v, str) and v.strip():
+                        txt = v
+                        break
+                if txt is None:
+                    # last resort: first string value in the dict
+                    for v in f.values():
+                        if isinstance(v, str) and v.strip():
+                            txt = v
+                            break
+                if txt and _looks_atomic(txt):
+                    facts.append({
+                        "text": txt.strip()[:280],
+                        "entity": f.get("entity"),
+                        "predicate": f.get("predicate"),
+                        "value": f.get("value"),
+                        "source_span": (0, len(content)),
+                        "stage": "C",
+                    })
         return facts
     except Exception:
         return []

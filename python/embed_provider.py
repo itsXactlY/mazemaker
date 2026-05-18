@@ -78,13 +78,11 @@ class SharedEmbedServer:
     Error shape (any cmd): {"ok": false, "error": "..."}
     """
 
-    def __init__(self, model_name=None, device=None, idle_timeout=20, recall_engine=None):
+    def __init__(self, model_name=None, device=None, recall_engine=None):
         self.model_name = model_name or os.environ.get('EMBED_MODEL', 'BAAI/bge-m3')
-        self.idle_timeout = idle_timeout
         self.model = None
         self.dim = None
         self.device = device
-        self._last_used = 0.0
         self._original_device = None
         self._lock = threading.Lock()
         self._running = False
@@ -119,7 +117,6 @@ class SharedEmbedServer:
         
         self._load_model()
         self._start_listener()
-        self._start_eject_timer()
         print(f"[embed-server] Listening at {SOCKET_PATH}")
         return True
     
@@ -180,9 +177,11 @@ class SharedEmbedServer:
             self._wait_for_gpu_memory(min_free_mb=2000, timeout=gpu_wait_s, poll_interval=2)
         
         self.model = SentenceTransformer(model_path, device=device)
+        # Cap at 2048 tokens: 4× less memory per sequence than the
+        # default 8192, keeps semantic signal for memory matching.
+        self.model.max_seq_length = 2048
         self.dim = self.model.get_sentence_embedding_dimension()
         self._original_device = device
-        self._last_used = time.time()
         print(f"[embed-server] Ready: {self.model_name} ({self.dim}d) on {device}")
     
     def _wait_for_gpu_memory(self, min_free_mb: float = 2000, timeout: float = 120, poll_interval: float = 5):
@@ -262,7 +261,6 @@ class SharedEmbedServer:
     
     def _process(self, req):
         cmd = req.get("cmd")
-        self._last_used = time.time()
 
         # Embedding cmds touch self.model — they must serialise on the
         # model lock so two encode calls don't trample each other on GPU.
@@ -276,13 +274,22 @@ class SharedEmbedServer:
             with self._lock:
                 try:
                     if cmd == "embed":
-                        vec = self.model.encode(req["text"], normalize_embeddings=True)
-                        return {"ok": True, "vec": vec.tolist()}
+                        vec = self.model.encode(
+                            req["text"], normalize_embeddings=True,
+                        )
+                        result = {"ok": True, "vec": vec.tolist()}
                     else:  # embed_batch
-                        vecs = self.model.encode(req["texts"], normalize_embeddings=True, show_progress_bar=False)
-                        return {"ok": True, "vecs": [v.tolist() for v in vecs]}
+                        # max_seq_length=2048 is set on the model so
+                        # truncation happens automatically. batch_size=8
+                        # is safe on constrained GPUs and avoids memory pressure.
+                        vecs = self.model.encode(
+                            req["texts"], normalize_embeddings=True,
+                            show_progress_bar=False, batch_size=8,
+                        )
+                        result = {"ok": True, "vecs": [v.tolist() for v in vecs]}
                 except Exception as e:
-                    return {"ok": False, "error": str(e)}
+                    result = {"ok": False, "error": str(e)}
+            return result
 
         # Lock-free cmds (no model access OR access through engine which
         # has its own locking via the GPU operations).
@@ -292,14 +299,10 @@ class SharedEmbedServer:
                 return {
                     "ok": True, "model": self.model_name, "dim": self.dim,
                     "device": str(device), "original": self._original_device,
-                    "idle": round(time.time() - self._last_used, 1),
-                    "timeout": self.idle_timeout,
                 }
             elif cmd == "ping":
                 return {"ok": True, "dim": self.dim}
-            elif cmd == "eject":
-                self._eject_to_cpu()
-                return {"ok": True}
+            # eject cmd removed — never was reliable, caused endless trouble
             elif cmd == "recall":
                 if not self._recall_engine:
                     return {"ok": False, "error": "no recall_engine attached"}
@@ -377,32 +380,7 @@ class SharedEmbedServer:
         print(f"[embed-server] FATAL: GPU reload timed out after {attempt} attempts", file=sys.stderr)
         print(f"[embed-server] Policy: NO FALLBACK — GPU was intended, not falling back to CPU", file=sys.stderr)
         raise RuntimeError(f"GPU unavailable after {attempt} attempts: {last_error}")
-    
-    def _eject_to_cpu(self):
-        try:
-            import torch
-            current = next(self.model.parameters()).device
-            if current.type == 'cpu':
-                return
-            self.model.to('cpu')
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            print(f"[embed-server] Ejected to CPU (freed GPU)")
-        except Exception as e:
-            print(f"[embed-server] Eject failed: {e}", file=sys.stderr)
-    
-    def _start_eject_timer(self):
-        if self.idle_timeout <= 0:
-            return
-        def _check():
-            while self._running:
-                time.sleep(5)  # Check every 5s for fast eject
-                idle = time.time() - self._last_used
-                if idle > self.idle_timeout:
-                    self._eject_to_cpu()
-        t = threading.Thread(target=_check, daemon=True, name="embed-eject")
-        t.start()
-    
+
     def stop(self):
         self._running = False
         if self._sock:
@@ -427,10 +405,10 @@ class SharedEmbedClient:
     _MAX_RETRIES = 5
     _BASE_DELAY = 0.2  # seconds
     
-    def __init__(self, timeout=10.0):
+    def __init__(self, timeout=None):
         self._sock = None
         self._dim = None
-        self._timeout = timeout
+        self._timeout = timeout or float(os.environ.get("MM_EMBED_TIMEOUT", "300"))
         self._connect()
     
     def _connect(self):
@@ -642,7 +620,7 @@ class SentenceTransformerBackend:
       EMBED_DEVICE — force device (cuda/cpu/mps, default: auto)
     """
     MODEL_NAME = os.environ.get('EMBED_MODEL', os.environ.get('SENTENCE_TRANSFORMER_MODEL', 'BAAI/bge-m3'))
-    IDLE_TIMEOUT = int(os.environ.get('EMBED_IDLE_TIMEOUT', '20'))
+    IDLE_TIMEOUT = int(os.environ.get('EMBED_IDLE_TIMEOUT', '0'))  # no longer used, kept for compat
     FORCED_DEVICE = os.environ.get('EMBED_DEVICE', None)
     
     _shared_model = None
@@ -694,7 +672,6 @@ class SentenceTransformerBackend:
             server = SharedEmbedServer(
                 model_name=self.MODEL_NAME,
                 device=self.FORCED_DEVICE,
-                idle_timeout=self.IDLE_TIMEOUT,
             )
             if server.start():
                 # We're the server — keep the reference so dream_worker (or
@@ -771,6 +748,7 @@ class SentenceTransformerBackend:
         
         print(f"[embed] Loading {model_path} directly on {device}...")
         self.model = SentenceTransformer(model_path, device=device)
+        self.model.max_seq_length = 2048
         self.dim = self.model.get_sentence_embedding_dimension()
         SentenceTransformerBackend._shared_model = self.model
         SentenceTransformerBackend._shared_dim = self.dim
@@ -787,7 +765,7 @@ class SentenceTransformerBackend:
                     self._client.close()
                 except Exception:
                     pass
-                self._client = SharedEmbedClient(timeout=15.0)
+                self._client = SharedEmbedClient()
                 return self._client.embed(text)
         SentenceTransformerBackend._touch()
         SentenceTransformerBackend._ensure_on_device()
@@ -804,11 +782,14 @@ class SentenceTransformerBackend:
                     self._client.close()
                 except Exception:
                     pass
-                self._client = SharedEmbedClient(timeout=15.0)
+                self._client = SharedEmbedClient()
                 return self._client.embed_batch(texts)
         SentenceTransformerBackend._touch()
         SentenceTransformerBackend._ensure_on_device()
-        vecs = self.model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+        # max_seq_length=2048 is set on the model so truncation happens
+        # automatically.  batch_size=8 is safe on constrained GPUs.
+        vecs = self.model.encode(texts, normalize_embeddings=True,
+                                 show_progress_bar=False, batch_size=8)
         return [v.tolist() for v in vecs]
 
     @classmethod

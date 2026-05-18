@@ -47,8 +47,24 @@ def main():
     print("  PID:          {0}".format(os.getpid()))
     print("=" * 60)
 
-    # Clean up stale socket
+    # Refuse to clobber a live server. SharedEmbedServer.start() already
+    # does this internally; the previous unconditional unlink() here
+    # bypassed that check and disconnected any clients (other Hermes
+    # sessions, mcp pods, etc.) attached to a running peer server.
     if SOCKET_PATH.exists():
+        try:
+            from embed_provider import SharedEmbedClient
+            probe = SharedEmbedClient()
+            if probe.ping():
+                print(
+                    "[embed-server] Another embed-server is already running at {0} — refusing to start.".format(SOCKET_PATH),
+                    file=sys.stderr,
+                )
+                sys.exit(0)
+        except Exception:
+            # Probe failed: socket file is stale (server crashed without
+            # cleaning up). Safe to remove and bind ourselves.
+            pass
         print("[embed-server] Removing stale socket: {0}".format(SOCKET_PATH))
         SOCKET_PATH.unlink()
 

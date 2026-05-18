@@ -163,6 +163,10 @@ def _ollama_synthesize(
         f"{i}. {f.strip()[:_TRUNCATE_AT]}" for i, f in enumerate(capped)
     )
     prompt = _SYNTHESIS_PROMPT.format(facts_block=facts_block)
+    # Ollama leaks ANSI cursor codes into stdout when piped, even with
+    # NO_COLOR/TERM=dumb — they corrupt the JSON output. Same fix as
+    # afe.py:_stage_c_llm.
+    _env = dict(os.environ, NO_COLOR="1", TERM="dumb")
     try:
         result = subprocess.run(
             ["ollama", "run", model],
@@ -170,6 +174,7 @@ def _ollama_synthesize(
             capture_output=True,
             text=True,
             timeout=timeout_s,
+            env=_env,
         )
     except subprocess.TimeoutExpired:
         log.warning("synthesis LLM timeout (model=%s, n_facts=%d)", model, len(capped))
@@ -180,7 +185,14 @@ def _ollama_synthesize(
     if result.returncode != 0:
         log.debug("synthesis LLM exit %d: %s", result.returncode, result.stderr[:200])
         return []
-    out = result.stdout.strip()
+    out = result.stdout
+    # Strip ANSI CSI/OSC escapes that ollama's streaming wrapper writes
+    # into stdout, then collapse remaining control bytes that would
+    # otherwise be illegal inside JSON string literals.
+    out = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", out)
+    out = re.sub(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)", "", out)
+    out = re.sub(r"[\x00-\x08\x0a-\x1f]", " ", out)
+    out = out.strip()
     # Strip code fences
     out = re.sub(r"^```(?:json)?\s*|\s*```$", "", out, flags=re.MULTILINE).strip()
     m = re.search(r"\[.*\]", out, re.DOTALL)

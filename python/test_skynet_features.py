@@ -42,11 +42,31 @@ def testcase(name):
     return deco
 
 
+_TEMP_DBS: "list[str]" = []
+
+
 def temp_db():
+    # Track the path so atexit can scrub even on test-runner crash.
+    # Previously a SIGKILL or unittest._fail abort left a .db (and its
+    # -wal / -shm sidecars) per test, slowly filling /tmp.
     f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     path = f.name
     f.close()
+    _TEMP_DBS.append(path)
     return path
+
+
+import atexit
+
+
+@atexit.register
+def _cleanup_temp_dbs():
+    for path in list(_TEMP_DBS):
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.unlink(path + suffix)
+            except FileNotFoundError:
+                pass
 
 
 def cleanup(path):

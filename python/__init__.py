@@ -348,6 +348,12 @@ class NeuralMemoryProvider(MemoryProvider):
 
         Idempotent: signals any existing loop to stop and joins it before
         spawning a replacement, so re-initialisation can't leak threads.
+
+        Serialised on a per-instance lock: two concurrent calls (e.g.
+        two sessions initialising at the same time) used to interleave
+        the stop-clear-spawn sequence, ending up with the second caller
+        spawning a thread whose stop event was cleared between the first
+        caller's clear and start — i.e. an orphan thread.
         """
         if not self._config:
             return
@@ -355,29 +361,43 @@ class NeuralMemoryProvider(MemoryProvider):
         if interval <= 0:
             return  # Consolidation disabled
 
-        prior = getattr(self, "_consolidation_thread", None)
-        if prior is not None and prior.is_alive():
-            self._consolidation_stop.set()
-            prior.join(timeout=3.0)
+        # Per-instance restart lock. Created lazily — __init__ may not
+        # have it on legacy instances.
+        if not hasattr(self, "_consolidation_restart_lock"):
+            self._consolidation_restart_lock = threading.Lock()
 
-        self._consolidation_stop.clear()
+        with self._consolidation_restart_lock:
+            prior = getattr(self, "_consolidation_thread", None)
+            if prior is not None and prior.is_alive():
+                self._consolidation_stop.set()
+                prior.join(timeout=3.0)
 
-        def _consolidate_loop():
-            while not self._consolidation_stop.is_set():
-                if self._consolidation_stop.wait(timeout=interval):
-                    break
-                try:
-                    self._run_consolidation()
-                except Exception as e:
-                    logger.debug("Consolidation error: %s", e)
+            self._consolidation_stop.clear()
 
-        self._consolidation_thread = threading.Thread(
-            target=_consolidate_loop, daemon=True, name="neural-consolidation"
-        )
-        self._consolidation_thread.start()
+            def _consolidate_loop():
+                while not self._consolidation_stop.is_set():
+                    if self._consolidation_stop.wait(timeout=interval):
+                        break
+                    try:
+                        self._run_consolidation()
+                    except Exception as e:
+                        logger.debug("Consolidation error: %s", e)
+
+            self._consolidation_thread = threading.Thread(
+                target=_consolidate_loop, daemon=True, name="neural-consolidation"
+            )
+            self._consolidation_thread.start()
 
     def _run_consolidation(self) -> None:
-        """Run consolidation: prune low-salience episodic memories."""
+        """Run consolidation: report when corpus exceeds max_episodic.
+
+        Important: this is a REPORTING-only hook today. Pruning is
+        delegated to the dream engine's NREM phase, which applies a
+        proper low-salience + age trade-off. The previous log message
+        ("consolidation active") implied pruning was happening here —
+        it was not — and operators would size `max_episodic` expecting
+        a soft cap that never triggered.
+        """
         if not self._memory or not self._config:
             return
         max_episodic = self._config.get("max_episodic", 0)
@@ -387,10 +407,11 @@ class NeuralMemoryProvider(MemoryProvider):
             stats = self._memory.stats()
             total = stats.get("memories", 0)
             if total > max_episodic:
-                # In a full implementation, we'd prune low-salience memories
-                # For now, log a warning
-                logger.info(
-                    "Neural memory: %d memories (max %d) — consolidation active",
+                logger.warning(
+                    "Neural memory exceeds max_episodic: %d > %d. "
+                    "Active pruning is handled by the dream engine NREM "
+                    "phase — make sure it is running. This thread does "
+                    "NOT prune.",
                     total, max_episodic,
                 )
         except Exception as e:

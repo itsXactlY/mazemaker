@@ -40,18 +40,37 @@ class AccessLogger:
     @classmethod
     def instance(cls, log_dir: str = "~/.mazemaker/engine/access_logs",
                  max_sequence: int = 20) -> "AccessLogger":
-        """Singleton accessor. Creates on first call."""
+        """Singleton accessor. Creates on first call.
+
+        Subsequent calls with different parameters silently kept the
+        first call's config — operators changing log_dir mid-process
+        were puzzled when nothing moved. Now warns on mismatch.
+        """
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = cls(log_dir=log_dir, max_sequence=max_sequence)
-        return cls._instance
+                    return cls._instance
+        inst = cls._instance
+        if (str(inst._log_dir) != str(Path(os.path.expanduser(log_dir)))
+                or inst._max_sequence != max_sequence):
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "AccessLogger.instance() called with parameters that differ "
+                "from the existing singleton (log_dir=%s, max_sequence=%s) — "
+                "keeping the first-call values (log_dir=%s, max_sequence=%s).",
+                log_dir, max_sequence, inst._log_dir, inst._max_sequence,
+            )
+        return inst
 
     def __init__(self, log_dir: str = "~/.mazemaker/engine/access_logs",
                  max_sequence: int = 20):
         self._log_dir = Path(os.path.expanduser(log_dir))
         self._max_sequence = max_sequence
-        self._buffer: deque[dict] = deque(maxlen=1000)
+        # Buffer max-size now honours max_sequence (scaled). Previously a
+        # caller passing max_sequence=2000 still got a hardcoded 1000-
+        # event buffer — the parameter was a lie.
+        self._buffer: deque[dict] = deque(maxlen=max(1000, max_sequence * 50))
         self._flush_threshold = 100
         self._ops_since_flush = 0
         # _file_lock guards in-memory state (_buffer, _ops_since_flush). It is
@@ -394,8 +413,11 @@ class AccessLogger:
                         f.write(json.dumps(event, separators=(",", ":")) + "\n")
             except IOError as e:
                 # One line, then suppressed until next flush window — operator
-                # sees the failure once instead of per-event.
-                print(f"[AccessLogger] Flush error: {e}", flush=True)
+                # sees the failure once instead of per-event. Use the logger
+                # so this lands in the same sink as the rest of the engine,
+                # not raw stdout.
+                import logging as _logging
+                _logging.getLogger(__name__).error("AccessLogger flush error: %s", e)
 
     def __len__(self):
         return len(self._buffer)

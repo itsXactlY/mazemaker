@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict
+import logging
+from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -45,11 +48,31 @@ DEFAULT_STORE_RAW_TURNS = False
 DEFAULT_ARCHIVE_RAW_TURNS = False
 
 
+_CONFIG_CACHE: Optional[Dict[str, Any]] = None
+
+
+def reset_config_cache() -> None:
+    """Drop the cached config so the next get_config() re-reads YAML.
+
+    Useful after writing to ~/.hermes/config.yaml from within the same
+    process (rare — mostly used by tests).
+    """
+    global _CONFIG_CACHE
+    _CONFIG_CACHE = None
+
+
 def get_config() -> Dict[str, Any]:
     """Read mazemaker config from ~/.hermes/config.yaml.
 
-    Falls back to defaults if the file doesn't exist or the section is missing.
+    Falls back to defaults if the file doesn't exist or the section is
+    missing. Result is cached on first call — the previous code re-
+    read and re-parsed YAML on every session init, which on a busy
+    embed-server cost ~1 ms per call across hundreds of callers a
+    second. Call reset_config_cache() to invalidate.
     """
+    global _CONFIG_CACHE
+    if _CONFIG_CACHE is not None:
+        return dict(_CONFIG_CACHE)
     config = {
         "db_path": DEFAULT_DB_PATH,
         "embedding_backend": DEFAULT_EMBEDDING_BACKEND,
@@ -81,8 +104,15 @@ def get_config() -> Dict[str, Any]:
         neural_cfg = hermes_cfg.get("memory", {}).get("neural", {}) or {}
         if isinstance(neural_cfg, dict):
             config.update({k: v for k, v in neural_cfg.items() if v is not None})
-    except Exception:
-        pass
+    except ImportError as exc:
+        # hermes-cli isn't installed — operators running mazemaker
+        # stand-alone. Bare config + defaults is the right outcome here.
+        logger.debug("hermes_cli not installed (%s) — using defaults", exc)
+    except Exception as exc:
+        # hermes-cli is installed but its config layer broke. The
+        # previous bare except hid this and the operator wondered why
+        # their custom db_path was ignored.
+        logger.warning("hermes_cli.config.load_config() failed (%s) — using defaults", exc)
 
     # Expand $HERMES_HOME and ~ in db_path
     db_path = config.get("db_path", DEFAULT_DB_PATH)
@@ -96,4 +126,5 @@ def get_config() -> Dict[str, Any]:
         db_path = os.path.expanduser(db_path)
         config["db_path"] = db_path
 
+    _CONFIG_CACHE = dict(config)
     return config

@@ -4,6 +4,7 @@ import_honcho.py - Import Honcho Export into Mazemaker
 Uses the exact neural_memory.Memory API. No message_embeddings (9524d != 1024d).
 """
 
+import argparse
 import json
 import os
 import sqlite3
@@ -226,20 +227,86 @@ def import_collections(mem: Memory):
         label_fn=lambda c: f"collection:{c.get('id','')[:20]}"
     )
 
+def _existing_memory_count(db_path: Path) -> int:
+    if not db_path.exists():
+        return 0
+    conn = sqlite3.connect(str(db_path))
+    try:
+        try:
+            return int(conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0])
+        except sqlite3.OperationalError:
+            return 0
+    finally:
+        conn.close()
+
+
+def _safe_backup(db_path: Path) -> Path:
+    # sqlite3.backup() is consistent under WAL while the source DB is live —
+    # shutil.copy2() is not (the WAL file can be mid-write).
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    backup_path = db_path.with_name(f"{db_path.name}.bak.{ts}")
+    src = sqlite3.connect(str(db_path))
+    try:
+        dst = sqlite3.connect(str(backup_path))
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    return backup_path
+
+
 def main():
+    ap = argparse.ArgumentParser(
+        description="Import Honcho export into Mazemaker, replacing the existing memory DB."
+    )
+    ap.add_argument(
+        "--force", action="store_true",
+        help="Required to wipe an existing non-empty memory.db. "
+             "A timestamped backup is taken first unless --no-backup is given.",
+    )
+    ap.add_argument(
+        "--no-backup", action="store_true",
+        help="Skip the safety backup. Only honored together with --force.",
+    )
+    args = ap.parse_args()
+
     print("=" * 60)
     print("Honcho Export -> Mazemaker Import")
     print("=" * 60)
-    
+
     t_total = time.time()
-    
-    # Clear existing DB
+
+    existing = _existing_memory_count(DB_PATH)
+    if existing and not args.force:
+        print(
+            f"\nREFUSING: {DB_PATH} already contains {existing} memories.\n"
+            "This script wipes the memories and connections tables before importing.\n"
+            "Re-run with --force to proceed (a timestamped backup will be taken first).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    if existing and not args.no_backup:
+        print(f"\n[0/3] Backing up {existing} existing memories (--force given)...")
+        backup_path = _safe_backup(DB_PATH)
+        print(f"  → backup at {backup_path}")
+
+    # Clear existing DB. Match the main store's PRAGMAs so this ad-hoc
+    # connection agrees with WAL writers — the previous bare
+    # sqlite3.connect() used Python defaults (no WAL, 5 s busy_timeout)
+    # and would intermittently hit "database is locked" if the in-pod
+    # checkpoint thread was active.
     print("\n[1/3] Clearing DB...")
     conn = sqlite3.connect(str(DB_PATH))
     try:
-        conn.execute("DELETE FROM memories")
-        conn.execute("DELETE FROM connections")
-        conn.commit()
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        with conn:
+            conn.execute("DELETE FROM memories")
+            conn.execute("DELETE FROM connections")
     finally:
         conn.close()
     

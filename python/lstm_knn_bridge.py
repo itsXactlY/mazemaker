@@ -21,23 +21,7 @@ from typing import Optional
 # Find library (same pattern as cpp_bridge.py)
 # ============================================================================
 
-def _find_lib() -> str:
-    candidates = [
-        Path(__file__).parent.parent / "build" / "libmazemaker.so",
-        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libmazemaker.so",
-        Path("/usr/local/lib/libmazemaker.so"),
-        Path("/usr/lib/libmazemaker.so"),
-    ]
-    for p in candidates:
-        if p.exists():
-            return str(p)
-    lib = ctypes.util.find_library("neural_memory")
-    if lib:
-        return lib
-    raise FileNotFoundError(
-        "libmazemaker.so not found. Build first:\n"
-        "  cd ~/projects/mazemaker-adapter/build && cmake --build . -j$(nproc)"
-    )
+from _lib_finder import find_lib as _find_lib, shared_cdll as _shared_cdll  # canonical resolver + handle cache
 
 
 # ============================================================================
@@ -99,7 +83,7 @@ class LSTMPredictor:
         if lib_path is None:
             lib_path = _find_lib()
 
-        self._lib = ctypes.CDLL(lib_path)
+        self._lib = _shared_cdll(lib_path)
         self._handle = None
         self._input_dim = input_dim
         self._hidden_dim = hidden_dim
@@ -293,7 +277,7 @@ class KNNEngine:
         if lib_path is None:
             lib_path = _find_lib()
 
-        self._lib = ctypes.CDLL(lib_path)
+        self._lib = _shared_cdll(lib_path)
         self._handle = None
         self._embed_dim = embed_dim
         self._setup_functions()

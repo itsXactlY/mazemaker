@@ -29,12 +29,24 @@ except ImportError:
     setup = Extension = cythonize = numpy = None  # type: ignore[assignment]
 
 if __name__ == "__main__" or setup is not None:
+    # March default: `-march=x86-64-v3` (Haswell+, ~2013) gives most of
+    # the ISA win without binding the .so to the build host's exact
+    # CPUID. The previous `-march=native` produced a binary that
+    # crashed with "Illegal instruction" the moment it was moved to a
+    # server with a smaller feature set (a real customer-pod failure
+    # mode on AWS instance-class downgrades).
+    # Override with MAZEMAKER_MARCH=native for max performance on a
+    # known-pinned host, or "-march=x86-64" for max portability.
+    import os as _os
+    _march = _os.environ.get("MAZEMAKER_MARCH", "x86-64-v3").strip()
+    if not _march:
+        _march = "x86-64-v3"
     extensions = [
         Extension(
             "fast_ops",
             sources=["fast_ops.pyx"],
             include_dirs=[numpy.get_include()],
-            extra_compile_args=["-O3", "-march=native"],
+            extra_compile_args=["-O3", f"-march={_march}"],
         ),
     ]
 

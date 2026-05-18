@@ -2450,6 +2450,253 @@ class Mazemaker:
         factor = base * math.exp(-self._salience_decay_k * days) + math.log1p(access) * 0.05
         return max(0.1, min(2.0, factor))
 
+    # ── Query-intent classification + type-routed scoring ────────────────
+    # Lightweight regex classifier — no LLM call, no extra latency. The
+    # bench-validated assumption (godbench LongMemEval-oracle 2026-05-17)
+    # is that the question stems are sharp enough that a small set of
+    # cue patterns recovers ≥80% of intent. Misclassifications fall back
+    # to "general" which leaves the base relevance untouched, so the
+    # downside is bounded.
+    _PREFERENCE_CUES = (
+        # Direct third-person preference asks
+        r"\bwhat (?:does|do|did) (?:the )?user (?:prefer|like|love|hate|dislike|enjoy|want|own|use|recommend|consider)",
+        r"\bwhich .* (?:does|do|did) (?:the )?user (?:prefer|like|love|hate|dislike|enjoy|want|own|use)",
+        r"\b(?:user'?s? )?(?:favorite|favourite|preferred|preferences?)\b",
+        r"\b(?:user's?|their)\s+(?:choice|pick|preference|interest)\b",
+        # First-person suggestion-style asks — empirically the most
+        # common phrasing in single-session-preference questions
+        # ("Can you suggest a hotel...", "Any tips for keeping...",
+        # "Can you recommend a movie...").  Detected via the
+        # solicitation verb + first-person possessive/object pronoun.
+        r"\b(?:can|could|would) you (?:suggest|recommend|propose|advise)\b",
+        r"\b(?:any|some) (?:tips|suggestions|ideas|recommendations|ways|advice|thoughts) (?:for|on|to|about)\b",
+        r"\bwhat (?:do you|would you) (?:think|suggest|recommend)\b",
+        # Question framed as suggestion solicitation without explicit verb
+        r"\b(?:tips|advice|ideas|suggestions) (?:for|on|to|about) (?:my|me|the|my own)\b",
+    )
+    _TEMPORAL_CUES = (
+        r"\b(?:when|before|after|earlier|later|recently|first|last|most recent|initially|previously|now|currently|today|yesterday|tomorrow|next|past|future)\b",
+        r"\b(?:how long|how many days|how many weeks|since when|until when|at what time)\b",
+        r"\bin (?:january|february|march|april|may|june|july|august|september|october|november|december)\b",
+    )
+    _FACTUAL_CUES = (
+        r"\b(?:what is|what was|what are|how much|how many|where|who|which)\b",
+        r"\b(?:price|cost|amount|number|address|name|model|version)\b",
+    )
+
+    @classmethod
+    def _classify_intent(cls, query: str) -> str:
+        """Map a query to {preference, temporal, factual, general}.
+
+        Priority: preference > temporal > factual > general. Preference
+        wins when both fire because the per-question-type benchmark
+        showed preference is the bottleneck class — biasing toward it
+        is the safer choice when the cues overlap (e.g. "what did the
+        user prefer last week").
+        """
+        if not query:
+            return "general"
+        q = query.lower()
+        for pat in cls._PREFERENCE_CUES:
+            if re.search(pat, q):
+                return "preference"
+        for pat in cls._TEMPORAL_CUES:
+            if re.search(pat, q):
+                return "temporal"
+        for pat in cls._FACTUAL_CUES:
+            if re.search(pat, q):
+                return "factual"
+        return "general"
+
+    # ── Consolidation canonical retrieval prior ──────────────────────────
+    # The consolidation_canonicals table (populated by
+    # benchmarks/populate_canonicals.py) holds cross-source preference
+    # crystallizations as a SIDE CHANNEL — NOT competing for top-K
+    # slots in the main recall. At query time we cosine-match the
+    # query against the small canonical set; any canonical that fires
+    # contributes a salience-scale boost to candidate memories whose
+    # session-id appears in that canonical's evidence list.
+    #
+    # Why a side channel: iter25 wrote canonicals as `memories` rows
+    # and they out-ranked per-session gold memories without subsuming
+    # all golds in their multi-sid labels (regressed R@5 -3pp). This
+    # pattern surfaces the gold memory ITSELF when its preference is
+    # corroborated across sessions — never the canonical.
+    def _canonical_prior_sid_boosts(self, query_vec, threshold: float = None, max_canonicals: int = None) -> "dict[str, float]":
+        # Two backends share this entry point. If the
+        # `consolidation_canonicals` side-channel table exists we
+        # query it (cluster-derived multi-sid canonicals); otherwise
+        # we fall back to querying the per-session Stage C / api
+        # preference facts already living in `memories`, treated as
+        # fine-grained singletons. Empirically the fine-grained mode
+        # avoids the wrong-sid-boost failure of the multi-sid
+        # canonicals (iter45 ssp -13pp) because each match maps to
+        # exactly one source session.
+        if threshold is None:
+            threshold = float(os.environ.get("MAZEMAKER_CANONICAL_THRESHOLD", "0.55") or 0.55)
+        if max_canonicals is None:
+            max_canonicals = int(os.environ.get("MAZEMAKER_CANONICAL_TOPK", "10") or 10)
+        """Cosine-match query against consolidation_canonicals and
+        return ``{session_id: boost_weight}`` for evidence sids of
+        canonicals scoring above threshold.
+
+        Boost weight scales with cosine and cluster size:
+            ``cos * log(1 + cluster_size)``.
+
+        Empty dict if the table doesn't exist, no canonicals match,
+        or pgvector isn't available — making this path safe to call
+        unconditionally.
+        """
+        out: "dict[str, float]" = {}
+        qvec_str = "[" + ",".join(f"{float(x):.6f}" for x in query_vec) + "]"
+
+        # Backend A: cluster-derived multi-sid canonicals in their own
+        # table. Best when small + curated.
+        try:
+            with self.store._cursor() as (_conn, cur):
+                cur.execute(
+                    "SELECT to_regclass(%s)",
+                    (f"{os.environ.get('MM_POSTGRES_SCHEMA','public')}.consolidation_canonicals",),
+                )
+                has_table = cur.fetchone()[0] is not None
+        except Exception:
+            has_table = False
+        if has_table:
+            try:
+                with self.store._cursor() as (_conn, cur):
+                    cur.execute(
+                        "SELECT evidence_session_ids, cluster_size, "
+                        "       1 - (embedding <=> %s::vector) AS cos "
+                        "FROM consolidation_canonicals "
+                        "WHERE 1 - (embedding <=> %s::vector) >= %s "
+                        "ORDER BY cos DESC LIMIT %s",
+                        (qvec_str, qvec_str, threshold, max_canonicals),
+                    )
+                    for sids, sz, cos in cur.fetchall():
+                        w = float(cos) * math.log1p(max(1, int(sz or 1)))
+                        for sid in (sids or []):
+                            if w > out.get(sid, 0.0):
+                                out[sid] = w
+            except Exception:
+                pass
+            return out
+
+        # Backend B: fine-grained singleton prior over the existing
+        # Stage C / api preference facts in `memories`. Each fact maps
+        # to one source session via its label; we extract the sid and
+        # weight by cosine alone (no cluster-size term — each fact is
+        # by itself). This is the post-iter47 default: avoids dragging
+        # the main HNSW pool while still surfacing per-session
+        # preferences when the query strongly matches one.
+        try:
+            with self.store._cursor() as (_conn, cur):
+                cur.execute(
+                    "SELECT label, 1 - (embedding <=> %s::vector) AS cos "
+                    "FROM memories "
+                    "WHERE (label LIKE %s OR label LIKE %s) "
+                    "  AND embedding IS NOT NULL "
+                    "  AND 1 - (embedding <=> %s::vector) >= %s "
+                    "ORDER BY cos DESC LIMIT %s",
+                    (
+                        qvec_str,
+                        "%::afe::C%",
+                        "%::api::C%",
+                        qvec_str,
+                        threshold,
+                        max_canonicals,
+                    ),
+                )
+                rows = cur.fetchall()
+        except Exception:
+            return out
+        for label, cos in rows:
+            sid = self._label_sid(label or "")
+            if not sid:
+                continue
+            w = float(cos)
+            if w > out.get(sid, 0.0):
+                out[sid] = w
+        return out
+
+    @staticmethod
+    def _label_sid(label: str) -> str:
+        """Extract source session id from a memory label.
+
+        Mirrors the bench-side label-split scoring rule: the first
+        colon-segment that is NOT one of {session, afe, chunk,
+        derived, synthesized, cluster, preference, canonical} and not
+        a pure digit and not a Stage-letter+index marker (C0/A1/...).
+        """
+        if not label:
+            return ""
+        for seg in label.split(":"):
+            if not seg:
+                continue
+            if seg in ("session", "afe", "chunk", "derived", "synthesized",
+                       "cluster", "preference", "canonical", "pattern",
+                       "trait", "fact"):
+                continue
+            if seg.isdigit():
+                continue
+            if len(seg) <= 2 and seg[0] in "ABC" and seg[1:].isdigit():
+                continue
+            return seg
+        return ""
+
+    @staticmethod
+    def _intent_label_match(intent: str, label: str) -> float:
+        """Return a 0.0–1.0 affinity score for (intent, memory-label).
+
+        These match the formation-stage labels populated by AFE +
+        Stage S synthesis. The numerical values are tuned so a clear
+        type hit doubles the salience contribution without overwhelming
+        the fused similarity score.
+        """
+        if not label:
+            return 0.0
+        lbl = label
+        # Stage C user-side facts: original `::afe::C` from the
+        # qwen2.5:3b local bake, plus `::api::C` from the gpt-5-nano
+        # API bake (same prompt, cleaner output, ~6 facts/session vs
+        # qwen's ~2.7). Both feed the preference channel equally.
+        is_afe_c = "::afe::C" in lbl or "::api::C" in lbl
+        is_afe_a = "::afe::A" in lbl
+        is_synth = lbl.startswith("synthesized:")
+        is_pref_canon = lbl.startswith("preference:")
+        is_derived = lbl.startswith("derived:")
+        is_session_raw = lbl.startswith("session:") and "::afe::" not in lbl and "::chunk::" not in lbl
+        is_chunk = "::chunk::" in lbl and "::afe::" not in lbl
+
+        if intent == "preference":
+            # Stage C is the highest-affinity preference signal; synthesis
+            # is a curated cross-source distillation. Keep the non-pref
+            # floor high (0.7) — the gradient is what surfaces the right
+            # type without nuking session/chunk content that might still
+            # be the gold answer.
+            if is_afe_c or is_synth or is_pref_canon:
+                return 1.0
+            if is_afe_a:
+                return 0.8
+            if is_session_raw or is_chunk:
+                return 0.7
+            return 0.7
+        if intent == "temporal":
+            # Disabled (returns 0.0 — full no-op on temporal-classified
+            # queries). Bench audit (2026-05-17, iter37): even a
+            # uniform 0.5 boost on all candidates compresses the
+            # relevance distribution and feeds the cross-encoder
+            # reranker a degenerate score landscape, regressing tr
+            # by 1.6pp. Until the temporal classifier is tightened
+            # AND a temporal-specific channel exists, leave the
+            # signal untouched.
+            return 0.0
+        if intent == "factual":
+            # Same logic — disable until the factual classifier is
+            # more precise.
+            return 0.0
+        # general → no boost
+        return 0.0
+
     # -- retrieval channels ---------------------------------------------------
 
     def _semantic_candidates(self, query: str, query_vec: list[float], limit: int) -> list[dict]:
@@ -3027,6 +3274,23 @@ class Mazemaker:
             return []
         query_vec = query_vec or self.embedder.embed(query)
         now = time.time()
+        # Intent classification gates the type-routed scoring boost
+        # below. Cheap regex — no LLM call. "general" intent leaves
+        # base relevance untouched, so this is purely additive when
+        # the cue patterns fire.
+        intent = self._classify_intent(query)
+        intent_weight = float(os.environ.get("MAZEMAKER_INTENT_BOOST", "0.05") or 0.0)
+        _tw_env = os.environ.get("MAZEMAKER_TEMPORAL_WEIGHT")
+        if _tw_env is not None and _tw_env != "":
+            temporal_weight = float(_tw_env)
+        # Canonical-prior side channel — populated only for preference
+        # intent (and only when canonical table exists). Returns
+        # {session_id: weight}; recall scoring lifts candidates whose
+        # source session id appears here.
+        canon_prior: "dict[str, float]" = {}
+        canon_weight = float(os.environ.get("MAZEMAKER_CANONICAL_PRIOR", "0.0") or 0.0)
+        if canon_weight > 0.0 and intent == "preference":
+            canon_prior = self._canonical_prior_sid_boosts(query_vec)
         limit = max(k * 4, self._retrieval_candidates)
         # Echo filter is cheap up-front: pull more candidates from each
         # channel so that after we drop user-question echoes we still have
@@ -3204,11 +3468,31 @@ class Mazemaker:
             temporal_score = self._compute_temporal_score_from_mem(mem, now)
             salience_factor = self._effective_salience(mem, now)
             ppr = float(ppr_scores.get(mem_id, 0.0))
+            # Type-routed boost: zero when intent="general" or label
+            # doesn't match the intent's preferred formation tier.
+            # Scaled to the salience channel — a strong (1.0) match
+            # roughly doubles the salience contribution.
+            intent_match = self._intent_label_match(intent, mem.get("label") or "")
+            # Canonical-prior boost: if this memory's source session
+            # matches any high-scoring canonical's evidence sid, add
+            # the canonical weight × prior strength. Empty dict =
+            # zero-cost no-op.
+            canon_bump = 0.0
+            if canon_prior:
+                sid = self._label_sid(mem.get("label") or "")
+                if sid and sid in canon_prior:
+                    canon_bump = canon_weight * canon_prior[sid]
+            _sal_w = float(os.environ.get("MAZEMAKER_SALIENCE_WEIGHT",
+                                          str(self._channel_weights.get("salience", 0.25))))
+            _ppr_w = float(os.environ.get("MAZEMAKER_PPR_WEIGHT",
+                                          str(self._channel_weights.get("ppr", 0.55))))
             relevance = (
                 float(data.get("fused_score", 0.0))
                 + temporal_weight * 0.10 * temporal_score
-                + self._channel_weights.get("salience", 0.25) * 0.05 * salience_factor
-                + self._channel_weights.get("ppr", 0.55) * 0.10 * ppr
+                + _sal_w * 0.05 * salience_factor
+                + _ppr_w * 0.10 * ppr
+                + intent_weight * intent_match
+                + canon_bump
             )
             connected = []
             for c in per_mem_conns.get(mem_id, ()):

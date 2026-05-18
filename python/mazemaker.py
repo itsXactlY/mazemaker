@@ -20,12 +20,15 @@ Usage:
     mem.close()
 """
 
+import logging
 import os
 import re
 import sys
 import time
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Add python dir to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -79,6 +82,15 @@ class Memory:
         from embed_provider import EmbeddingProvider
         self._embedder = EmbeddingProvider(backend=embedding_backend)
         self._dim = self._embedder.dim
+        # Fail fast: a None / 0 dim means the embedder either crashed
+        # during init or returned a placeholder. Carrying that downstream
+        # produces cryptic shape errors deep inside SQLite store +
+        # GpuRecallEngine + every cosine call. Surface the cause here.
+        if not self._dim or self._dim <= 0:
+            raise RuntimeError(
+                f"EmbeddingProvider({embedding_backend!r}) returned invalid dim={self._dim!r}; "
+                "check that the embed-server is running and the model loaded successfully."
+            )
 
         # Postgres + pgvector dispatch. Activated via MM_DB_BACKEND=postgres.
         # The Postgres store plays the graph/cold-storage mirror role — SQLite
@@ -90,9 +102,12 @@ class Memory:
             try:
                 from postgres_store import PostgresStore
                 self._postgres_store = PostgresStore()
-                print(f"[neural] Postgres backend: {self._embedder.backend.__class__.__name__} ({self._dim}d)")
+                logger.info(
+                    "Postgres backend armed: %s (%dd)",
+                    self._embedder.backend.__class__.__name__, self._dim,
+                )
             except Exception as e:
-                print(f"[neural] Postgres unavailable ({e}), falling back to SQLite")
+                logger.warning("Postgres unavailable (%s), falling back to SQLite", e)
 
         # SQLite is always the source of truth for semantic recall.
         from memory_client import Mazemaker
@@ -548,6 +563,14 @@ class Memory:
         enhanced = self._enhance_recall(embedding, base_results, k)
         for r in enhanced:
             r.pop('embedding', None)
+            # Unified convenience field — highest-precedence non-zero score.
+            r.setdefault('score', (
+                r.get('rerank_score') or
+                r.get('relevance') or
+                r.get('combined') or
+                r.get('similarity') or
+                0.0
+            ))
         return enhanced[:k]
 
     def recall_multihop(self, query: str, k: int = 5, hops: int = 2) -> list[dict]:
@@ -602,6 +625,197 @@ class Memory:
         if hasattr(self._sqlite_memory, "recall_batch"):
             return self._sqlite_memory.recall_batch(queries, k=k)
         return [self._sqlite_memory.recall(q, k=k) for q in queries]
+
+    def recall_multi(
+        self,
+        queries: "list[str]",
+        k: int = 10,
+        fuse: bool = True,
+        k_per_query: Optional[int] = None,
+    ) -> "list[dict] | list[list[dict]]":
+        """Multi-perspective recall: run N queries in one call and fuse results.
+
+        When ``fuse=True`` (default) results from all queries are merged via
+        Reciprocal Rank Fusion (RRF) and deduplicated, returning a flat list of
+        at most *k* dicts.  Each returned dict includes a unified ``score``
+        field set to the memory's RRF score.
+
+        When ``fuse=False`` the raw per-query results are returned as
+        ``list[list[dict]]`` (same shape as ``recall_batch``), with each dict
+        carrying a ``score`` field copied from ``rerank_score or relevance or
+        combined or similarity``.
+
+        Args:
+            queries:      List of query strings to run in parallel.
+            k:            Maximum results to return (fused mode) or per query
+                          (passthrough mode).
+            fuse:         If True, apply RRF and return a flat deduplicated list.
+            k_per_query:  Candidates fetched per query before fusion.
+                          Defaults to ``2 * k`` so the fused pool is wide
+                          enough to surface high-quality results for every angle.
+
+        Returns:
+            Flat ``list[dict]`` when ``fuse=True``, else ``list[list[dict]]``.
+        """
+        if not queries:
+            return [] if fuse else []
+
+        per_q = k_per_query if k_per_query is not None else k * 2
+        # recall_batch already applies the score field via our patched recall()
+        # only when going through GpuRecallEngine; normalise below regardless.
+        per_query_results: list[list[dict]] = self.recall_batch(queries, k=per_q)
+
+        if not fuse:
+            # Passthrough — attach score field for consumers that expect it.
+            for qr in per_query_results:
+                for r in qr:
+                    r.setdefault('score', (
+                        r.get('rerank_score') or
+                        r.get('relevance') or
+                        r.get('combined') or
+                        r.get('similarity') or
+                        0.0
+                    ))
+            return per_query_results
+
+        # --- RRF fusion ---
+        # rrf_scores[id] accumulates 1/(60 + rank) summed over all queries.
+        rrf_scores: dict[int, float] = {}
+        # Keep the first-seen full dict for each id so we can return it.
+        id_to_result: dict[int, dict] = {}
+
+        for qr in per_query_results:
+            for rank, r in enumerate(qr):
+                mem_id = r.get('id')
+                if mem_id is None:
+                    continue
+                rrf_scores[mem_id] = rrf_scores.get(mem_id, 0.0) + 1.0 / (60 + rank)
+                if mem_id not in id_to_result:
+                    id_to_result[mem_id] = r
+
+        # Sort by RRF score descending, attach unified score, return top-k.
+        ranked_ids = sorted(rrf_scores, key=lambda i: -rrf_scores[i])
+        fused: list[dict] = []
+        for mem_id in ranked_ids[:k]:
+            result = dict(id_to_result[mem_id])
+            result.pop('embedding', None)
+            result['score'] = round(rrf_scores[mem_id], 8)
+            fused.append(result)
+        return fused
+
+    def recall_with_neighbors(
+        self,
+        query: str,
+        k: int = 10,
+        depth: int = 1,
+        neighbor_weight: float = 0.3,
+        **recall_kwargs,
+    ) -> list[dict]:
+        """Graph-augmented recall: seed set from ``recall()`` + connected memories.
+
+        After fetching a seed set of top-``k*2`` matches, traverse each seed's
+        graph connections (1 or 2 hops) and merge in linked memories that were
+        not in the seed set.  Neighbor scores decay multiplicatively with hop
+        distance and connection weight:
+
+            neighbor_score = neighbor_weight * source_score * connection_weight
+
+        For ``depth=2`` the decay is applied again for each second-hop edge:
+
+            hop2_score = neighbor_weight * hop1_score * connection_weight
+
+        All results are deduplicated by id and sorted descending by score.
+        Each dict carries a ``via`` field — ``"direct"`` for seed memories and
+        ``"neighbor:hop1"`` / ``"neighbor:hop2"`` for graph-expanded ones — so
+        consumers can distinguish how a memory was surfaced.
+
+        Args:
+            query:            Query string for the initial seed recall.
+            k:                Maximum results to return.
+            depth:            Hop depth for graph traversal (1 or 2).
+            neighbor_weight:  Base weight multiplier for neighbour scores.
+            **recall_kwargs:  Extra kwargs forwarded to ``recall()``
+                              (e.g. ``mmr_lambda``, ``score_floor``).
+
+        Returns:
+            Flat ``list[dict]`` of at most *k* results, sorted by score desc.
+        """
+        # --- Seed set ---
+        seeds = self.recall(query, k=k * 2, **recall_kwargs)
+        seen_ids: dict[int, dict] = {}  # id → result dict
+
+        for r in seeds:
+            mem_id = r.get('id')
+            if mem_id is None:
+                continue
+            r = dict(r)
+            r.pop('embedding', None)
+            r.setdefault('score', (
+                r.get('rerank_score') or
+                r.get('relevance') or
+                r.get('combined') or
+                r.get('similarity') or
+                0.0
+            ))
+            r['via'] = 'direct'
+            seen_ids[mem_id] = r
+
+        # --- Graph traversal ---
+        def _expand(frontier: dict[int, float], hop_label: str) -> dict[int, dict]:
+            """Expand one hop from frontier {id: score} and return new nodes."""
+            new_nodes: dict[int, dict] = {}
+            for source_id, source_score in frontier.items():
+                try:
+                    conns = self.connections(source_id)
+                except Exception:
+                    continue
+                for c in conns:
+                    neighbour_id = c.get('id')
+                    if neighbour_id is None or neighbour_id in seen_ids:
+                        continue
+                    conn_weight = float(c.get('weight', 1.0))
+                    n_score = neighbor_weight * source_score * conn_weight
+                    if neighbour_id in new_nodes:
+                        # Keep the higher score if the same node appears via
+                        # multiple edges in this hop.
+                        if n_score <= new_nodes[neighbour_id]['score']:
+                            continue
+                    # Fetch the full memory dict from the SQLite store.
+                    try:
+                        mem = self._sqlite_memory.store.get(
+                            neighbour_id, include_embedding=False
+                        )
+                    except Exception:
+                        mem = None
+                    if mem is None:
+                        continue
+                    new_nodes[neighbour_id] = {
+                        'id': neighbour_id,
+                        'label': mem.get('label', ''),
+                        'content': mem.get('content', ''),
+                        'score': round(n_score, 8),
+                        'via': hop_label,
+                        'connections': c,
+                        'created_at': mem.get('created_at'),
+                        'last_accessed': mem.get('last_accessed'),
+                        'access_count': mem.get('access_count'),
+                    }
+            return new_nodes
+
+        # Hop 1
+        frontier_scores = {mid: r['score'] for mid, r in seen_ids.items()}
+        hop1_nodes = _expand(frontier_scores, 'neighbor:hop1')
+        seen_ids.update(hop1_nodes)
+
+        # Hop 2
+        if depth >= 2:
+            hop2_frontier = {mid: r['score'] for mid, r in hop1_nodes.items()}
+            hop2_nodes = _expand(hop2_frontier, 'neighbor:hop2')
+            seen_ids.update(hop2_nodes)
+
+        # Sort descending by score, cap at k.
+        ranked = sorted(seen_ids.values(), key=lambda r: -r.get('score', 0.0))
+        return ranked[:k]
 
     def think(self, start_id: int, depth: int = 3, decay: float = 0.85) -> list[dict]:
         """Spreading activation. SQLite primary, Postgres-enhanced if available."""

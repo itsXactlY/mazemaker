@@ -122,6 +122,30 @@ KNOWN_FEATURES = frozenset({
                      # bench validates a recall lift over hybrid +
                      # ColBERT.  Feature-flag exists so module init
                      # short-circuits cleanly on community/free.
+    "afe_userside",  # Atomic Fact Extraction user-side path: Stage A
+                     # (markdown), Stage B (spaCy NER), Stage C (LLM
+                     # extractor), Stage S (synthesis dream phase).
+                     # Without this, remember() stores raw turns and
+                     # session-end facts only — no per-fact corpus
+                     # construction.
+    "intent_router", # Query intent classifier + intent-routed
+                     # relevance boost in recall().  Without this,
+                     # all queries use the same channel weights.
+    "relevance_tuning", # Env-controlled relevance formula knobs
+                     # (MAZEMAKER_INTENT_BOOST, _TEMPORAL_WEIGHT,
+                     # _SALIENCE_WEIGHT, _PPR_WEIGHT, _CANONICAL_PRIOR).
+                     # Gates the ability to override channel weights
+                     # at runtime; community ships the static defaults.
+    "targeted_rebake", # Targeted Stage C rebake methodology — the
+                     # find-misses-then-rebake-typed-sessions tooling
+                     # in benchmarks/targeted_rebake/.  Ships only to
+                     # backend pod; community users get the bench
+                     # harness without the formation-side ceiling
+                     # breaker.
+    "pref_multi_recall", # Deterministic preference query rewriter
+                     # (_preference_query) + --pref-multi-recall path
+                     # in godbench.  Pattern-based multi-angle recall
+                     # for single-session-preference questions.
 })
 
 

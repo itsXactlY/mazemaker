@@ -13,24 +13,7 @@ from typing import Optional
 # Find library
 # ============================================================================
 
-def _find_lib() -> str:
-    candidates = [
-        Path(__file__).parent.parent / "build" / "libmazemaker.so",
-        Path.home() / "projects" / "mazemaker-adapter" / "build" / "libmazemaker.so",
-        Path("/usr/local/lib/libmazemaker.so"),
-        Path("/usr/lib/libmazemaker.so"),
-    ]
-    for p in candidates:
-        if p.exists():
-            return str(p)
-    # Try LD_LIBRARY_PATH
-    lib = ctypes.util.find_library("neural_memory")
-    if lib:
-        return lib
-    raise FileNotFoundError(
-        "libmazemaker.so not found. Build first:\n"
-        "  cd ~/projects/mazemaker-adapter/build && cmake --build . -j$(nproc)"
-    )
+from _lib_finder import find_lib as _find_lib, shared_cdll as _shared_cdll  # canonical resolver + handle cache
 
 # ============================================================================
 # C API types (matching c_api.h)
@@ -91,7 +74,7 @@ class MazemakerCpp:
         if lib_path is None:
             lib_path = _find_lib()
         
-        self._lib = ctypes.CDLL(lib_path)
+        self._lib = _shared_cdll(lib_path)
         self._setup_functions()
         self._handle = None
     
@@ -199,11 +182,21 @@ class MazemakerCpp:
     def store(self, embedding: list[float], label: str = "", content: str = "") -> int:
         """Store a memory with embedding. Returns memory ID."""
         assert self._handle, "Not initialized. Call initialize() first."
-        
+
+        # The C ABI takes the strings as c_char_p (null-terminated). Any
+        # embedded \x00 in label/content would silently truncate the
+        # payload at the first NUL — the row would land in the C side
+        # missing tail data, while the Python side believes the full
+        # string was stored. Refuse explicitly rather than corrupt.
+        if label and "\x00" in label:
+            raise ValueError("label must not contain embedded NUL bytes (c_char_p truncation)")
+        if content and "\x00" in content:
+            raise ValueError("content must not contain embedded NUL bytes (c_char_p truncation)")
+
         arr = (ctypes.c_float * len(embedding))(*embedding)
         label_bytes = label.encode('utf-8') if label else None
         content_bytes = content.encode('utf-8') if content else None
-        
+
         return self._lib.mazemaker_store(
             self._handle, arr, len(embedding), label_bytes, content_bytes
         )

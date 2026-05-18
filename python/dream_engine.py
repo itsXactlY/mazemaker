@@ -2694,13 +2694,38 @@ class DreamEngine:
                 except Exception:
                     done_ids = set()
 
-            candidates = list(
-                store.stream_long_memories_for_afe(
-                    min_len=min_len,
-                    limit=max_sources,
-                    exclude_ids=done_ids,
-                )
+            # Skip chunks: chunked memories were created for ColBERT
+            # window-fit and duplicate the underlying session content;
+            # AFE on chunks ~= AFE on sessions but 2-3x more LLM calls.
+            skip_chunks = (_os.environ.get("MAZEMAKER_AFE_SKIP_CHUNKS", "0")
+                           not in ("0", "false", "False", ""))
+            # Worker sharding: round-robin id % n_workers = worker_id.
+            # Lets multiple bake processes hit the same store without
+            # contention or duplicate work.
+            wshard = None
+            try:
+                wid = int(_os.environ.get("MAZEMAKER_AFE_WORKER_ID", "0"))
+                nworkers = int(_os.environ.get("MAZEMAKER_AFE_N_WORKERS", "1"))
+                if nworkers > 1:
+                    wshard = (wid, nworkers)
+            except ValueError:
+                wshard = None
+
+            _stream_kwargs = dict(
+                min_len=min_len,
+                limit=max_sources,
+                exclude_ids=done_ids,
             )
+            # Only pass new kwargs if the store accepts them — older
+            # backends still in use elsewhere don't have skip_chunks/
+            # worker_shard.
+            import inspect as _inspect
+            _sig = _inspect.signature(store.stream_long_memories_for_afe)
+            if "skip_chunks" in _sig.parameters:
+                _stream_kwargs["skip_chunks"] = skip_chunks
+            if "worker_shard" in _sig.parameters:
+                _stream_kwargs["worker_shard"] = wshard
+            candidates = list(store.stream_long_memories_for_afe(**_stream_kwargs))
             stats["source_long_memories"] = len(candidates)
 
             # ---- Step 1: extract ALL facts from ALL sources upfront ----
@@ -3001,13 +3026,20 @@ class DreamEngine:
                     # derived:cluster memory linked to anchor (the
                     # connection direction is anchor → derived in the
                     # current writer; we look it up either way).
+                    # Connections are canonicalised to (min_id, max_id)
+                    # by PostgresStore.add_connections_batch — so the
+                    # anchor↔derived edge can be in either direction
+                    # depending on which id is lower. Match both.
                     cur.execute(
                         "SELECT m.id, m.content, m.label "
                         "FROM memories m "
-                        "JOIN connections c ON c.source_id = m.id "
-                        "WHERE c.target_id = %s AND m.label LIKE %s "
+                        "JOIN connections c ON ("
+                        "  (c.source_id = m.id AND c.target_id = %s) OR "
+                        "  (c.target_id = m.id AND c.source_id = %s)"
+                        ") "
+                        "WHERE m.label LIKE %s "
                         "LIMIT 1",
-                        (anchor, "derived:cluster:%"),
+                        (anchor, anchor, "derived:cluster:%"),
                     )
                     drow = cur.fetchone()
                     if not drow:

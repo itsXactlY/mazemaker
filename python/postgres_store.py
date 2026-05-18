@@ -1157,7 +1157,9 @@ class PostgresStore:
     def stream_long_memories_for_afe(self, *, min_len: int = 500,
                                      limit: int = 1000,
                                      exclude_label_pattern: str = "%::afe::%",
-                                     exclude_ids: "set[int] | None" = None):
+                                     exclude_ids: "set[int] | None" = None,
+                                     skip_chunks: bool = False,
+                                     worker_shard: "tuple[int, int] | None" = None):
         """Backend-agnostic enumeration of long memories that need AFE
         extraction. Skips rows whose label already carries the AFE
         marker, plus any explicitly-excluded ids from the processed-set.
@@ -1165,33 +1167,44 @@ class PostgresStore:
         Yields ``(id, label, content)`` ordered by content length DESC.
         Caller handles the in-Python exclude_ids filter so we don't have
         to materialise a giant temp table for the NOT-IN list.
+
+        Args:
+          skip_chunks:   when True, exclude rows whose label contains
+                         ``::chunk::`` — chunked memories were created
+                         for ColBERT window-fit, not for AFE; they
+                         duplicate session content and double the LLM
+                         workload without adding novel facts.
+          worker_shard:  ``(worker_id, n_workers)`` for round-robin
+                         sharding when running multiple parallel bake
+                         workers against the same store. Filters via
+                         ``id % n_workers = worker_id``.
         """
         exclude_ids = exclude_ids or set()
-        # Push exclude_ids into the SQL when non-trivial. The earlier
-        # design fetched `limit*2` rows and filtered in Python, which
-        # silently capped progress once `len(exclude_ids) > limit*2`: a
-        # full conv looked drained even with thousands of sources left.
-        # `id != ALL(%s::int[])` handles 10k+ ids in PG without a temp
-        # table or expression-blowup.
+        clauses = [
+            "length(content) >= %s",
+            "(label IS NULL OR label NOT LIKE %s)",
+        ]
+        params: "list" = [int(min_len), exclude_label_pattern]
+        if skip_chunks:
+            clauses.append("(label IS NULL OR label NOT LIKE %s)")
+            params.append("%::chunk::%")
+        if worker_shard is not None:
+            worker_id, n_workers = int(worker_shard[0]), int(worker_shard[1])
+            if n_workers > 1:
+                clauses.append("(id %% %s) = %s")
+                params.append(n_workers)
+                params.append(worker_id)
+        if exclude_ids:
+            clauses.append("id <> ALL(%s::int[])")
+            params.append(list(exclude_ids))
+        params.append(int(limit))
+        sql = (
+            "SELECT id, label, content FROM memories "
+            "WHERE " + " AND ".join(clauses) + " "
+            "ORDER BY length(content) DESC LIMIT %s"
+        )
         with self._cursor() as (_conn, cur):
-            if exclude_ids:
-                cur.execute(
-                    "SELECT id, label, content FROM memories "
-                    "WHERE length(content) >= %s "
-                    "  AND (label IS NULL OR label NOT LIKE %s) "
-                    "  AND id <> ALL(%s::int[]) "
-                    "ORDER BY length(content) DESC LIMIT %s",
-                    (int(min_len), exclude_label_pattern,
-                     list(exclude_ids), int(limit)),
-                )
-            else:
-                cur.execute(
-                    "SELECT id, label, content FROM memories "
-                    "WHERE length(content) >= %s "
-                    "  AND (label IS NULL OR label NOT LIKE %s) "
-                    "ORDER BY length(content) DESC LIMIT %s",
-                    (int(min_len), exclude_label_pattern, int(limit)),
-                )
+            cur.execute(sql, tuple(params))
             rows = cur.fetchall()
         for r in rows:
             yield int(r[0]), (r[1] or ""), (r[2] or "")

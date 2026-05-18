@@ -7,8 +7,22 @@ The headline claim of Mazemaker is that it does things a generic vector store ca
 **External, public-dataset numbers** live one directory deeper in [`external/`](external/README.md):
 
 - **LongMemEval-S 500-question retrieval** (Wu et al., ICLR 2025) — `R@5 = 0.9787`, `MRR = 0.9114` with ColBERT@1.5 (`R@1 = 0.8574`, `+5.10 pp` over the hybrid baseline). Three of six question types reach perfect R@5. (LongMemEval-**S** = 50-200 sessions per question, the easier variant.)
-- **LongMemEval-oracle 500-question retrieval** — the hard sibling: one ~25k-memory haystack per question. `R@5 = 0.8043`, `R@10 = 0.8532`, `MRR = 0.6883`. ssu R@10 = `1.0000` (perfect). Full guide and reproduction recipe in [`inception_bench_GUIDE.md`](inception_bench_GUIDE.md). The same engine, ~$0.07 of OpenAI API spend on targeted Stage C rebakes ([`targeted_rebake/`](targeted_rebake/)).
+- **LongMemEval-oracle 500-question retrieval** — the hard sibling: one ~25k-memory haystack per question. `R@5 = 0.8043`, `R@10 = 0.8532`, `MRR = 0.6883`. ssu R@10 = `1.0000` (perfect). Full guide and reproduction recipe in [`INCEPTION_BENCH_GUIDE.md`](INCEPTION_BENCH_GUIDE.md). The same engine, ~$0.07 of OpenAI API spend on targeted Stage C rebakes ([`targeted_rebake/`](targeted_rebake/)).
 - **Comparison Bench** (ten small LLMs Hindsight evaluated on plain-text scoring) — `188/200 = 94.0%` with ColBERT@1.5, `0 errors deterministic`. `gemma3:270m` (270M params, runs on a Pi) scores `18/20 = 90%`.
+
+---
+
+## Download the claim-evidence bundle (1.6 GB)
+
+The reproducibility tarball — restorable Postgres dump + every iter JSON + the full audit chain — is uploaded to ProtonDrive so anyone can verify the numbers above without trusting this README:
+
+- **Bundle:** [mazemaker-claims-2026-05-19.tar](https://drive.proton.me/urls/J2T53B95XC#gtbM3E2mTvjt) (1.6 GB)
+- **SHA-256:** `263e249408fa5b057dd8f356581cd5c14b3b5e62ba1b29e61704e54a156754c9`
+- **Inside:** the LongMemEval-oracle pg_dump (1.6 GB, restores in ~3 s and reproduces R@5 = 0.8426 / R@10 = 0.9000 deterministically), every `inception_bench_loop-iter*.json` from iter01 through iter100, the eight-round GPT-5.5 audit transcripts verbatim, the v6-v8 historical run JSONs the audit cites, the bench runner, and a top-level `README.md` with the exact CLI to reproduce the headline. 608 files total. `INTEGRITY.txt` ships SHA-256 of every file inside.
+- **Verify after download:** `sha256sum mazemaker-claims-2026-05-19.tar` — the value above is what you should see.
+- **Engine HEAD at bundle time:** [`ead3fe7`](https://github.com/itsXactlY/mazemaker/commit/ead3fe7).
+
+The 24 GB LongMemEval-S dump (backs the R@5 = 0.9787 / 188-of-200 / gemma3:270m claims) is available on request — same reproducibility story, just too large for general distribution.
 
 ---
 

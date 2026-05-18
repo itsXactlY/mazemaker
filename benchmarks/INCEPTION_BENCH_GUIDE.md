@@ -270,7 +270,7 @@ runs unmodified — only its corpus learns.
 
 ```
 benchmarks/
-├── inception_bench_GUIDE.md                ← this file
+├── INCEPTION_BENCH_GUIDE.md                ← this file
 ├── README.md                        ← internal benchmark suite overview
 ├── RESULTS.md                       ← pure-memory-bench results
 ├── mazemaker_inception_bench.py            ← inception_bench runner (oracle/S variants)

@@ -282,6 +282,101 @@ def _keyword_query(q: str) -> str:
     return " ".join(toks) if toks else q
 
 
+_PREF_LEAD_RE = re.compile(
+    r"^\s*(?:can|could|would|will)\s+you\s+(?:please\s+)?"
+    r"(?:suggest|recommend|propose|advise|name|find|tell\s+me|help\s+me\s+find|help\s+me\s+pick)\s+",
+    re.I,
+)
+_PREF_WHAT_RE = re.compile(
+    r"^\s*what\s+(?:kind\s+of\s+|sort\s+of\s+|type\s+of\s+)?"
+    r"([\w\s'-]+?)\s+(?:do you|would you|should i|might i)",
+    re.I,
+)
+_PREF_TRAIL_RE = re.compile(
+    r"\b(?:for me|considering my|given my|that i'?d|i'?d enjoy|i'?d like|"
+    r"i'?ll like|i would enjoy|that suits me)\b.*$",
+    re.I,
+)
+# Soft-suggestion markers — "Any tips?", "Do you have any suggestions?",
+# "What should I X?", "do you think it would be a good idea". These are
+# the ssp questions phrased without an explicit suggestion verb in the
+# lead. Match drives the same "user prefers X" rewrite over the
+# topic-bearing remainder of the question.
+_PREF_SOFT_RE = re.compile(
+    r"\b(?:any\s+(?:tips|advice|suggestions?|recommendations?|ideas?|"
+    r"thoughts?|pointers?|tricks)|"
+    r"do\s+you\s+have\s+any\s+(?:tips|advice|suggestions?|ideas?|"
+    r"recommendations?|thoughts?|pointers?)|"
+    r"what\s+should\s+i\s+\w+|"
+    r"do\s+you\s+think\s+(?:it\s+would\s+be|i\s+should|i\s+might|"
+    r"it\s+might)|"
+    r"would\s+(?:it\s+be|that\s+be)\s+a\s+good\s+idea)\b",
+    re.I,
+)
+# First-person setup phrases like "I've been thinking about X" that
+# bury the topic mid-sentence. Strip these so the rewrite focuses on
+# the noun-phrase rather than the self-narration.
+_PREF_SELFLEAD_RE = re.compile(
+    r"^(?:i'?(?:ve|m)\s+(?:been\s+)?(?:thinking|struggling|feeling|"
+    r"having(?:\s+trouble)?|trying|planning|considering|getting(?:\s+excited)?|"
+    r"a\s+bit\s+(?:anxious|stuck|nostalgic))\s+(?:about|of|with|to|over|"
+    r"on|like)?\s*|"
+    r"i\s+(?:was|am)\s+(?:thinking|planning)\s+(?:of|about)?\s*|"
+    r"my\s+\w+'?s?\s+(?:becoming|been)\s+\w+\s+\w+\s*\.\s*)",
+    re.I,
+)
+# Tail stripping when soft-suggestion is the trigger — chop the soft
+# marker AND everything after, plus any leading punctuation.
+_PREF_SOFT_TAIL_RE = re.compile(
+    r"\.?\s*(?:any\s+(?:tips|advice|suggestions?|recommendations?|"
+    r"ideas?|thoughts?|pointers?|tricks)|"
+    r"do\s+you\s+have\s+any\s+\w+|"
+    r"what\s+should\s+i\s+\w+|"
+    r"do\s+you\s+think\s+\w+|"
+    r"would\s+(?:it|that)\s+be\s+a\s+good\s+idea)\b.*$",
+    re.I,
+)
+
+
+def _preference_query(q: str) -> str:
+    """Rewrite a suggestion-style query to match AFE Stage C fact phrasing.
+
+    LongMemEval ssp questions ask things like "Can you recommend a hiking
+    trail I'd enjoy?" while Stage C facts are phrased "user prefers steep
+    hiking trails" — those embed apart. This rewrites the query into the
+    fact's phrasing space so RRF fusion can surface the actual fact memory.
+
+    Returns "" when no suggestion pattern matches (caller should skip the
+    extra recall pass to keep latency in check on non-preference questions).
+    """
+    if not q:
+        return ""
+    q_stripped = q.strip()
+    # Pattern 1: imperative-style — "Can you recommend X for me?"
+    m_lead = _PREF_LEAD_RE.match(q_stripped)
+    if m_lead:
+        rest = q_stripped[m_lead.end():]
+        rest = _PREF_TRAIL_RE.sub("", rest).strip(" ?.!,")
+        if rest:
+            return f"user prefers {rest}"
+    # Pattern 2: WH-style — "What kind of X would you suggest?"
+    m_what = _PREF_WHAT_RE.search(q_stripped)
+    if m_what:
+        subj = m_what.group(1).strip()
+        if subj:
+            return f"user prefers {subj}"
+    # Pattern 3: soft-suggestion — "I've been struggling with X. Any tips?"
+    # Drop the first-person setup and the soft-suggestion tail, keep the
+    # topic-bearing middle.
+    if _PREF_SOFT_RE.search(q_stripped):
+        s = _PREF_SELFLEAD_RE.sub("", q_stripped, count=1)
+        s = _PREF_SOFT_TAIL_RE.sub("", s)
+        s = s.strip(" ?.!,;")
+        if s and s.lower() != q_stripped.lower():
+            return f"user prefers {s}"
+    return ""
+
+
 def _rrf_fuse(result_lists: list, k: int, rrf_k: int = 60) -> list:
     """RRF-fuse N result lists keyed by ``id``. Returns top-k merged."""
     scores: dict = {}
@@ -302,6 +397,7 @@ def run_question(nm: Mazemaker, record: dict, k: int = 10,
                  recall_mode: str = "skynet", rerank: bool = True,
                  enable_colbert: bool = True, enable_dae: bool = True,
                  recall_k: Optional[int] = None,
+                 pref_multi_recall: bool = False,
                  multi_recall: bool = False,
                  ) -> QuestionResult:
     qid = record["question_id"]
@@ -327,6 +423,26 @@ def run_question(nm: Mazemaker, record: dict, k: int = 10,
                            enable_colbert=enable_colbert, enable_dae=enable_dae)
             rlists.append(rl)
         results = _rrf_fuse(rlists, k=fetch_k)
+    elif pref_multi_recall:
+        # Intent-aware preference multi-recall: only fires when the question
+        # matches a suggestion-style pattern. Generates a preference-phrased
+        # rewrite ("user prefers X") that lives in the same embedding space as
+        # AFE Stage C facts, then RRF-fuses with the original-query result list.
+        # Non-preference questions get a single recall pass (no latency cost).
+        q_orig = record["question"]
+        q_pref = _preference_query(q_orig)
+        if q_pref:
+            rlists = []
+            for q in (q_orig, q_pref):
+                rl = nm.recall(q, k=fetch_k, hybrid=hybrid, rerank=rerank,
+                               enable_colbert=enable_colbert, enable_dae=enable_dae)
+                rlists.append(rl)
+            results = _rrf_fuse(rlists, k=fetch_k)
+        else:
+            results = nm.recall(
+                record["question"], k=fetch_k, hybrid=hybrid, rerank=rerank,
+                enable_colbert=enable_colbert, enable_dae=enable_dae,
+            )
     else:
         results = nm.recall(
             record["question"],
@@ -748,6 +864,12 @@ def main():
                          "stopword-stripped keyword form), RRF-fuse the "
                          "result lists. Both perspectives go through the "
                          "full skynet+ColBERT+rerank pipeline. Doubles latency.")
+    p.add_argument("--pref-multi-recall", action="store_true",
+                    help="Intent-aware preference multi-recall: only on "
+                         "suggestion-style questions, generate a "
+                         "'user prefers X' rewrite and RRF-fuse with the "
+                         "original-query result list. Non-suggestion "
+                         "questions get a single recall pass.")
     p.add_argument("--colbert-weight", type=float, default=1.5,
                     help="ColBERT channel weight in RRF fusion (default 1.5)")
     p.add_argument("--dae-weight", type=float, default=1.0,
@@ -969,6 +1091,7 @@ def main():
                 enable_dae=args.dae,
                 recall_k=args.recall_k,
                 multi_recall=args.multi_recall,
+                pref_multi_recall=args.pref_multi_recall,
             )
         except Exception as e:
             row = QuestionResult(

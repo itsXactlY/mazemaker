@@ -6,7 +6,8 @@ The headline claim of Mazemaker is that it does things a generic vector store ca
 
 **External, public-dataset numbers** live one directory deeper in [`external/`](external/README.md):
 
-- **LongMemEval-S 500-question retrieval** (Wu et al., ICLR 2025) — `R@5 = 0.9787`, `MRR = 0.9114` with ColBERT@1.5 (`R@1 = 0.8574`, `+5.10 pp` over the hybrid baseline). Three of six question types reach perfect R@5.
+- **LongMemEval-S 500-question retrieval** (Wu et al., ICLR 2025) — `R@5 = 0.9787`, `MRR = 0.9114` with ColBERT@1.5 (`R@1 = 0.8574`, `+5.10 pp` over the hybrid baseline). Three of six question types reach perfect R@5. (LongMemEval-**S** = 50-200 sessions per question, the easier variant.)
+- **LongMemEval-oracle 500-question retrieval** — the hard sibling: one ~25k-memory haystack per question. `R@5 = 0.8043`, `R@10 = 0.8532`, `MRR = 0.6883`. ssu R@10 = `1.0000` (perfect). Full guide and reproduction recipe in [`GODBENCH_GUIDE.md`](GODBENCH_GUIDE.md). The same engine, ~$0.07 of OpenAI API spend on targeted Stage C rebakes ([`targeted_rebake/`](targeted_rebake/)).
 - **Comparison Bench** (ten small LLMs Hindsight evaluated on plain-text scoring) — `188/200 = 94.0%` with ColBERT@1.5, `0 errors deterministic`. `gemma3:270m` (270M params, runs on a Pi) scores `18/20 = 90%`.
 
 ---

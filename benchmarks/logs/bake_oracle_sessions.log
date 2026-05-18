@@ -1,0 +1,22 @@
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+[bake] Source: mm_bench_raw.longmemeval_oracle.sessions
+[bake] Cache:  mm10m_bench.longmemeval_oracle_bgem3_1024.memories  chunk=256  limit=all
+[bake] Source has 948 (qid, sidx) pairs
+[bake] To embed this run: 948
+[bake] Initialising embed-server...
+[embed-server] CUDA: 15327 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 45958.21it/s]
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15324MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+  + 256  total    256/948  embed=48.90s copy=180ms  rate=5.2 sess/s  eta=2.2m
+  + 256  total    512/948  embed=48.98s copy=210ms  rate=5.2 sess/s  eta=1.4m
+  + 256  total    768/948  embed=48.95s copy=225ms  rate=5.2 sess/s  eta=0.6m
+  + 180  total    948/948  embed=35.13s copy=161ms  rate=5.2 sess/s  eta=0.0m
+
+[bake] DONE  948 embedded in 3.0m (5.2 sessions/s)  skipped=0
+[bake] Next: pg_dump -U mazemaker -d mm10m_bench --schema=longmemeval_oracle_bgem3_1024 -Fc -f benchmarks/snapshots/longmemeval_oracle_bgem3_1024.dump

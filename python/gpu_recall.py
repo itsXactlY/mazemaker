@@ -40,7 +40,7 @@ _METADATA_PATH = _CACHE_DIR / "metadata.json"
 def _derive_per_db_cache_dir(db_path) -> Path:
     """Derive a stable, DB-fingerprinted cache subdir from db_path.
 
-    Production has historically used a single global cache for ~/.neural_memory/memory.db.
+    Production has historically used a single global cache for ~/.mazemaker/engine/memory.db.
     Per-DB cache eliminates cross-DB contamination when tools/harnesses
     open a DB different from the production one (per-conv benchmarks,
     customer pods, multi-tenant test fixtures, etc.).
@@ -54,7 +54,7 @@ def _derive_per_db_cache_dir(db_path) -> Path:
     s = str(Path(db_path).resolve())
     # Preserve the production global cache for the canonical operator DB.
     if s == str(Path.home() / ".mazemaker" / "memory.db") or \
-       s == str(Path.home() / ".neural_memory" / "memory.db"):
+       s == str(Path.home() / ".mazemaker" / "engine" / "memory.db"):
         return _CACHE_DIR
     digest = hashlib.sha256(s.encode()).hexdigest()[:12]
     return _CACHE_DIR.parent / "gpu_cache_per_db" / digest

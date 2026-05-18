@@ -1,0 +1,875 @@
+{
+  "model": "gpt-oss:120b-cloud",
+  "top_k": 5,
+  "setup": {
+    "qa_facts_stored": 20,
+    "distractors_stored": 17168,
+    "setup_elapsed_s": 118.17,
+    "stats": {
+      "memories": 2388,
+      "connections": 0,
+      "revisions": 13532,
+      "embedding_dim": 1024,
+      "embedding_backend": "SentenceTransformerBackend",
+      "embed_fingerprint": "SentenceTransformerBackend::1024::",
+      "dim_locked": true,
+      "dim_mismatch_reason": null,
+      "quarantined_dim": 0,
+      "retrieval_mode": "semantic",
+      "lazy_graph": false,
+      "hnsw_enabled": "auto"
+    }
+  },
+  "modes": {
+    "semantic": {
+      "retrieval_accuracy@5": 0.85,
+      "qa_accuracy": 0.85,
+      "compounding_loss": 0.0,
+      "llm_latency_p50_s": 1.17,
+      "llm_latency_p95_s": 2.77,
+      "llm_latency_mean_s": 1.46,
+      "llm_errors": 0,
+      "n": 20
+    },
+    "hybrid": {
+      "retrieval_accuracy@5": 0.85,
+      "qa_accuracy": 0.85,
+      "compounding_loss": 0.0,
+      "llm_latency_p50_s": 1.21,
+      "llm_latency_p95_s": 2.25,
+      "llm_latency_mean_s": 1.61,
+      "llm_errors": 0,
+      "n": 20
+    },
+    "advanced": {
+      "retrieval_accuracy@5": 0.85,
+      "qa_accuracy": 0.8,
+      "compounding_loss": 0.05,
+      "llm_latency_p50_s": 1.18,
+      "llm_latency_p95_s": 1.45,
+      "llm_latency_mean_s": 1.23,
+      "llm_errors": 0,
+      "n": 20
+    },
+    "skynet": {
+      "retrieval_accuracy@5": 0.9,
+      "qa_accuracy": 0.85,
+      "compounding_loss": 0.05,
+      "llm_latency_p50_s": 1.23,
+      "llm_latency_p95_s": 1.9,
+      "llm_latency_mean_s": 1.29,
+      "llm_errors": 0,
+      "n": 20
+    }
+  },
+  "per_question": {
+    "semantic": [
+      {
+        "question": "Where does Ada store the launch key?",
+        "gold": "blue ceramic owl",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "under the blue ceramic owl",
+        "llm_latency_s": 1.318,
+        "eval_count": 59
+      },
+      {
+        "question": "What is Bruno's backup server called?",
+        "gold": "pinecone-seven",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "pinecone-seven",
+        "llm_latency_s": 1.058,
+        "eval_count": 45
+      },
+      {
+        "question": "When is the Atlas migration window?",
+        "gold": "03:40",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "03:40\u202fUTC on Sunday",
+        "llm_latency_s": 3.14,
+        "eval_count": 58
+      },
+      {
+        "question": "What does Mira prefer for cold start speed?",
+        "gold": "fastembed",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "FastEmbed",
+        "llm_latency_s": 0.986,
+        "eval_count": 37
+      },
+      {
+        "question": "Which port does project Zephyr use?",
+        "gold": "7443",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "7443",
+        "llm_latency_s": 1.017,
+        "eval_count": 44
+      },
+      {
+        "question": "Which treats are bad for Kai's dog Lou?",
+        "gold": "chicken",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "chicken treats",
+        "llm_latency_s": 1.4,
+        "eval_count": 50
+      },
+      {
+        "question": "What incident caused the demo API key rotation?",
+        "gold": "orchid-19",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "ORCHID-19.",
+        "llm_latency_s": 1.171,
+        "eval_count": 71
+      },
+      {
+        "question": "Where does the telemetry dashboard live?",
+        "gold": "cloudflared",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "behind the cloudflared tunnel",
+        "llm_latency_s": 1.154,
+        "eval_count": 64
+      },
+      {
+        "question": "What should stay opt-in?",
+        "gold": "raw turn dumps",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "raw turn dumps",
+        "llm_latency_s": 1.174,
+        "eval_count": 51
+      },
+      {
+        "question": "What does the dream engine insight phase use?",
+        "gold": "louvain",
+        "mode": "semantic",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 0.931,
+        "eval_count": 36
+      },
+      {
+        "question": "What dedup is needed before neural ingestion?",
+        "gold": "content-hash",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "content-hash dedup",
+        "llm_latency_s": 1.112,
+        "eval_count": 61
+      },
+      {
+        "question": "What must remain production-safe if the C++ bridge is absent?",
+        "gold": "python fallback",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "Python fallback must remain production\u2011safe.",
+        "llm_latency_s": 1.278,
+        "eval_count": 77
+      },
+      {
+        "question": "When should HNSW activate automatically?",
+        "gold": "corpus is large",
+        "mode": "semantic",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 1.889,
+        "eval_count": 61
+      },
+      {
+        "question": "What file does the weekly rollup write?",
+        "gold": "weekly.md",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "WEEKLY.md",
+        "llm_latency_s": 1.082,
+        "eval_count": 53
+      },
+      {
+        "question": "What is the primary neural memory database file named?",
+        "gold": "memory.db",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "memory.db",
+        "llm_latency_s": 1.886,
+        "eval_count": 67
+      },
+      {
+        "question": "When does Ola's on-call shift start?",
+        "gold": "tuesday",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "Tuesday at\u202f09:00\u202fCET",
+        "llm_latency_s": 2.771,
+        "eval_count": 69
+      },
+      {
+        "question": "What is the fallback embedding backend?",
+        "gold": "sentence-transformers",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "sentence-transformers",
+        "llm_latency_s": 2.186,
+        "eval_count": 61
+      },
+      {
+        "question": "What is the default daily salience decay factor?",
+        "gold": "0.95",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "0.95",
+        "llm_latency_s": 1.455,
+        "eval_count": 118
+      },
+      {
+        "question": "Which direction does the MSSQL bridge sync?",
+        "gold": "sqlite to mssql",
+        "mode": "semantic",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 1.081,
+        "eval_count": 50
+      },
+      {
+        "question": "Where is the shared embedding server's UNIX socket?",
+        "gold": "embed.sock",
+        "mode": "semantic",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "~/.neural_memory/embed.sock",
+        "llm_latency_s": 1.171,
+        "eval_count": 79
+      }
+    ],
+    "hybrid": [
+      {
+        "question": "Where does Ada store the launch key?",
+        "gold": "blue ceramic owl",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "under the blue ceramic owl",
+        "llm_latency_s": 1.46,
+        "eval_count": 69
+      },
+      {
+        "question": "What is Bruno's backup server called?",
+        "gold": "pinecone-seven",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "pinecone-seven",
+        "llm_latency_s": 0.959,
+        "eval_count": 44
+      },
+      {
+        "question": "When is the Atlas migration window?",
+        "gold": "03:40",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "03:40\u202fUTC on Sunday",
+        "llm_latency_s": 1.64,
+        "eval_count": 61
+      },
+      {
+        "question": "What does Mira prefer for cold start speed?",
+        "gold": "fastembed",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "FastEmbed",
+        "llm_latency_s": 1.122,
+        "eval_count": 47
+      },
+      {
+        "question": "Which port does project Zephyr use?",
+        "gold": "7443",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "7443",
+        "llm_latency_s": 1.096,
+        "eval_count": 67
+      },
+      {
+        "question": "Which treats are bad for Kai's dog Lou?",
+        "gold": "chicken",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "chicken treats",
+        "llm_latency_s": 1.235,
+        "eval_count": 61
+      },
+      {
+        "question": "What incident caused the demo API key rotation?",
+        "gold": "orchid-19",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "incident ORCHID-19",
+        "llm_latency_s": 1.886,
+        "eval_count": 82
+      },
+      {
+        "question": "Where does the telemetry dashboard live?",
+        "gold": "cloudflared",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "behind the cloudflared tunnel",
+        "llm_latency_s": 1.165,
+        "eval_count": 68
+      },
+      {
+        "question": "What should stay opt-in?",
+        "gold": "raw turn dumps",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "raw turn dumps",
+        "llm_latency_s": 1.138,
+        "eval_count": 60
+      },
+      {
+        "question": "What does the dream engine insight phase use?",
+        "gold": "louvain",
+        "mode": "hybrid",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 1.143,
+        "eval_count": 55
+      },
+      {
+        "question": "What dedup is needed before neural ingestion?",
+        "gold": "content-hash",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "content-hash dedup",
+        "llm_latency_s": 1.16,
+        "eval_count": 59
+      },
+      {
+        "question": "What must remain production-safe if the C++ bridge is absent?",
+        "gold": "python fallback",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "Python fallback.",
+        "llm_latency_s": 1.298,
+        "eval_count": 66
+      },
+      {
+        "question": "When should HNSW activate automatically?",
+        "gold": "corpus is large",
+        "mode": "hybrid",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 7.104,
+        "eval_count": 62
+      },
+      {
+        "question": "What file does the weekly rollup write?",
+        "gold": "weekly.md",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "WEEKLY.md",
+        "llm_latency_s": 1.373,
+        "eval_count": 58
+      },
+      {
+        "question": "What is the primary neural memory database file named?",
+        "gold": "memory.db",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "memory.db",
+        "llm_latency_s": 1.213,
+        "eval_count": 60
+      },
+      {
+        "question": "When does Ola's on-call shift start?",
+        "gold": "tuesday",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "Every Tuesday at\u202f09:00\u202fCET.",
+        "llm_latency_s": 1.171,
+        "eval_count": 58
+      },
+      {
+        "question": "What is the fallback embedding backend?",
+        "gold": "sentence-transformers",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "sentence-transformers",
+        "llm_latency_s": 2.253,
+        "eval_count": 71
+      },
+      {
+        "question": "What is the default daily salience decay factor?",
+        "gold": "0.95",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "0.95",
+        "llm_latency_s": 1.398,
+        "eval_count": 102
+      },
+      {
+        "question": "Which direction does the MSSQL bridge sync?",
+        "gold": "sqlite to mssql",
+        "mode": "hybrid",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 1.159,
+        "eval_count": 62
+      },
+      {
+        "question": "Where is the shared embedding server's UNIX socket?",
+        "gold": "embed.sock",
+        "mode": "hybrid",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "~/.neural_memory/embed.sock",
+        "llm_latency_s": 1.207,
+        "eval_count": 73
+      }
+    ],
+    "advanced": [
+      {
+        "question": "Where does Ada store the launch key?",
+        "gold": "blue ceramic owl",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "under the blue ceramic owl",
+        "llm_latency_s": 1.044,
+        "eval_count": 55
+      },
+      {
+        "question": "What is Bruno's backup server called?",
+        "gold": "pinecone-seven",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "pinecone-seven",
+        "llm_latency_s": 1.0,
+        "eval_count": 46
+      },
+      {
+        "question": "When is the Atlas migration window?",
+        "gold": "03:40",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "03:40\u202fUTC on Sunday",
+        "llm_latency_s": 1.086,
+        "eval_count": 55
+      },
+      {
+        "question": "What does Mira prefer for cold start speed?",
+        "gold": "fastembed",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "FastEmbed",
+        "llm_latency_s": 1.219,
+        "eval_count": 39
+      },
+      {
+        "question": "Which port does project Zephyr use?",
+        "gold": "7443",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "7443",
+        "llm_latency_s": 1.03,
+        "eval_count": 47
+      },
+      {
+        "question": "Which treats are bad for Kai's dog Lou?",
+        "gold": "chicken",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "chicken treats",
+        "llm_latency_s": 0.935,
+        "eval_count": 43
+      },
+      {
+        "question": "What incident caused the demo API key rotation?",
+        "gold": "orchid-19",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": false,
+        "answer": "incident ORCHID\u201119",
+        "llm_latency_s": 1.37,
+        "eval_count": 73
+      },
+      {
+        "question": "Where does the telemetry dashboard live?",
+        "gold": "cloudflared",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "behind the cloudflared tunnel",
+        "llm_latency_s": 1.232,
+        "eval_count": 57
+      },
+      {
+        "question": "What should stay opt-in?",
+        "gold": "raw turn dumps",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "raw turn dumps",
+        "llm_latency_s": 1.325,
+        "eval_count": 61
+      },
+      {
+        "question": "What does the dream engine insight phase use?",
+        "gold": "louvain",
+        "mode": "advanced",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 1.089,
+        "eval_count": 56
+      },
+      {
+        "question": "What dedup is needed before neural ingestion?",
+        "gold": "content-hash",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "content-hash dedup",
+        "llm_latency_s": 1.336,
+        "eval_count": 76
+      },
+      {
+        "question": "What must remain production-safe if the C++ bridge is absent?",
+        "gold": "python fallback",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "Python fallback.",
+        "llm_latency_s": 1.179,
+        "eval_count": 73
+      },
+      {
+        "question": "When should HNSW activate automatically?",
+        "gold": "corpus is large",
+        "mode": "advanced",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 1.307,
+        "eval_count": 48
+      },
+      {
+        "question": "What file does the weekly rollup write?",
+        "gold": "weekly.md",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "WEEKLY.md",
+        "llm_latency_s": 1.136,
+        "eval_count": 58
+      },
+      {
+        "question": "What is the primary neural memory database file named?",
+        "gold": "memory.db",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "memory.db",
+        "llm_latency_s": 1.218,
+        "eval_count": 58
+      },
+      {
+        "question": "When does Ola's on-call shift start?",
+        "gold": "tuesday",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "Every Tuesday at\u202f09:00\u202fCET.",
+        "llm_latency_s": 1.447,
+        "eval_count": 64
+      },
+      {
+        "question": "What is the fallback embedding backend?",
+        "gold": "sentence-transformers",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "sentence-transformers",
+        "llm_latency_s": 1.261,
+        "eval_count": 63
+      },
+      {
+        "question": "What is the default daily salience decay factor?",
+        "gold": "0.95",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "0.95",
+        "llm_latency_s": 2.11,
+        "eval_count": 122
+      },
+      {
+        "question": "Which direction does the MSSQL bridge sync?",
+        "gold": "sqlite to mssql",
+        "mode": "advanced",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 1.149,
+        "eval_count": 52
+      },
+      {
+        "question": "Where is the shared embedding server's UNIX socket?",
+        "gold": "embed.sock",
+        "mode": "advanced",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "~/.neural_memory/embed.sock",
+        "llm_latency_s": 1.106,
+        "eval_count": 60
+      }
+    ],
+    "skynet": [
+      {
+        "question": "Where does Ada store the launch key?",
+        "gold": "blue ceramic owl",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "under the blue ceramic owl",
+        "llm_latency_s": 1.093,
+        "eval_count": 55
+      },
+      {
+        "question": "What is Bruno's backup server called?",
+        "gold": "pinecone-seven",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "pinecone-seven",
+        "llm_latency_s": 1.04,
+        "eval_count": 45
+      },
+      {
+        "question": "When is the Atlas migration window?",
+        "gold": "03:40",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "03:40\u202fUTC on Sunday",
+        "llm_latency_s": 1.249,
+        "eval_count": 66
+      },
+      {
+        "question": "What does Mira prefer for cold start speed?",
+        "gold": "fastembed",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "FastEmbed",
+        "llm_latency_s": 1.273,
+        "eval_count": 46
+      },
+      {
+        "question": "Which port does project Zephyr use?",
+        "gold": "7443",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "7443",
+        "llm_latency_s": 1.0,
+        "eval_count": 47
+      },
+      {
+        "question": "Which treats are bad for Kai's dog Lou?",
+        "gold": "chicken",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "chicken treats",
+        "llm_latency_s": 1.068,
+        "eval_count": 48
+      },
+      {
+        "question": "What incident caused the demo API key rotation?",
+        "gold": "orchid-19",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": false,
+        "answer": "ORCHID\u201119",
+        "llm_latency_s": 1.244,
+        "eval_count": 59
+      },
+      {
+        "question": "Where does the telemetry dashboard live?",
+        "gold": "cloudflared",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "behind the cloudflared tunnel",
+        "llm_latency_s": 1.035,
+        "eval_count": 38
+      },
+      {
+        "question": "What should stay opt-in?",
+        "gold": "raw turn dumps",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "raw turn dumps",
+        "llm_latency_s": 1.231,
+        "eval_count": 60
+      },
+      {
+        "question": "What does the dream engine insight phase use?",
+        "gold": "louvain",
+        "mode": "skynet",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 1.096,
+        "eval_count": 49
+      },
+      {
+        "question": "What dedup is needed before neural ingestion?",
+        "gold": "content-hash",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "content-hash dedup",
+        "llm_latency_s": 1.05,
+        "eval_count": 57
+      },
+      {
+        "question": "What must remain production-safe if the C++ bridge is absent?",
+        "gold": "python fallback",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "Python fallback.",
+        "llm_latency_s": 1.315,
+        "eval_count": 74
+      },
+      {
+        "question": "When should HNSW activate automatically?",
+        "gold": "corpus is large",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "Only when the corpus is large enough.",
+        "llm_latency_s": 1.249,
+        "eval_count": 75
+      },
+      {
+        "question": "What file does the weekly rollup write?",
+        "gold": "weekly.md",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "WEEKLY.md",
+        "llm_latency_s": 1.273,
+        "eval_count": 64
+      },
+      {
+        "question": "What is the primary neural memory database file named?",
+        "gold": "memory.db",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "memory.db",
+        "llm_latency_s": 1.098,
+        "eval_count": 61
+      },
+      {
+        "question": "When does Ola's on-call shift start?",
+        "gold": "tuesday",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "Every Tuesday at\u202f09:00\u202fCET.",
+        "llm_latency_s": 1.133,
+        "eval_count": 48
+      },
+      {
+        "question": "What is the fallback embedding backend?",
+        "gold": "sentence-transformers",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "sentence-transformers",
+        "llm_latency_s": 1.249,
+        "eval_count": 60
+      },
+      {
+        "question": "What is the default daily salience decay factor?",
+        "gold": "0.95",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "0.95",
+        "llm_latency_s": 3.022,
+        "eval_count": 108
+      },
+      {
+        "question": "Which direction does the MSSQL bridge sync?",
+        "gold": "sqlite to mssql",
+        "mode": "skynet",
+        "retrieval_hit": false,
+        "qa_correct": false,
+        "answer": "unknown",
+        "llm_latency_s": 1.895,
+        "eval_count": 45
+      },
+      {
+        "question": "Where is the shared embedding server's UNIX socket?",
+        "gold": "embed.sock",
+        "mode": "skynet",
+        "retrieval_hit": true,
+        "qa_correct": true,
+        "answer": "~/.neural_memory/embed.sock",
+        "llm_latency_s": 1.27,
+        "eval_count": 60
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "cpp_loaded": true,
+  "warmup_passes": 3,
+  "baseline": {
+    "recall_at_k": 0.7,
+    "mrr": 0.6057,
+    "p50_ms": 16.919,
+    "p95_ms": 25.373,
+    "n": 50
+  },
+  "enhanced": {
+    "recall_at_k": 0.74,
+    "mrr": 0.6817,
+    "p50_ms": 55.74,
+    "p95_ms": 62.318,
+    "n": 50
+  },
+  "delta": {
+    "recall_at_k": 0.04,
+    "mrr": 0.076,
+    "p50_ms_overhead": 38.821,
+    "p95_ms_overhead": 36.945
+  }
+}

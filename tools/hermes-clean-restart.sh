@@ -2,32 +2,32 @@
 #
 # hermes-clean-restart.sh — kill running hermes session(s), drop regen-able
 # caches, leave user data intact. Run before relaunching hermes when you
-# need the new neural-memory-adapter code to take effect.
+# need the new mazemaker-engine code to take effect.
 #
 # Killed:
 #   - any process matching `python.* hermes(-agent)?` (the running session)
-#   - the shared-embed UNIX socket (~/.neural_memory/embed.sock) — stale
+#   - the shared-embed UNIX socket (~/.mazemaker/engine/embed.sock) — stale
 #     after a session dies; new hermes will rebuild it on first embed.
 #
 # Cleared (regenerates on demand):
-#   - ~/.neural_memory/embed_cache.pkl       (LRU embedding cache; 32-37 MB)
-#   - ~/.neural_memory/gpu_cache/            (GPU recall tensor + metadata)
-#   - ~/.neural_memory/memory.db-{shm,wal}   (SQLite WAL artifacts)
+#   - ~/.mazemaker/engine/embed_cache.pkl       (LRU embedding cache; 32-37 MB)
+#   - ~/.mazemaker/engine/gpu_cache/            (GPU recall tensor + metadata)
+#   - ~/.mazemaker/engine/memory.db-{shm,wal}   (SQLite WAL artifacts)
 #   - all __pycache__ dirs under the project + deployed plugin path so the
 #     new code is freshly imported (skipped if directories don't exist)
 #
 # Preserved (your actual data — NEVER touched):
-#   - ~/.neural_memory/memory.db             (the persistent memories)
-#   - ~/.neural_memory/dream_sessions.db     (dream history)
-#   - ~/.neural_memory/lstm_weights.bin      (trained predictor)
-#   - ~/.neural_memory/models/               (HuggingFace model cache;
+#   - ~/.mazemaker/engine/memory.db             (the persistent memories)
+#   - ~/.mazemaker/engine/dream_sessions.db     (dream history)
+#   - ~/.mazemaker/engine/lstm_weights.bin      (trained predictor)
+#   - ~/.mazemaker/engine/models/               (HuggingFace model cache;
 #                                             expensive to re-download)
-#   - ~/.neural_memory/access_logs/          (forensic JSONL)
-#   - ~/.neural_memory/backups/              (your backups)
+#   - ~/.mazemaker/engine/access_logs/          (forensic JSONL)
+#   - ~/.mazemaker/engine/backups/              (your backups)
 #
 # Auxiliary services that are NOT killed (separate from hermes itself):
 #   - tools/dashboard/live_server.py (the /neural dashboard)
-#   - neural-memory-mcp/mcp_local.py (MCP server)
+#   - mazemaker-mcp/mcp_local.py (MCP server)
 # Restart those manually if you want the new code in them too.
 #
 # Usage:
@@ -55,7 +55,7 @@ run() {
     fi
 }
 
-NEURAL_DIR="$HOME/.neural_memory"
+MAZEMAKER_ENGINE_DIR="$HOME/.mazemaker/engine"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PLUGIN_DIR="$HOME/.hermes/hermes-agent/plugins/memory/neural"
 
@@ -93,19 +93,19 @@ else
 fi
 
 # 2. Drop regen-able caches ─────────────────────────────────────────────
-say "Clearing regen-able caches under $NEURAL_DIR"
+say "Clearing regen-able caches under $MAZEMAKER_ENGINE_DIR"
 for f in \
-    "$NEURAL_DIR/embed.sock" \
-    "$NEURAL_DIR/embed_cache.pkl" \
-    "$NEURAL_DIR/memory.db-shm" \
-    "$NEURAL_DIR/memory.db-wal"
+    "$MAZEMAKER_ENGINE_DIR/embed.sock" \
+    "$MAZEMAKER_ENGINE_DIR/embed_cache.pkl" \
+    "$MAZEMAKER_ENGINE_DIR/memory.db-shm" \
+    "$MAZEMAKER_ENGINE_DIR/memory.db-wal"
 do
     if [[ -e "$f" ]]; then
         run "rm -f -- '$f'"
     fi
 done
-if [[ -d "$NEURAL_DIR/gpu_cache" ]]; then
-    run "rm -rf -- '$NEURAL_DIR/gpu_cache'"
+if [[ -d "$MAZEMAKER_ENGINE_DIR/gpu_cache" ]]; then
+    run "rm -rf -- '$MAZEMAKER_ENGINE_DIR/gpu_cache'"
 fi
 ok "caches cleared"
 
@@ -125,14 +125,14 @@ ok "__pycache__ purged"
 # 4. Sanity report ──────────────────────────────────────────────────────
 say "Preserved (user data, untouched):"
 for f in memory.db dream_sessions.db lstm_weights.bin; do
-    if [[ -e "$NEURAL_DIR/$f" ]]; then
-        sz=$(du -h "$NEURAL_DIR/$f" 2>/dev/null | cut -f1)
-        echo "  ✓ $NEURAL_DIR/$f ($sz)"
+    if [[ -e "$MAZEMAKER_ENGINE_DIR/$f" ]]; then
+        sz=$(du -h "$MAZEMAKER_ENGINE_DIR/$f" 2>/dev/null | cut -f1)
+        echo "  ✓ $MAZEMAKER_ENGINE_DIR/$f ($sz)"
     fi
 done
-if [[ -d "$NEURAL_DIR/models" ]]; then
-    sz=$(du -sh "$NEURAL_DIR/models" 2>/dev/null | cut -f1)
-    echo "  ✓ $NEURAL_DIR/models ($sz)"
+if [[ -d "$MAZEMAKER_ENGINE_DIR/models" ]]; then
+    sz=$(du -sh "$MAZEMAKER_ENGINE_DIR/models" 2>/dev/null | cut -f1)
+    echo "  ✓ $MAZEMAKER_ENGINE_DIR/models ($sz)"
 fi
 
 # 5. Reminder about auxiliary services ─────────────────────────────────

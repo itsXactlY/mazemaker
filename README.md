@@ -53,7 +53,7 @@ bash install.sh /path    # explicit path
 ```
 
 The managed installer figures out: Python deps, GPU detection, plugin
-deployment, DB init at `~/.neural_memory/memory.db`, the four pod
+deployment, DB init at `~/.mazemaker/engine/memory.db`, the four pod
 containers, the `~/.mazemaker/license.jwt` license key.
 
 Restart hermes after install: `hermes gateway restart`.
@@ -95,7 +95,7 @@ That's the beginner path. If anything goes wrong, the [Production Lessons](#prod
 
 **Live Dashboard — Knowledge Graph**
 
-[![Dashboard](assets/neural_memory.png)](https://raw.githubusercontent.com/itsXactlY/mazemaker/refs/heads/master/assets/neural_memory.png)
+[![Dashboard](assets/mazemaker_dashboard.png)](https://raw.githubusercontent.com/itsXactlY/mazemaker/refs/heads/master/assets/mazemaker_dashboard.png)
 
 ---
 
@@ -196,7 +196,7 @@ Run the benchmark yourself:
 
 ```bash
 # Full v8 run on real-text corpus (200 chunks from the project's own docs):
-python -m benchmarks.neural_memory_benchmark.runner \
+python -m benchmarks.mazemaker_benchmark.runner \
   --realistic --suite baseline --suite lean_skynet \
   --suite graph_reasoning --suite dream_derived_fact \
   --suite conflict_quality --suite continuity_controls \
@@ -204,7 +204,7 @@ python -m benchmarks.neural_memory_benchmark.runner \
   --output-dir benchmarks/results/my-run --seed 42
 
 # Single-suite quick check (graph reasoning is the headline):
-python -m benchmarks.neural_memory_benchmark.runner \
+python -m benchmarks.mazemaker_benchmark.runner \
   --paraphrase --suite graph_reasoning
 ```
 
@@ -293,10 +293,10 @@ flowchart TD
 
 ### Storage
 
-- **SQLite (always)**: `~/.neural_memory/memory.db` — source of truth
-- **Embeddings cache**: `~/.neural_memory/models/` (auto-downloaded, ~2.2 GB)
-- **GPU cache**: `~/.neural_memory/gpu_cache/` (embeddings.npy + metadata.pkl)
-- **Access logs**: `~/.neural_memory/access_logs/` (JSON Lines)
+- **SQLite (always)**: `~/.mazemaker/engine/memory.db` — source of truth
+- **Embeddings cache**: `~/.mazemaker/engine/models/` (auto-downloaded, ~2.2 GB)
+- **GPU cache**: `~/.mazemaker/engine/gpu_cache/` (embeddings.npy + metadata.pkl)
+- **Access logs**: `~/.mazemaker/engine/access_logs/` (JSON Lines)
 - **Postgres + pgvector (optional)**: enabled via `MM_DB_BACKEND=postgres` — graph/cold-storage mirror for shared multi-agent deployments
 
 ### SQLite Schema
@@ -327,7 +327,7 @@ All settings in `~/.hermes/config.yaml`. The defaults below are the recommended 
 memory:
   provider: neural
   neural:
-    db_path: ~/.neural_memory/memory.db
+    db_path: ~/.mazemaker/engine/memory.db
     embedding_backend: fastembed       # auto | fastembed | sentence-transformers | tfidf | hash
 
     # 2026-04-28 benchmark recommended preset.
@@ -601,7 +601,6 @@ mazemaker/
 │   ├── __init__.py               # MemoryProvider + tools
 │   ├── config.py                 # Config loader
 │   ├── plugin.yaml               # Plugin metadata
-│   ├── neural_memory.py          # Unified Memory class
 │   ├── memory_client.py          # Main client (Mazemaker, SQLiteStore)
 │   ├── embed_provider.py         # Embedding backends (FastEmbed, st, tfidf, hash)
 │   ├── gpu_recall.py             # CUDA cosine similarity engine
@@ -621,7 +620,7 @@ mazemaker/
 ├── benchmarks/                   # Internal audit + external benchmarks
 │   ├── README.md                 # Internal suite catalog + headline numbers
 │   ├── audit/                    # codex-v2..v8 prompts + verdicts (verbatim)
-│   ├── neural_memory_benchmark/  # Internal suites + dataset generators
+│   ├── mazemaker_benchmark/  # Internal suites + dataset generators
 │   └── external/                 # LongMemEval-S + Comparison Bench harnesses
 │       ├── longmemeval_s.py      # 500q public retrieval benchmark
 │       ├── comparison_bench.py   # 10 small LLMs Hindsight evaluated, plain-text scoring

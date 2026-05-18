@@ -158,7 +158,7 @@ Modern Hopfield Networks are mathematically equivalent to Transformer attention 
 ### New Storage Backend
 
 1. Implement `SQLiteStore` interface in `python/`
-2. Update `neural_memory.py` to use it
+2. Update `memory_client.py` to use it
 3. Add tests
 
 ### New C++ Function

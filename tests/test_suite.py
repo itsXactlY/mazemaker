@@ -128,7 +128,7 @@ def test_install_sync():
 
 def test_database():
     print("\n[2] DATABASE")
-    db_path = os.path.expanduser('~/.neural_memory/memory.db')
+    db_path = os.path.expanduser('~/.mazemaker/engine/memory.db')
     if not os.path.exists(db_path):
         R.fail("db/exists", f"not found at {db_path}")
         return
@@ -239,7 +239,7 @@ def test_embed_provider():
         R.fail("embed/batch", str(e))
 
     # Embed server socket
-    sock = os.path.expanduser('~/.neural_memory/embed.sock')
+    sock = os.path.expanduser('~/.mazemaker/engine/embed.sock')
     if os.path.exists(sock):
         R.ok("embed/server", "socket exists")
     else:
@@ -323,7 +323,7 @@ def test_memory_client():
     # Cleanup test memory
     if mem_id:
         try:
-            db_path = os.path.expanduser('~/.neural_memory/memory.db')
+            db_path = os.path.expanduser('~/.mazemaker/engine/memory.db')
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
             cur.execute("DELETE FROM memories WHERE id = ?", (mem_id,))
@@ -348,7 +348,7 @@ def test_dream_engine():
         R.fail("dream/import", str(e))
         return
 
-    db_path = os.path.expanduser('~/.neural_memory/memory.db')
+    db_path = os.path.expanduser('~/.mazemaker/engine/memory.db')
     try:
         backend = SQLiteDreamBackend(db_path)
         R.ok("dream/backend", "SQLiteDreamBackend")
@@ -450,7 +450,7 @@ def test_edge_cases():
         mid = nm.remember("a", label="edge-test")
         R.ok("edge/short-text", f"remembered 1-char, id={mid}")
         # Cleanup
-        db = sqlite3.connect(os.path.expanduser('~/.neural_memory/memory.db'))
+        db = sqlite3.connect(os.path.expanduser('~/.mazemaker/engine/memory.db'))
         db.execute("DELETE FROM memories WHERE id = ?", (mid,))
         db.commit()
         db.close()
@@ -461,7 +461,7 @@ def test_edge_cases():
     try:
         mid = nm.remember("日本語テスト 🚀 Тест на русском", label="edge-unicode")
         R.ok("edge/unicode", f"id={mid}")
-        db = sqlite3.connect(os.path.expanduser('~/.neural_memory/memory.db'))
+        db = sqlite3.connect(os.path.expanduser('~/.mazemaker/engine/memory.db'))
         db.execute("DELETE FROM memories WHERE id = ?", (mid,))
         db.commit()
         db.close()
@@ -505,7 +505,7 @@ def test_no_minilm():
 
     # Check disk
     minilm_paths = [
-        os.path.expanduser('~/.neural_memory/models/models--sentence-transformers--all-MiniLM-L6-v2'),
+        os.path.expanduser('~/.mazemaker/engine/models/models--sentence-transformers--all-MiniLM-L6-v2'),
         os.path.expanduser('~/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2'),
         os.path.expanduser('~/.cache/chroma/onnx_models/all-MiniLM-L6-v2'),
     ]

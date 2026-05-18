@@ -26,7 +26,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
-sys.path.insert(0, str(REPO / "benchmarks/neural_memory_benchmark/mm_10m_eval/corpus"))
+sys.path.insert(0, str(REPO / "benchmarks/mazemaker_benchmark/mm_10m_eval/corpus"))
 
 import psycopg
 from pgvector.psycopg import register_vector

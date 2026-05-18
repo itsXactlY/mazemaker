@@ -1,0 +1,11 @@
+[afe-bake] DB:     mm10m_bench.longmemeval_oracle_bgem3_1024
+[afe-bake] min_len=100  max_per_cycle=20
+[afe-bake] LLM fallback: 1
+[afe-bake] --rebuild: AFE rows + done-set cleared
+[afe-bake] Building Mazemaker on cache schema...
+[embed-server] CUDA: 11574 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 46954.30it/s]
+GPU recall ARMED (load_from_store): 8759 vectors on cuda
+/usr/lib/python3.14/multiprocessing/resource_tracker.py:396: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown: {'/loky-3836997-yjfi59vh'}
+  warnings.warn(

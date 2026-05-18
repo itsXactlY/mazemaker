@@ -1,0 +1,69 @@
+
+══ Step 1: micro schema copy 30 sessions from longmemeval_s_bgem3_1024 ══
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+✓ 30 sessions copied
+
+══ Step 2: AFE bake ══
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+[embed-server] CUDA: 15285 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15284MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+AFE cycle 1: processed=29 written=122 facts=122
+AFE cycle 2: processed=0 written=0 facts=0
+
+✓ AFE: 122 facts
+
+══ Step 3: chunked sessions ══
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+[embed-server] CUDA: 15289 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15289MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+long sources: 27
+total chunks: 164
+embed: 6.4s
+colbert: 5.8s
+chunks written: 164
+
+✓ chunks: 164
+
+══ Step 4: ColBERT migrate AFE facts ══
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+[colbert-migrate] DB=mm10m_bench schema=longmemeval_micro_bgem3_1024 batch=64
+[colbert-migrate] 118 rows need ColBERT tokens
+  + 64  done=    64/118  encode=0.41s update=0.03s rate=144.2/s  eta=0.0m
+  + 54  done=   118/118  encode=0.21s update=0.02s rate=172.9/s  eta=0.0m
+
+[colbert-migrate] DONE  118 rows in 0.0m
+
+✓ ColBERT-baked: 282
+
+══ Step 5: dream cycle (1 cycle, max_memories=500, max_isolated=300) ══
+[embed-server] CUDA: 15289 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15289MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+GPU recall engine: <gpu_recall.GpuRecallEngine object at 0x7fd8082cd940>
+cycle: 3.1s
+NREM strengthened=1775
+REM bridges=1810
+INS communities=17 insights=139
+DAE written=333
+
+
+══ Step 6: verify all aux tables populated ══
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+dream_sessions=4 dream_insights=139 memory_dae_embeddings=333 memory_revisions=0
+connections by edge_type: {'derived_from': 315, 'supports': 122, 'bridge': 1810}
+
+✅ ALL GREEN in 0.9m  (n_sessions=30 n_afe=122 n_chunks=164 n_sess=4 n_ins=139 n_dae=333)

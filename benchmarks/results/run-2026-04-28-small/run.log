@@ -1,0 +1,212 @@
+
+======================================================================
+                    NEURAL MEMORY BENCHMARK SUITE
+======================================================================
+
+Output: /tmp/nmb-run
+DB:     /home/alca/.neural_memory/memory.db
+Suites: ['retrieval', 'graph', 'conflict', 'agentic']
+Started: 2026-04-28T19:19:41.271434
+
+======================================================================
+                          Generating Dataset
+======================================================================
+
+Generated 2288 memories
+Generated 50 recall queries
+
+======================================================================
+                       Running suite: RETRIEVAL
+======================================================================
+
+  [setup] Storing 2288 memories in /tmp/tmp77uctves.db
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+    stored 500/2288...
+    stored 1000/2288...
+    stored 1500/2288...
+    stored 2000/2288...
+  [setup] Done: 2288 memories in 16.8s (136/s)
+  [setup] DB stats: {'memories': 707, 'connections': 16597, 'revisions': 1310, 'embedding_dim': 1024, 'embedding_backend': 'SentenceTransformerBackend', 'embed_fingerprint': 'SentenceTransformerBackend::1024::', 'dim_locked': True, 'dim_mismatch_reason': None, 'quarantined_dim': 0, 'retrieval_mode': 'semantic', 'lazy_graph': False, 'hnsw_enabled': 'auto'}
+
+  === Mode: semantic ===
+    recall@1: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes']
+    recall@1: query='1 under FastEmbed in second.', hit_rank=1, top_labels=['adversarial:original']
+    recall@1: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['conversational:session_13']
+    recall@1: R=0.3200, MRR=0.3200, Hit=0.3200
+    recall@3: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@3: query='1 under FastEmbed in second.', hit_rank=1, top_labels=['adversarial:original', 'conversational:session_8', 'graph:memory']
+    recall@3: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['conversational:session_13', 'episodic:deleted', 'adversarial:conflict']
+    recall@3: R=0.5000, MRR=0.3333, Hit=0.5000
+    recall@5: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@5: query='1 under FastEmbed in second.', hit_rank=1, top_labels=['adversarial:original', 'conversational:session_8', 'factual:fastembed']
+    recall@5: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['conversational:session_13', 'episodic:deleted', 'adversarial:conflict']
+    recall@5: R=0.5400, MRR=0.2860, Hit=0.5400
+    recall@10: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'temporal:config_changed']
+    recall@10: query='1 under FastEmbed in second.', hit_rank=1, top_labels=['adversarial:original', 'graph:memory', 'factual:fastembed']
+    recall@10: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['conversational:session_13', 'adversarial:conflict', 'episodic:deleted']
+    recall@10: R=0.7800, MRR=0.2979, Hit=0.7800
+    Latency: p50=18.23ms, p95=18.23ms, p99=18.23ms
+    Throughput: 54.71 queries/second
+
+  === Mode: hybrid ===
+    recall@1: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes']
+    recall@1: query='1 under FastEmbed in second.', hit_rank=0, top_labels=['graph:memory']
+    recall@1: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['episodic:deployed']
+    recall@1: R=0.5200, MRR=0.5200, Hit=0.5200
+    recall@3: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@3: query='1 under FastEmbed in second.', hit_rank=2, top_labels=['graph:memory', 'adversarial:original', 'factual:fastembed']
+    recall@3: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['episodic:deployed', 'episodic:deployed', 'episodic:debugged']
+    recall@3: R=0.8000, MRR=0.6467, Hit=0.8000
+    recall@5: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@5: query='1 under FastEmbed in second.', hit_rank=2, top_labels=['graph:memory', 'adversarial:original', 'factual:fastembed']
+    recall@5: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['episodic:deployed', 'episodic:deployed', 'episodic:debugged']
+    recall@5: R=0.8600, MRR=0.6573, Hit=0.8600
+    recall@10: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@10: query='1 under FastEmbed in second.', hit_rank=2, top_labels=['graph:memory', 'adversarial:original', 'factual:fastembed']
+    recall@10: query='flagged this Agent as Reason:', hit_rank=7, top_labels=['episodic:deployed', 'episodic:deployed', 'episodic:debugged']
+    recall@10: R=0.9800, MRR=0.6603, Hit=0.9800
+    Latency: p50=176.36ms, p95=176.36ms, p99=176.36ms
+    Throughput: 5.14 queries/second
+
+  === Mode: advanced ===
+    recall@1: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes']
+    recall@1: query='1 under FastEmbed in second.', hit_rank=0, top_labels=['graph:memory']
+    recall@1: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['episodic:deployed']
+    recall@1: R=0.5000, MRR=0.5000, Hit=0.5000
+    recall@3: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@3: query='1 under FastEmbed in second.', hit_rank=2, top_labels=['graph:memory', 'adversarial:original', 'factual:fastembed']
+    recall@3: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['episodic:deployed', 'episodic:deployed', 'episodic:debugged']
+    recall@3: R=0.7000, MRR=0.5967, Hit=0.7000
+    recall@5: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@5: query='1 under FastEmbed in second.', hit_rank=2, top_labels=['graph:memory', 'adversarial:original', 'factual:fastembed']
+    recall@5: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['episodic:deployed', 'episodic:deployed', 'episodic:debugged']
+    recall@5: R=0.8600, MRR=0.6347, Hit=0.8600
+    recall@10: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@10: query='1 under FastEmbed in second.', hit_rank=2, top_labels=['graph:memory', 'adversarial:original', 'factual:fastembed']
+    recall@10: query='flagged this Agent as Reason:', hit_rank=6, top_labels=['episodic:deployed', 'episodic:deployed', 'episodic:configured']
+    recall@10: R=0.9800, MRR=0.6652, Hit=0.9800
+    Latency: p50=174.44ms, p95=174.44ms, p99=174.44ms
+    Throughput: 5.03 queries/second
+
+  === Mode: skynet ===
+    recall@1: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes']
+    recall@1: query='1 under FastEmbed in second.', hit_rank=0, top_labels=['graph:memory']
+    recall@1: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['episodic:deployed']
+    recall@1: R=0.5200, MRR=0.5200, Hit=0.5200
+    recall@3: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@3: query='1 under FastEmbed in second.', hit_rank=2, top_labels=['graph:memory', 'adversarial:original', 'factual:fastembed']
+    recall@3: query='flagged this Agent as Reason:', hit_rank=0, top_labels=['episodic:deployed', 'episodic:deployed', 'episodic:configured']
+    recall@3: R=0.7000, MRR=0.6067, Hit=0.7000
+    recall@5: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@5: query='1 under FastEmbed in second.', hit_rank=2, top_labels=['graph:memory', 'adversarial:original', 'factual:fastembed']
+    recall@5: query='flagged this Agent as Reason:', hit_rank=5, top_labels=['episodic:deployed', 'episodic:deployed', 'episodic:configured']
+    recall@5: R=0.8600, MRR=0.6447, Hit=0.8600
+    recall@10: query='Research built is Hermes Nous', hit_rank=1, top_labels=['factual:hermes', 'factual:hermes', 'factual:hermes']
+    recall@10: query='1 under FastEmbed in second.', hit_rank=2, top_labels=['graph:memory', 'adversarial:original', 'factual:fastembed']
+    recall@10: query='flagged this Agent as Reason:', hit_rank=5, top_labels=['episodic:deployed', 'episodic:deployed', 'episodic:configured']
+    recall@10: R=0.9800, MRR=0.6611, Hit=0.9800
+    Latency: p50=181.49ms, p95=181.49ms, p99=181.49ms
+    Throughput: 5.00 queries/second
+
+  [saved] /tmp/nmb-run/results/retrieval_results.json
+
+[OK] retrieval completed in 202.6s
+
+======================================================================
+                         Running suite: GRAPH
+======================================================================
+
+
+=== Graph Traversal Benchmark ===
+  [setup] Storing 2288 memories...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+  [setup] Done
+  Starting from 50 nodes
+
+[BFS] Traversal depth comparison
+  depth=2... visited=456, time=208.88ms
+  depth=3... visited=499, time=238.79ms
+  depth=5... visited=564, time=239.46ms
+
+[Think] Spreading activation
+  depth=2... activated=364, time=141.83ms
+  depth=3... activated=399, time=297.12ms
+  depth=5... activated=416, time=318.49ms
+
+[PPR] Personalized PageRank
+  alpha_0.7_iters_20... activated=50, time=2.22ms
+  alpha_0.7_iters_50... activated=92, time=18.66ms
+  alpha_0.85_iters_20... activated=50, time=1.89ms
+  alpha_0.85_iters_50... activated=92, time=17.79ms
+  alpha_0.95_iters_20... activated=50, time=1.87ms
+  alpha_0.95_iters_50... activated=92, time=17.75ms
+
+[saved] /tmp/nmb-run/results/graph_results.json
+
+[OK] graph completed in 17.5s
+
+======================================================================
+                       Running suite: CONFLICT
+======================================================================
+
+
+=== Conflict Detection Benchmark ===
+
+[1] Storing conflicting memory pairs...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+  Stored 16 conflicting memories
+
+[2] Checking for supersession markers...
+  Superseded markers found: 0
+
+[3] Recall quality comparison...
+
+[4] Salience decay simulation...
+
+[5] Adversarial poison resistance...
+  Post-poison stats: {'memories': 14, 'connections': 0, 'revisions': 6, 'embedding_dim': 1024, 'embedding_backend': 'SentenceTransformerBackend', 'embed_fingerprint': 'SentenceTransformerBackend::1024::', 'dim_locked': True, 'dim_mismatch_reason': None, 'quarantined_dim': 0, 'retrieval_mode': 'semantic', 'lazy_graph': False, 'hnsw_enabled': 'auto'}
+
+[saved] /tmp/nmb-run/results/conflict_results.json
+
+[OK] conflict completed in 0.6s
+
+======================================================================
+                        Running suite: AGENTIC
+======================================================================
+
+
+=== Agentic Workflow Benchmark ===
+  [setup] Pre-populating with 1000 memories...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+  [setup] Done
+
+  Session 1/3... 10 actions in 0.3s (34.7 actions/s)
+
+  Session 2/3... 10 actions in 0.2s (59.0 actions/s)
+
+  Session 3/3... 10 actions in 0.3s (33.1 actions/s)
+
+[saved] /tmp/nmb-run/results/agentic_results.json
+  Avg throughput: 42.3 actions/s
+
+[OK] agentic completed in 6.9s
+
+======================================================================
+  Results saved to /tmp/nmb-run/results/full_benchmark_results.json
+======================================================================
+
+
+=== FINAL STATUS ===
+  retrieval: ok in 202.62s
+  graph: ok in 17.55s
+  conflict: ok in 0.62s
+  agentic: ok in 6.89s
+Errors: {}

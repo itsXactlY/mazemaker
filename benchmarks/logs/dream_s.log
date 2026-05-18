@@ -1,0 +1,21 @@
+[dream-on-cache] DB=mm10m_bench schema=longmemeval_s_bgem3_1024
+[dream-on-cache] max_cycles=8 max_memories=4000 max_isolated=2000
+[dream-on-cache] MM_INSIGHT_MIN_CLUSTER=4 MM_REM_SIM_HIGH=0.99
+[dream-on-cache] Building Mazemaker on longmemeval_s_bgem3_1024...
+[embed-server] CUDA: 15309 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 42179.29it/s]
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+GPU recall cache absent — auto-building from /dev/null
+GPU recall auto-build skipped (cache-build path): no such table: memories
+GPU recall: load_from_store returned False — recall will run on CPU/numpy
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15309MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+  cycle  1/8  NREM: proc=4000 +0/-164409/p0  SUP: 0  REM: bridges=0/rej=0  INS: communities=10525 insights=0 derived=0  AFE: written=0  DAE: written=0  757.9s
+  cycle  2/8  NREM: proc=4000 +0/-164409/p0  SUP: 0  REM: bridges=0/rej=0  INS: communities=10525 insights=0 derived=0  AFE: written=0  DAE: written=0  753.1s
+/usr/lib/python3.14/multiprocessing/resource_tracker.py:396: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown: {'/loky-2286523-28g1_1b3'}
+  warnings.warn(

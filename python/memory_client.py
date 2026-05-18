@@ -2452,7 +2452,7 @@ class Mazemaker:
 
     # ── Query-intent classification + type-routed scoring ────────────────
     # Lightweight regex classifier — no LLM call, no extra latency. The
-    # bench-validated assumption (godbench LongMemEval-oracle 2026-05-17)
+    # bench-validated assumption (inception_bench LongMemEval-oracle 2026-05-17)
     # is that the question stems are sharp enough that a small set of
     # cue patterns recovers ≥80% of intent. Misclassifications fall back
     # to "general" which leaves the base relevance untouched, so the

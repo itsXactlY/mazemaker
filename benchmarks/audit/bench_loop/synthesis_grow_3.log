@@ -1,0 +1,15 @@
+DONE took=72.2s
+STATS: {'clusters_seen': 300, 'clusters_synthesised': 169, 'proposals': 14, 'crystallised': 14, 'rejected_low_conf': 0, 'by_type': {'preference': 2, 'pattern': 8, 'trait': 3, 'fact': 1}}
+pass 1 count=91
+DONE took=67.8s
+STATS: {'clusters_seen': 300, 'clusters_synthesised': 169, 'proposals': 12, 'crystallised': 12, 'rejected_low_conf': 0, 'by_type': {'preference': 0, 'pattern': 10, 'trait': 1, 'fact': 0, 'synthesis': 1}}
+pass 2 count=103
+DONE took=73.4s
+STATS: {'clusters_seen': 300, 'clusters_synthesised': 169, 'proposals': 20, 'crystallised': 20, 'rejected_low_conf': 0, 'by_type': {'preference': 4, 'pattern': 13, 'trait': 2, 'fact': 1}}
+pass 3 count=123
+DONE took=68.8s
+STATS: {'clusters_seen': 300, 'clusters_synthesised': 169, 'proposals': 13, 'crystallised': 13, 'rejected_low_conf': 0, 'by_type': {'preference': 4, 'pattern': 6, 'trait': 1, 'fact': 2}}
+pass 4 count=136
+DONE took=68.1s
+STATS: {'clusters_seen': 300, 'clusters_synthesised': 169, 'proposals': 13, 'crystallised': 13, 'rejected_low_conf': 0, 'by_type': {'preference': 2, 'pattern': 9, 'trait': 1, 'fact': 1}}
+pass 5 count=149

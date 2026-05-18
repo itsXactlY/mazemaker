@@ -1,0 +1,71 @@
+{
+  "setup": {
+    "chains": 30,
+    "memories": 90,
+    "explicit_edges": 60
+  },
+  "raw_cosine": {
+    "label": "raw_cosine",
+    "recall_C_at_k": 0.0,
+    "recall_C_at_3": 0.0,
+    "mrr_C": 0.0,
+    "p50_ms": 13.943,
+    "p95_ms": 14.683,
+    "n": 30
+  },
+  "nm_semantic": {
+    "label": "nm_semantic",
+    "recall_C_at_k": 0.1333,
+    "recall_C_at_3": 0.0,
+    "mrr_C": 0.0191,
+    "p50_ms": 19.004,
+    "p95_ms": 20.812,
+    "n": 30
+  },
+  "nm_skynet": {
+    "label": "nm_skynet",
+    "recall_C_at_k": 0.9333,
+    "recall_C_at_3": 0.4,
+    "mrr_C": 0.2863,
+    "p50_ms": 8.293,
+    "p95_ms": 9.014,
+    "n": 30
+  },
+  "nm_multihop": {
+    "label": "nm_multihop",
+    "recall_C_at_k": 1.0,
+    "recall_C_at_3": 0.3333,
+    "mrr_C": 0.2867,
+    "p50_ms": 10.588,
+    "p95_ms": 11.772,
+    "n": 30
+  },
+  "nm_think": {
+    "label": "nm_think",
+    "recall_C_at_k": 0.2333,
+    "recall_C_at_3": 0.2333,
+    "mrr_C": 0.2333,
+    "p50_ms": 4.436,
+    "p95_ms": 5.03,
+    "n": 30
+  },
+  "nm_multihop_shuffled": {
+    "label": "nm_multihop_shuffled",
+    "recall_C_at_k": 0.2667,
+    "recall_C_at_3": 0.0,
+    "mrr_C": 0.0258,
+    "p50_ms": 12.973,
+    "p95_ms": 14.159,
+    "n": 30
+  },
+  "analysis": {
+    "graph_lift_vs_raw": {
+      "nm_semantic": 0.1333,
+      "nm_skynet": 0.9333,
+      "nm_multihop": 1.0,
+      "nm_think": 0.2333
+    },
+    "shuffle_collapse": 0.7333,
+    "interpretation": "graph_lift_vs_raw should be > 0 for multihop/think if the graph is doing real work. shuffle_collapse should be > 0 (multihop drops back when chain edges are scrambled) \u2014 that proves the lift was edge-driven not semantic-driven."
+  }
+}

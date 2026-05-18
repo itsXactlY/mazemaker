@@ -6,7 +6,7 @@ Reads from SQLite and produces a self-contained interactive HTML file
 with 3D force graph + Plotly visualizations.
 
 Usage:
-    python generate.py                          # SQLite, output ~/neural_memory_dashboard.html
+    python generate.py                          # SQLite, output ~/mazemaker_dashboard.html
     python generate.py --db /path/to/memory.db  # Custom SQLite path
     python generate.py -o /tmp/dashboard.html   # Custom output path
     python generate.py --serve                  # Generate + serve via HTTPS (auto-cert)
@@ -328,7 +328,7 @@ def serve_https(output_path: str, port: int):
 def main():
     parser = argparse.ArgumentParser(description="Generate Mazemaker Dashboard")
     parser.add_argument("--db", default=DEFAULT_SQLITE, help="SQLite database path")
-    parser.add_argument("-o", "--output", default=os.path.expanduser("~/neural_memory_dashboard.html"))
+    parser.add_argument("-o", "--output", default=os.path.expanduser("~/mazemaker_dashboard.html"))
     parser.add_argument("--serve", action="store_true", help="Serve via HTTPS after generating")
     parser.add_argument("--port", type=int, default=8443, help="HTTPS port (default: 8443)")
     args = parser.parse_args()

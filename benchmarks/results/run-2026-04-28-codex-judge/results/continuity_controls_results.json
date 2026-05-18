@@ -1,0 +1,104 @@
+{
+  "tiers": {
+    "tier_0_noise_0_dist_0": {
+      "cumulative_generic_noise": 0,
+      "cumulative_near_distractors": 0,
+      "neural_memory": {
+        "recall_at_k": 0.66,
+        "mrr": 0.3457,
+        "errors": 0
+      },
+      "raw_cosine": {
+        "recall_at_k": 0.46,
+        "mrr": 0.2123,
+        "errors": 0
+      },
+      "recency_only": {
+        "recall_at_k": 0.1,
+        "mrr": 0.0457,
+        "errors": 0
+      }
+    },
+    "tier_1_noise_200_dist_100": {
+      "cumulative_generic_noise": 200,
+      "cumulative_near_distractors": 100,
+      "neural_memory": {
+        "recall_at_k": 0.62,
+        "mrr": 0.2867,
+        "errors": 0
+      },
+      "raw_cosine": {
+        "recall_at_k": 0.06,
+        "mrr": 0.034,
+        "errors": 0
+      },
+      "recency_only": {
+        "recall_at_k": 0.0,
+        "mrr": 0.0,
+        "errors": 0
+      }
+    },
+    "tier_2_noise_1200_dist_200": {
+      "cumulative_generic_noise": 1200,
+      "cumulative_near_distractors": 200,
+      "neural_memory": {
+        "recall_at_k": 0.58,
+        "mrr": 0.2557,
+        "errors": 0
+      },
+      "raw_cosine": {
+        "recall_at_k": 0.06,
+        "mrr": 0.034,
+        "errors": 0
+      },
+      "recency_only": {
+        "recall_at_k": 0.0,
+        "mrr": 0.0,
+        "errors": 0
+      }
+    },
+    "tier_3_noise_6200_dist_300": {
+      "cumulative_generic_noise": 6200,
+      "cumulative_near_distractors": 300,
+      "neural_memory": {
+        "recall_at_k": 0.2,
+        "mrr": 0.0757,
+        "errors": 0
+      },
+      "raw_cosine": {
+        "recall_at_k": 0.06,
+        "mrr": 0.034,
+        "errors": 0
+      },
+      "recency_only": {
+        "recall_at_k": 0.0,
+        "mrr": 0.0,
+        "errors": 0
+      }
+    }
+  },
+  "analysis": {
+    "nm_curve": [
+      0.66,
+      0.62,
+      0.58,
+      0.2
+    ],
+    "raw_cosine_curve": [
+      0.46,
+      0.06,
+      0.06,
+      0.06
+    ],
+    "recency_curve": [
+      0.1,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "raw_cosine_drop_first_to_last": 0.4,
+    "nm_vs_raw_lift_at_max_noise": 0.14,
+    "recency_floor_at_max_noise": 0.0,
+    "interpretation": "Concept-mode continuity. Queries paraphrase the target's concept and never mention its anchor; near-distractors per noise tier share concept vocabulary with the query but use different anchors. Expected: raw_cosine_drop_first_to_last > 0 (distractors lure raw cosine away from the target). recency_curve should hover near 0 since targets are the OLDEST items. nm_vs_raw_lift_at_max_noise > 0 would indicate neural-memory uses graph/salience to hold the original target above semantically-closer distractors. <= 0 is an honest negative result on this adversarial task."
+  }
+}

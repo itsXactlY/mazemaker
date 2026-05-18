@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "started_at": "2026-04-28T23:04:18.942974",
+    "version": "1.0.0",
+    "config": {
+      "memory_db": "/home/alca/.neural_memory_benchmark/sandbox.db",
+      "suites": [
+        "dream_derived_fact"
+      ]
+    },
+    "finished_at": "2026-04-28T23:05:10.875026",
+    "total_elapsed_s": 51.93
+  },
+  "suites": {
+    "dream_derived_fact": {
+      "result": {
+        "pre_dream": {
+          "connections": 3767,
+          "derived_facts": 0,
+          "recall": {
+            "legacy_collective_metric_inflated": true,
+            "semantic_both_tokens_rate": 0.3867,
+            "multihop_both_tokens_rate": 0.8933,
+            "single_doc_both_tokens_rate_semantic": 0.0,
+            "single_doc_both_tokens_rate_multihop": 0.0,
+            "derived_fact_hit_rate_semantic": 0.0,
+            "derived_fact_hit_rate_multihop": 0.0,
+            "k_legacy": 5,
+            "k_strict": 5,
+            "n": 75
+          }
+        },
+        "post_dream": {
+          "connections": 4176,
+          "derived_facts": 15,
+          "dream_elapsed_s": 0.56,
+          "recall": {
+            "legacy_collective_metric_inflated": true,
+            "semantic_both_tokens_rate": 0.3333,
+            "multihop_both_tokens_rate": 0.76,
+            "single_doc_both_tokens_rate_semantic": 0.0,
+            "single_doc_both_tokens_rate_multihop": 0.0,
+            "derived_fact_hit_rate_semantic": 0.0,
+            "derived_fact_hit_rate_multihop": 0.4267,
+            "k_legacy": 5,
+            "k_strict": 5,
+            "n": 75
+          }
+        },
+        "lift": {
+          "semantic_both_tokens_legacy": -0.0534,
+          "multihop_both_tokens_legacy": -0.1333,
+          "single_doc_both_tokens_semantic": 0.0,
+          "single_doc_both_tokens_multihop": 0.0,
+          "derived_fact_hit_rate_semantic": 0.0,
+          "derived_fact_hit_rate_multihop": 0.4267,
+          "new_connections": 409,
+          "new_derived_facts": 15,
+          "interpretation": "Read the STRICT metrics (single_doc_both_tokens, derived_fact_hit_rate). Pre-dream both must be 0 by construction: no premise template puts both a_tok and b_tok in the same memory and no derived:* labels exist. Post-dream derived_fact_hit_rate > 0 is the unambiguous signal that the Insight phase materialised a synthesised memory AND retrieval surfaced it. The legacy *_both_tokens_rate fields use a collective top-k metric and saturate above ~0.9 even pre-dream \u2014 do not interpret them as evidence either way (legacy_collective_metric_inflated)."
+        }
+      },
+      "elapsed_s": 51.88,
+      "status": "ok"
+    }
+  },
+  "errors": {}
+}

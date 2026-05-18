@@ -22,7 +22,7 @@ python find_typed_misses.py single-session-preference ssp_misses.json
 python rebake.py --misses ssp_misses.json --type ssp --namespace api2
 
 # 3. Re-run the benchmark, watch the targeted question type's R@5 jump
-python ../mazemaker_godbench.py --variant oracle --limit 500 \
+python ../mazemaker_inception_bench.py --variant oracle --limit 500 \
        --recall-mode skynet --rerank --colbert --colbert-weight 2.5 \
        --dae --dae-weight 2.0 --read-cache --retrieval-candidates 512 \
        --pref-multi-recall \
@@ -36,7 +36,7 @@ again on the next-largest miss bucket and repeat.
 
 ## When to use this
 
-Mazemaker's R@5 will saturate around 0.74 on godbench-oracle 500q with
+Mazemaker's R@5 will saturate around 0.74 on inception_bench-oracle 500q with
 pure retrieval-side tuning (channel weights, candidate pool size,
 multi-recall, intent boost). The
 [`invariant_retrieval_side_levers_converge`](../../../.claude/projects/-home-alca/memory/invariant_retrieval_side_levers_converge.md)
@@ -89,7 +89,7 @@ of top-5. A round 3 test on the iter75 corpus regressed ssp R@5 by
 
 ## Cost
 
-For godbench-oracle 500q (24,531 baseline memories, 30 ssp / 64 ssu /
+For inception_bench-oracle 500q (24,531 baseline memories, 30 ssp / 64 ssu /
 127 tr questions):
 
 | Round | Sessions touched | Facts added | OpenAI cost |

@@ -1,0 +1,53 @@
+{
+  "supersession": {
+    "conflict_pairs_stored": 8,
+    "superseded_detected": 0
+  },
+  "recall_quality": {
+    "FastEmbed": {
+      "hits": 5,
+      "should_match": true,
+      "correct": true
+    },
+    "Dream Engine phases": {
+      "hits": 5,
+      "should_match": true,
+      "correct": true
+    },
+    "HNSW threshold": {
+      "hits": 5,
+      "should_match": true,
+      "correct": true
+    },
+    "something unrelated": {
+      "hits": 5,
+      "should_match": false,
+      "correct": false
+    }
+  },
+  "salience": {
+    "access_time_100_calls_s": 0.08,
+    "sample_saliences": {
+      "min": 1.0,
+      "max": 1.0,
+      "mean": 1.0
+    }
+  },
+  "adversarial": {
+    "poison_attempts": 5,
+    "post_poison_stats": {
+      "memories": 14,
+      "connections": 0,
+      "revisions": 6,
+      "embedding_dim": 1024,
+      "embedding_backend": "SentenceTransformerBackend",
+      "embed_fingerprint": "SentenceTransformerBackend::1024::",
+      "dim_locked": true,
+      "dim_mismatch_reason": null,
+      "quarantined_dim": 0,
+      "retrieval_mode": "semantic",
+      "lazy_graph": false,
+      "hnsw_enabled": "auto"
+    }
+  }
+}

@@ -1,0 +1,51 @@
+GPU recall ARMED (load_from_store): 8759 vectors on cuda
+[afe-bake] DB:     mm10m_bench.longmemeval_oracle_bgem3_1024
+[afe-bake] min_len=100  max_per_cycle=unbounded
+[afe-bake] LLM fallback: 0
+[afe-bake] --rebuild: AFE rows + done-set cleared
+[afe-bake] Building Mazemaker on cache schema...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+[afe-bake] Eligible sources: 8,758
+  cycle   1  sources= 500  facts= 8225  written= 8225  by_stage={'A': 8225, 'B': 0, 'C': 0}  119.7s
+  cycle   2  sources= 500  facts= 4641  written= 4641  by_stage={'A': 4641, 'B': 0, 'C': 0}  64.5s
+  cycle   3  sources= 500  facts=  885  written=  885  by_stage={'A': 885, 'B': 0, 'C': 0}  8.8s
+  cycle   4  sources= 500  facts=  947  written=  947  by_stage={'A': 947, 'B': 0, 'C': 0}  9.9s
+  cycle   5  sources= 500  facts= 1051  written= 1051  by_stage={'A': 1051, 'B': 0, 'C': 0}  12.4s
+  cycle   6  sources= 500  facts= 1020  written= 1020  by_stage={'A': 1020, 'B': 0, 'C': 0}  11.8s
+  cycle   7  sources= 500  facts=  876  written=  876  by_stage={'A': 876, 'B': 0, 'C': 0}  11.1s
+  cycle   8  sources= 500  facts=  871  written=  871  by_stage={'A': 871, 'B': 0, 'C': 0}  12.5s
+  cycle   9  sources= 500  facts=  937  written=  937  by_stage={'A': 937, 'B': 0, 'C': 0}  11.5s
+  cycle  10  sources= 500  facts=  973  written=  973  by_stage={'A': 973, 'B': 0, 'C': 0}  12.4s
+  cycle  11  sources= 500  facts= 1212  written= 1212  by_stage={'A': 1212, 'B': 0, 'C': 0}  13.0s
+  cycle  12  sources= 500  facts= 1111  written= 1111  by_stage={'A': 1111, 'B': 0, 'C': 0}  14.8s
+  cycle  13  sources= 500  facts= 1004  written= 1004  by_stage={'A': 1004, 'B': 0, 'C': 0}  10.4s
+  cycle  14  sources= 500  facts= 1042  written= 1042  by_stage={'A': 1042, 'B': 0, 'C': 0}  10.5s
+  cycle  15  sources= 500  facts=  996  written=  996  by_stage={'A': 996, 'B': 0, 'C': 0}  11.9s
+  cycle  16  sources= 500  facts=  919  written=  919  by_stage={'A': 919, 'B': 0, 'C': 0}  12.5s
+  cycle  17  sources= 500  facts=  360  written=  360  by_stage={'A': 360, 'B': 0, 'C': 0}  4.9s
+  cycle  18  sources= 258  facts=   38  written=   38  by_stage={'A': 38, 'B': 0, 'C': 0}  1.2s
+  cycle  19  sources=   0  facts=    0  written=    0  by_stage={'A': 0, 'B': 0, 'C': 0}  0.2s
+[afe-bake] No more sources to process — done.
+
+[afe-bake] DONE  27,108 fact memories written in 5.9m
+[afe-bake] Next: pg_dump -U mazemaker -d mm10m_bench --schema=longmemeval_oracle_bgem3_1024 -Fc -f benchmarks/snapshots/longmemeval_oracle_bgem3_1024.dump
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7f71a81a59b0>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7f71a81a59b0>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

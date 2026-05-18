@@ -1,0 +1,71 @@
+{
+  "all_channels": {
+    "recall_at_k": 0.9,
+    "mrr": 0.8483,
+    "p50_ms": 374.069,
+    "n": 50
+  },
+  "ablation": {
+    "no_semantic": {
+      "recall_at_k": 0.88,
+      "mrr": 0.7807,
+      "p50_ms": 455.12,
+      "n": 50,
+      "delta_recall": -0.02,
+      "delta_mrr": -0.0676
+    },
+    "no_bm25": {
+      "recall_at_k": 0.86,
+      "mrr": 0.8157,
+      "p50_ms": 349.545,
+      "n": 50,
+      "delta_recall": -0.04,
+      "delta_mrr": -0.0326
+    },
+    "no_entity": {
+      "recall_at_k": 0.86,
+      "mrr": 0.8183,
+      "p50_ms": 113.721,
+      "n": 50,
+      "delta_recall": -0.04,
+      "delta_mrr": -0.03
+    },
+    "no_temporal": {
+      "recall_at_k": 0.86,
+      "mrr": 0.8157,
+      "p50_ms": 97.129,
+      "n": 50,
+      "delta_recall": -0.04,
+      "delta_mrr": -0.0326
+    },
+    "no_ppr": {
+      "recall_at_k": 0.86,
+      "mrr": 0.7193,
+      "p50_ms": 359.778,
+      "n": 50,
+      "delta_recall": -0.04,
+      "delta_mrr": -0.129
+    },
+    "no_salience": {
+      "recall_at_k": 0.9,
+      "mrr": 0.8547,
+      "p50_ms": 352.235,
+      "n": 50,
+      "delta_recall": 0.0,
+      "delta_mrr": 0.0064
+    }
+  },
+  "analysis": {
+    "per_channel_contribution_to_recall": {
+      "semantic": 0.02,
+      "bm25": 0.04,
+      "entity": 0.04,
+      "temporal": 0.04,
+      "ppr": 0.04,
+      "salience": -0.0
+    },
+    "most_helpful_channel": "bm25",
+    "most_harmful_channel": "salience",
+    "interpretation": "per_channel_contribution = -delta_recall when that channel is removed. Positive = removing it hurt recall (channel was helping). Negative = removing it improved recall (channel was hurting on this dataset)."
+  }
+}

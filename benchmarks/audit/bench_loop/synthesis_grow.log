@@ -1,0 +1,6 @@
+GPU recall ARMED (load_from_store): 23661 vectors on cuda
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+DONE took=72.7s
+STATS: {'clusters_seen': 300, 'clusters_synthesised': 169, 'proposals': 18, 'crystallised': 18, 'rejected_low_conf': 0, 'by_type': {'preference': 2, 'pattern': 14, 'trait': 0, 'fact': 2}}

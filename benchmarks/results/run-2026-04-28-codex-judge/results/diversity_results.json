@@ -1,0 +1,131 @@
+{
+  "sweep": {
+    "mmr=0.0_floor=0.0": {
+      "recall_at_k": 0.42,
+      "mrr": 0.2213,
+      "mean_results_returned": 5,
+      "topic_entropy_bits": 2.0838,
+      "topic_count": 8,
+      "topic_distribution_top5": {
+        "incident": 93,
+        "metric": 81,
+        "person": 49,
+        "deprecation": 11,
+        "decision": 7
+      }
+    },
+    "mmr=0.0_floor=0.2": {
+      "recall_at_k": 0.0,
+      "mrr": 0.0,
+      "mean_results_returned": 0,
+      "topic_entropy_bits": 0,
+      "topic_count": 0,
+      "topic_distribution_top5": {}
+    },
+    "mmr=0.0_floor=0.4": {
+      "recall_at_k": 0.0,
+      "mrr": 0.0,
+      "mean_results_returned": 0,
+      "topic_entropy_bits": 0,
+      "topic_count": 0,
+      "topic_distribution_top5": {}
+    },
+    "mmr=0.3_floor=0.0": {
+      "recall_at_k": 0.22,
+      "mrr": 0.21,
+      "mean_results_returned": 5,
+      "topic_entropy_bits": 3.8805,
+      "topic_count": 29,
+      "topic_distribution_top5": {
+        "person": 42,
+        "incident": 41,
+        "metric": 40,
+        "wal": 15,
+        "deprecation": 14
+      }
+    },
+    "mmr=0.3_floor=0.2": {
+      "recall_at_k": 0.0,
+      "mrr": 0.0,
+      "mean_results_returned": 0,
+      "topic_entropy_bits": 0,
+      "topic_count": 0,
+      "topic_distribution_top5": {}
+    },
+    "mmr=0.3_floor=0.4": {
+      "recall_at_k": 0.0,
+      "mrr": 0.0,
+      "mean_results_returned": 0,
+      "topic_entropy_bits": 0,
+      "topic_count": 0,
+      "topic_distribution_top5": {}
+    },
+    "mmr=0.5_floor=0.0": {
+      "recall_at_k": 0.3,
+      "mrr": 0.2733,
+      "mean_results_returned": 5,
+      "topic_entropy_bits": 3.54,
+      "topic_count": 19,
+      "topic_distribution_top5": {
+        "incident": 47,
+        "metric": 36,
+        "person": 31,
+        "deprecation": 27,
+        "schedule": 17
+      }
+    },
+    "mmr=0.5_floor=0.2": {
+      "recall_at_k": 0.0,
+      "mrr": 0.0,
+      "mean_results_returned": 0,
+      "topic_entropy_bits": 0,
+      "topic_count": 0,
+      "topic_distribution_top5": {}
+    },
+    "mmr=0.5_floor=0.4": {
+      "recall_at_k": 0.0,
+      "mrr": 0.0,
+      "mean_results_returned": 0,
+      "topic_entropy_bits": 0,
+      "topic_count": 0,
+      "topic_distribution_top5": {}
+    },
+    "mmr=0.7_floor=0.0": {
+      "recall_at_k": 0.32,
+      "mrr": 0.2933,
+      "mean_results_returned": 5,
+      "topic_entropy_bits": 3.3519,
+      "topic_count": 15,
+      "topic_distribution_top5": {
+        "incident": 54,
+        "metric": 37,
+        "person": 30,
+        "deprecation": 28,
+        "schedule": 23
+      }
+    },
+    "mmr=0.7_floor=0.2": {
+      "recall_at_k": 0.0,
+      "mrr": 0.0,
+      "mean_results_returned": 0,
+      "topic_entropy_bits": 0,
+      "topic_count": 0,
+      "topic_distribution_top5": {}
+    },
+    "mmr=0.7_floor=0.4": {
+      "recall_at_k": 0.0,
+      "mrr": 0.0,
+      "mean_results_returned": 0,
+      "topic_entropy_bits": 0,
+      "topic_count": 0,
+      "topic_distribution_top5": {}
+    }
+  },
+  "analysis": {
+    "best_recall_setting": "mmr=0.0_floor=0.0",
+    "best_recall_value": 0.42,
+    "best_diversity_within_5pct_recall": "mmr=0.0_floor=0.0",
+    "best_diversity_entropy": 2.0838,
+    "note": "If best_diversity_within_5pct_recall != best_recall_setting, MMR is producing a real diversity/recall trade-off."
+  }
+}

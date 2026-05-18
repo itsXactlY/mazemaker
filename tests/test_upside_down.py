@@ -509,11 +509,11 @@ def test_memory_provider():
 
     PLUGIN_DIR = PROJECT_DIR / "hermes-plugin"
 
-    # Clear cached modules from earlier tests (neural_memory was imported from python/)
+    # Clear cached modules from earlier tests (memory_client was imported from python/)
     # so hermes-plugin's __init__.py loads its own copy
     import importlib
     for mod_name in list(sys.modules.keys()):
-        if 'neural_memory' in mod_name or 'memory_client' in mod_name or 'embed_provider' in mod_name:
+        if 'mazemaker' in mod_name or 'memory_client' in mod_name or 'embed_provider' in mod_name:
             del sys.modules[mod_name]
 
     sys.path.insert(0, str(PLUGIN_DIR))
@@ -581,7 +581,7 @@ def test_memory_provider():
         T.expect_no_crash("mp/prefetch", provider.prefetch, "test query")
 
         # shutdown — known test-only bug: module cache causes hermes-plugin __init__.py
-        # to load neural_memory from python/ instead of hermes-plugin/. In real usage
+        # to load memory_client from python/ instead of hermes-plugin/. In real usage
         # (run_agent.py), this doesn't happen because the plugin loader sets up paths correctly.
         try:
             provider.shutdown()
@@ -661,7 +661,7 @@ def test_installer():
         T.fail("installer/plugin-deploy", "no plugin target dir")
 
     # Database init
-    if '.neural_memory' in content and 'memory.db' in content:
+    if '.mazemaker/engine' in content and 'memory.db' in content:
         T.ok("installer/db-init", "database path present")
     else:
         T.fail("installer/db-init", "no database path")
@@ -800,7 +800,7 @@ def test_file_sync():
 
     # Source-of-truth .py files that MUST exist in python/
     sources = [
-        'neural_memory.py', 'memory_client.py', 'embed_provider.py',
+        'memory_client.py', 'memory_client.py', 'embed_provider.py',
         'dream_engine.py', 'dream_worker.py', 'access_logger.py',
         'cpp_bridge.py', 'cpp_dream_backend.py', 'lstm_knn_bridge.py',
         'config.py',

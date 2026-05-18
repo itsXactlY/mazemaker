@@ -1,0 +1,89 @@
+[afe-bake] DB:     mm10m_bench.longmemeval_s_bgem3_1024
+[afe-bake] min_len=500  max_per_cycle=unbounded
+[afe-bake] LLM fallback: 0
+[afe-bake] Building Mazemaker on cache schema...
+[embed-server] CUDA: 15357 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 46706.91it/s]
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+GPU recall cache absent — auto-building from /dev/null
+GPU recall auto-build skipped (cache-build path): no such table: memories
+GPU recall: load_from_store returned False — recall will run on CPU/numpy
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15357MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+[afe-bake] Eligible sources: 23,615
+  cycle   1  sources= 500  facts=10200  written=10200  by_stage={'A': 10200, 'B': 0, 'C': 0}  49.3s
+  cycle   2  sources= 500  facts=10346  written=10346  by_stage={'A': 10346, 'B': 0, 'C': 0}  47.6s
+  cycle   3  sources= 500  facts= 8857  written= 8857  by_stage={'A': 8857, 'B': 0, 'C': 0}  42.0s
+  cycle   4  sources= 500  facts= 7743  written= 7743  by_stage={'A': 7743, 'B': 0, 'C': 0}  36.5s
+  cycle   5  sources= 500  facts= 7584  written= 7584  by_stage={'A': 7584, 'B': 0, 'C': 0}  35.6s
+  cycle   6  sources= 500  facts= 8864  written= 8864  by_stage={'A': 8864, 'B': 0, 'C': 0}  40.8s
+  cycle   7  sources= 500  facts= 7507  written= 7507  by_stage={'A': 7507, 'B': 0, 'C': 0}  35.6s
+  cycle   8  sources= 500  facts= 7381  written= 7381  by_stage={'A': 7381, 'B': 0, 'C': 0}  35.3s
+  cycle   9  sources= 500  facts= 7356  written= 7356  by_stage={'A': 7356, 'B': 0, 'C': 0}  35.5s
+  cycle  10  sources= 500  facts= 7762  written= 7762  by_stage={'A': 7762, 'B': 0, 'C': 0}  37.3s
+  cycle  11  sources= 500  facts= 7576  written= 7576  by_stage={'A': 7576, 'B': 0, 'C': 0}  35.8s
+  cycle  12  sources= 500  facts= 7027  written= 7027  by_stage={'A': 7027, 'B': 0, 'C': 0}  33.2s
+  cycle  13  sources= 500  facts= 6656  written= 6656  by_stage={'A': 6656, 'B': 0, 'C': 0}  31.9s
+  cycle  14  sources= 500  facts= 7025  written= 7025  by_stage={'A': 7025, 'B': 0, 'C': 0}  34.1s
+  cycle  15  sources= 500  facts= 6309  written= 6309  by_stage={'A': 6309, 'B': 0, 'C': 0}  30.7s
+  cycle  16  sources= 500  facts= 6447  written= 6447  by_stage={'A': 6447, 'B': 0, 'C': 0}  30.9s
+  cycle  17  sources= 500  facts= 5773  written= 5773  by_stage={'A': 5773, 'B': 0, 'C': 0}  28.3s
+  cycle  18  sources= 500  facts= 5605  written= 5605  by_stage={'A': 5605, 'B': 0, 'C': 0}  27.6s
+  cycle  19  sources= 500  facts= 5681  written= 5681  by_stage={'A': 5681, 'B': 0, 'C': 0}  28.9s
+  cycle  20  sources= 500  facts= 4522  written= 4522  by_stage={'A': 4522, 'B': 0, 'C': 0}  23.7s
+  cycle  21  sources= 500  facts= 3496  written= 3496  by_stage={'A': 3496, 'B': 0, 'C': 0}  18.8s
+  cycle  22  sources= 500  facts= 2942  written= 2942  by_stage={'A': 2942, 'B': 0, 'C': 0}  16.0s
+  cycle  23  sources= 500  facts= 2382  written= 2382  by_stage={'A': 2382, 'B': 0, 'C': 0}  14.1s
+  cycle  24  sources= 500  facts= 1809  written= 1809  by_stage={'A': 1809, 'B': 0, 'C': 0}  10.7s
+  cycle  25  sources= 500  facts= 1323  written= 1323  by_stage={'A': 1323, 'B': 0, 'C': 0}  8.4s
+  cycle  26  sources= 500  facts= 1150  written= 1150  by_stage={'A': 1150, 'B': 0, 'C': 0}  7.8s
+  cycle  27  sources= 500  facts=  991  written=  991  by_stage={'A': 991, 'B': 0, 'C': 0}  7.9s
+  cycle  28  sources= 500  facts=  813  written=  813  by_stage={'A': 813, 'B': 0, 'C': 0}  7.0s
+  cycle  29  sources= 500  facts=  592  written=  592  by_stage={'A': 592, 'B': 0, 'C': 0}  5.9s
+  cycle  30  sources= 500  facts=  548  written=  548  by_stage={'A': 548, 'B': 0, 'C': 0}  5.8s
+  cycle  31  sources= 500  facts=  503  written=  503  by_stage={'A': 503, 'B': 0, 'C': 0}  5.3s
+  cycle  32  sources= 500  facts=  223  written=  223  by_stage={'A': 223, 'B': 0, 'C': 0}  3.8s
+  cycle  33  sources= 500  facts=  263  written=  263  by_stage={'A': 263, 'B': 0, 'C': 0}  4.3s
+  cycle  34  sources= 500  facts=  211  written=  211  by_stage={'A': 211, 'B': 0, 'C': 0}  3.8s
+  cycle  35  sources= 500  facts=  186  written=  186  by_stage={'A': 186, 'B': 0, 'C': 0}  3.8s
+  cycle  36  sources= 500  facts=   63  written=   63  by_stage={'A': 63, 'B': 0, 'C': 0}  3.2s
+  cycle  37  sources= 500  facts=  160  written=  160  by_stage={'A': 160, 'B': 0, 'C': 0}  3.6s
+  cycle  38  sources= 500  facts=  111  written=  111  by_stage={'A': 111, 'B': 0, 'C': 0}  3.3s
+  cycle  39  sources= 500  facts=  136  written=  136  by_stage={'A': 136, 'B': 0, 'C': 0}  3.6s
+  cycle  40  sources= 500  facts=   61  written=   61  by_stage={'A': 61, 'B': 0, 'C': 0}  3.3s
+  cycle  41  sources= 500  facts=   36  written=   36  by_stage={'A': 36, 'B': 0, 'C': 0}  3.2s
+  cycle  42  sources= 500  facts=   24  written=   24  by_stage={'A': 24, 'B': 0, 'C': 0}  3.2s
+  cycle  43  sources= 500  facts=   40  written=   40  by_stage={'A': 40, 'B': 0, 'C': 0}  3.3s
+  cycle  44  sources= 500  facts=   40  written=   40  by_stage={'A': 40, 'B': 0, 'C': 0}  3.3s
+  cycle  45  sources= 500  facts=   34  written=   34  by_stage={'A': 34, 'B': 0, 'C': 0}  3.4s
+  cycle  46  sources= 500  facts=   41  written=   41  by_stage={'A': 41, 'B': 0, 'C': 0}  3.5s
+  cycle  47  sources= 500  facts=   10  written=   10  by_stage={'A': 10, 'B': 0, 'C': 0}  3.4s
+  cycle  48  sources= 115  facts=    0  written=    0  by_stage={'A': 0, 'B': 0, 'C': 0}  3.2s
+  cycle  49  sources=   0  facts=    0  written=    0  by_stage={'A': 0, 'B': 0, 'C': 0}  3.1s
+[afe-bake] No more sources to process — done.
+
+[afe-bake] DONE  164,409 fact memories written in 14.5m
+[afe-bake] Next: pg_dump -U mazemaker -d mm10m_bench --schema=longmemeval_s_bgem3_1024 -Fc -f benchmarks/snapshots/longmemeval_s_bgem3_1024.dump
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7fed2c60ae50>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7fed2c60ae50>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

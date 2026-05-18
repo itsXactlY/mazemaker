@@ -23,7 +23,7 @@ def find_lib() -> str:
       2. ~/projects/mazemaker-adapter/build/libmazemaker.so  (legacy dev path)
       3. /usr/local/lib/libmazemaker.so
       4. /usr/lib/libmazemaker.so
-      5. ctypes.util.find_library("neural_memory")  — falls through LD_LIBRARY_PATH
+      5. ctypes.util.find_library("mazemaker")  — falls through LD_LIBRARY_PATH
     """
     # __file__ here is python/_lib_finder.py — repo root is two parents up.
     repo_root = Path(__file__).resolve().parent.parent
@@ -36,7 +36,7 @@ def find_lib() -> str:
     for p in candidates:
         if p.exists():
             return str(p)
-    found = ctypes.util.find_library("neural_memory")
+    found = ctypes.util.find_library("mazemaker")
     if found:
         return found
     raise FileNotFoundError(

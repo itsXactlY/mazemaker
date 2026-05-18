@@ -1,0 +1,42 @@
+[afe-bake] DB:     mm10m_bench.longmemeval_oracle_bgem3_1024
+[afe-bake] min_len=500  max_per_cycle=unbounded
+[afe-bake] LLM fallback: 0
+[afe-bake] Building Mazemaker on cache schema...
+[embed-server] CUDA: 15329 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 43828.45it/s]
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+GPU recall cache absent — auto-building from /dev/null
+GPU recall auto-build skipped (cache-build path): no such table: memories
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15329MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+[afe-bake] Eligible sources: 948
+  cycle   1  sources= 500  facts= 8225  written= 8225  by_stage={'A': 8225, 'B': 0, 'C': 0}  40.7s
+  cycle   2  sources= 448  facts= 4525  written= 4525  by_stage={'A': 4525, 'B': 0, 'C': 0}  21.7s
+  cycle   3  sources=   0  facts=    0  written=    0  by_stage={'A': 0, 'B': 0, 'C': 0}  0.1s
+[afe-bake] No more sources to process — done.
+
+[afe-bake] DONE  12,750 fact memories written in 1.0m
+[afe-bake] Next: pg_dump -U mazemaker -d mm10m_bench --schema=longmemeval_oracle_bgem3_1024 -Fc -f benchmarks/snapshots/longmemeval_oracle_bgem3_1024.dump
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7efe1f27ae50>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7efe1f27ae50>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

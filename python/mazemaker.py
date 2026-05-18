@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-neural_memory.py - THE Unified Mazemaker API
+mazemaker.py - THE Unified Mazemaker API
 One import to rule them all.
 
 Architecture:

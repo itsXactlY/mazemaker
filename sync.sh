@@ -17,7 +17,7 @@ fi
 
 echo "Syncing: python/ → $PLUGIN"
 
-for f in memory_client.py cpp_bridge.py embed_provider.py neural_memory.py \
+for f in memory_client.py cpp_bridge.py embed_provider.py \
          mssql_store.py dream_mssql_store.py dream_engine.py fast_ops.pyx; do
     if [ -f "$SRC/$f" ]; then
         cp "$SRC/$f" "$PLUGIN/$f"

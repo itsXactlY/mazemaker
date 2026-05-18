@@ -215,7 +215,7 @@ class NeuralMemoryProvider(MemoryProvider):
         try:
             from dream_engine import DreamEngine
 
-            db_path = self._config.get("db_path", str(Path.home() / ".neural_memory" / "memory.db"))
+            db_path = self._config.get("db_path", str(Path.home() / ".mazemaker" / "engine" / "memory.db"))
             self._dream = DreamEngine.sqlite(
                 db_path,
                 neural_memory=self._memory,

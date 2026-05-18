@@ -1,0 +1,103 @@
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 43410.79it/s]
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+[colbert-migrate] DB=mm10m_bench schema=longmemeval_oracle_bgem3_1024 batch=128
+[colbert-migrate] 12,302 rows need ColBERT tokens
+  +128  done=   128/12302  encode=0.64s update=0.08s rate=176.2/s  eta=1.2m
+  +128  done=   256/12302  encode=0.43s update=0.08s rate=206.5/s  eta=1.0m
+  +128  done=   384/12302  encode=0.36s update=0.08s rate=227.4/s  eta=0.9m
+  +128  done=   512/12302  encode=0.38s update=0.10s rate=235.9/s  eta=0.8m
+  +128  done=   640/12302  encode=0.42s update=0.09s rate=239.0/s  eta=0.8m
+  +128  done=   768/12302  encode=0.36s update=0.09s rate=245.7/s  eta=0.8m
+  +128  done=   896/12302  encode=0.41s update=0.09s rate=247.2/s  eta=0.8m
+  +128  done= 1,024/12302  encode=0.44s update=0.11s rate=244.9/s  eta=0.8m
+  +128  done= 1,152/12302  encode=0.41s update=0.08s rate=246.5/s  eta=0.8m
+  +128  done= 1,280/12302  encode=0.36s update=0.10s rate=249.4/s  eta=0.7m
+  +128  done= 1,408/12302  encode=0.40s update=0.10s rate=250.3/s  eta=0.7m
+  +128  done= 1,536/12302  encode=0.43s update=0.09s rate=249.9/s  eta=0.7m
+  +128  done= 1,664/12302  encode=0.51s update=0.09s rate=246.5/s  eta=0.7m
+  +128  done= 1,792/12302  encode=0.42s update=0.11s rate=245.9/s  eta=0.7m
+  +128  done= 1,920/12302  encode=0.48s update=0.09s rate=244.2/s  eta=0.7m
+  +128  done= 2,048/12302  encode=0.39s update=0.09s rate=245.3/s  eta=0.7m
+  +128  done= 2,176/12302  encode=0.35s update=0.08s rate=247.7/s  eta=0.7m
+  +128  done= 2,304/12302  encode=0.47s update=0.37s rate=239.3/s  eta=0.7m
+  +128  done= 2,432/12302  encode=0.39s update=0.08s rate=240.7/s  eta=0.7m
+  +128  done= 2,560/12302  encode=0.36s update=0.11s rate=242.0/s  eta=0.7m
+  +128  done= 2,688/12302  encode=0.43s update=0.09s rate=242.2/s  eta=0.7m
+  +128  done= 2,816/12302  encode=0.48s update=0.09s rate=241.3/s  eta=0.7m
+  +128  done= 2,944/12302  encode=0.40s update=0.09s rate=242.1/s  eta=0.6m
+  +128  done= 3,072/12302  encode=0.42s update=0.08s rate=242.5/s  eta=0.6m
+  +128  done= 3,200/12302  encode=0.47s update=0.08s rate=242.0/s  eta=0.6m
+  +128  done= 3,328/12302  encode=0.41s update=0.09s rate=242.6/s  eta=0.6m
+  +128  done= 3,456/12302  encode=0.41s update=0.08s rate=243.1/s  eta=0.6m
+  +128  done= 3,584/12302  encode=0.48s update=0.09s rate=242.3/s  eta=0.6m
+  +128  done= 3,712/12302  encode=0.38s update=0.08s rate=243.4/s  eta=0.6m
+  +128  done= 3,840/12302  encode=0.41s update=0.09s rate=243.7/s  eta=0.6m
+  +128  done= 3,968/12302  encode=0.48s update=0.09s rate=243.0/s  eta=0.6m
+  +128  done= 4,096/12302  encode=0.42s update=0.09s rate=243.2/s  eta=0.6m
+  +128  done= 4,224/12302  encode=0.43s update=0.15s rate=242.5/s  eta=0.6m
+  +128  done= 4,352/12302  encode=0.49s update=0.09s rate=241.8/s  eta=0.5m
+  +128  done= 4,480/12302  encode=0.43s update=0.09s rate=241.8/s  eta=0.5m
+  +128  done= 4,608/12302  encode=0.42s update=0.36s rate=238.7/s  eta=0.5m
+  +128  done= 4,736/12302  encode=0.41s update=0.10s rate=239.0/s  eta=0.5m
+  +128  done= 4,864/12302  encode=0.39s update=0.10s rate=239.5/s  eta=0.5m
+  +128  done= 4,992/12302  encode=0.46s update=0.10s rate=239.2/s  eta=0.5m
+  +128  done= 5,120/12302  encode=0.52s update=0.09s rate=238.4/s  eta=0.5m
+  +128  done= 5,248/12302  encode=0.44s update=0.10s rate=238.4/s  eta=0.5m
+  +128  done= 5,376/12302  encode=0.45s update=0.09s rate=238.3/s  eta=0.5m
+  +128  done= 5,504/12302  encode=0.46s update=0.09s rate=238.2/s  eta=0.5m
+  +128  done= 5,632/12302  encode=0.43s update=0.10s rate=238.3/s  eta=0.5m
+  +128  done= 5,760/12302  encode=0.44s update=0.09s rate=238.3/s  eta=0.5m
+  +128  done= 5,888/12302  encode=0.47s update=0.10s rate=238.0/s  eta=0.4m
+  +128  done= 6,016/12302  encode=0.42s update=0.12s rate=238.0/s  eta=0.4m
+  +128  done= 6,144/12302  encode=0.37s update=0.10s rate=238.5/s  eta=0.4m
+  +128  done= 6,272/12302  encode=0.39s update=0.20s rate=238.1/s  eta=0.4m
+  +128  done= 6,400/12302  encode=0.40s update=0.10s rate=238.3/s  eta=0.4m
+  +128  done= 6,528/12302  encode=0.46s update=0.10s rate=238.1/s  eta=0.4m
+  +128  done= 6,656/12302  encode=0.48s update=0.11s rate=237.7/s  eta=0.4m
+  +128  done= 6,784/12302  encode=0.40s update=0.10s rate=238.0/s  eta=0.4m
+  +128  done= 6,912/12302  encode=0.42s update=0.10s rate=238.1/s  eta=0.4m
+  +128  done= 7,040/12302  encode=0.42s update=0.10s rate=238.2/s  eta=0.4m
+  +128  done= 7,168/12302  encode=0.44s update=0.10s rate=238.2/s  eta=0.4m
+  +128  done= 7,296/12302  encode=0.39s update=0.10s rate=238.5/s  eta=0.3m
+  +128  done= 7,424/12302  encode=0.48s update=0.10s rate=238.2/s  eta=0.3m
+  +128  done= 7,552/12302  encode=0.47s update=0.09s rate=238.0/s  eta=0.3m
+  +128  done= 7,680/12302  encode=0.39s update=0.10s rate=238.3/s  eta=0.3m
+  +128  done= 7,808/12302  encode=0.43s update=0.09s rate=238.5/s  eta=0.3m
+  +128  done= 7,936/12302  encode=0.42s update=0.11s rate=238.5/s  eta=0.3m
+  +128  done= 8,064/12302  encode=0.43s update=0.10s rate=238.6/s  eta=0.3m
+  +128  done= 8,192/12302  encode=0.37s update=0.09s rate=239.1/s  eta=0.3m
+  +128  done= 8,320/12302  encode=0.42s update=0.11s rate=239.1/s  eta=0.3m
+  +128  done= 8,448/12302  encode=0.42s update=0.30s rate=237.8/s  eta=0.3m
+  +128  done= 8,576/12302  encode=0.45s update=0.79s rate=233.3/s  eta=0.3m
+  +128  done= 8,704/12302  encode=0.42s update=0.21s rate=232.8/s  eta=0.3m
+  +128  done= 8,832/12302  encode=0.41s update=0.14s rate=232.8/s  eta=0.2m
+  +128  done= 8,960/12302  encode=0.46s update=0.10s rate=232.7/s  eta=0.2m
+  +128  done= 9,088/12302  encode=0.44s update=0.09s rate=232.8/s  eta=0.2m
+  +128  done= 9,216/12302  encode=0.41s update=0.11s rate=232.9/s  eta=0.2m
+  +128  done= 9,344/12302  encode=0.44s update=0.10s rate=233.0/s  eta=0.2m
+  +128  done= 9,472/12302  encode=0.46s update=0.13s rate=232.7/s  eta=0.2m
+  +128  done= 9,600/12302  encode=0.39s update=0.09s rate=233.1/s  eta=0.2m
+  +128  done= 9,728/12302  encode=0.45s update=0.11s rate=233.0/s  eta=0.2m
+  +128  done= 9,856/12302  encode=0.44s update=0.10s rate=233.1/s  eta=0.2m
+  +128  done= 9,984/12302  encode=0.40s update=0.10s rate=233.3/s  eta=0.2m
+  +128  done=10,112/12302  encode=0.47s update=0.10s rate=233.2/s  eta=0.2m
+  +128  done=10,240/12302  encode=0.46s update=0.10s rate=233.1/s  eta=0.1m
+  +128  done=10,368/12302  encode=0.49s update=0.24s rate=232.2/s  eta=0.1m
+  +128  done=10,496/12302  encode=0.43s update=0.10s rate=232.3/s  eta=0.1m
+  +128  done=10,624/12302  encode=0.42s update=0.09s rate=232.4/s  eta=0.1m
+  +128  done=10,752/12302  encode=0.43s update=0.10s rate=232.5/s  eta=0.1m
+  +128  done=10,880/12302  encode=0.43s update=0.09s rate=232.7/s  eta=0.1m
+  +128  done=11,008/12302  encode=0.42s update=0.09s rate=232.8/s  eta=0.1m
+  +128  done=11,136/12302  encode=0.45s update=0.10s rate=232.8/s  eta=0.1m
+  +128  done=11,264/12302  encode=0.44s update=0.09s rate=232.9/s  eta=0.1m
+  +128  done=11,392/12302  encode=0.44s update=0.09s rate=232.9/s  eta=0.1m
+  +128  done=11,520/12302  encode=0.39s update=0.08s rate=233.3/s  eta=0.1m
+  +128  done=11,648/12302  encode=0.40s update=0.36s rate=232.3/s  eta=0.0m
+  +128  done=11,776/12302  encode=0.41s update=0.09s rate=232.5/s  eta=0.0m
+  +128  done=11,904/12302  encode=0.39s update=0.09s rate=232.8/s  eta=0.0m
+  +128  done=12,032/12302  encode=0.44s update=0.08s rate=232.9/s  eta=0.0m
+  +128  done=12,160/12302  encode=0.47s update=0.08s rate=232.9/s  eta=0.0m
+  +128  done=12,288/12302  encode=0.43s update=0.10s rate=232.9/s  eta=0.0m
+  + 14  done=12,302/12302  encode=0.04s update=0.01s rate=232.9/s  eta=0.0m
+
+[colbert-migrate] DONE  12,302 rows in 0.9m

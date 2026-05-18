@@ -1,0 +1,46 @@
+{
+  "pre_dream": {
+    "connections": 1052,
+    "derived_facts": 0,
+    "recall": {
+      "legacy_collective_metric_inflated": true,
+      "semantic_both_tokens_rate": 0.68,
+      "multihop_both_tokens_rate": 0.96,
+      "single_doc_both_tokens_rate_semantic": 0.0,
+      "single_doc_both_tokens_rate_multihop": 0.0,
+      "derived_fact_hit_rate_semantic": 0.0,
+      "derived_fact_hit_rate_multihop": 0.0,
+      "k_legacy": 5,
+      "k_strict": 3,
+      "n": 25
+    }
+  },
+  "post_dream": {
+    "connections": 1303,
+    "derived_facts": 12,
+    "dream_elapsed_s": 0.4,
+    "recall": {
+      "legacy_collective_metric_inflated": true,
+      "semantic_both_tokens_rate": 0.56,
+      "multihop_both_tokens_rate": 0.96,
+      "single_doc_both_tokens_rate_semantic": 0.0,
+      "single_doc_both_tokens_rate_multihop": 0.0,
+      "derived_fact_hit_rate_semantic": 0.04,
+      "derived_fact_hit_rate_multihop": 0.04,
+      "k_legacy": 5,
+      "k_strict": 3,
+      "n": 25
+    }
+  },
+  "lift": {
+    "semantic_both_tokens_legacy": -0.12,
+    "multihop_both_tokens_legacy": 0.0,
+    "single_doc_both_tokens_semantic": 0.0,
+    "single_doc_both_tokens_multihop": 0.0,
+    "derived_fact_hit_rate_semantic": 0.04,
+    "derived_fact_hit_rate_multihop": 0.04,
+    "new_connections": 251,
+    "new_derived_facts": 12,
+    "interpretation": "Read the STRICT metrics (single_doc_both_tokens, derived_fact_hit_rate). Pre-dream both must be 0 by construction: no premise template puts both a_tok and b_tok in the same memory and no derived:* labels exist. Post-dream derived_fact_hit_rate > 0 is the unambiguous signal that the Insight phase materialised a synthesised memory AND retrieval surfaced it. The legacy *_both_tokens_rate fields use a collective top-k metric and saturate above ~0.9 even pre-dream \u2014 do not interpret them as evidence either way (legacy_collective_metric_inflated)."
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "modes": {
+    "semantic": {
+      "recall_at_k": 0.29,
+      "mrr": 0.2329,
+      "p50_ms": 57.176,
+      "p95_ms": 61.421,
+      "p99_ms": 63.003,
+      "n": 200,
+      "channel_weights": {
+        "semantic": 1.0,
+        "bm25": 0.9,
+        "entity": 1.0,
+        "temporal": 0.35,
+        "ppr": 0.55,
+        "salience": 0.25
+      }
+    },
+    "skynet": {
+      "recall_at_k": 0.42,
+      "mrr": 0.256,
+      "p50_ms": 67.677,
+      "p95_ms": 72.26,
+      "p99_ms": 74.838,
+      "n": 200,
+      "channel_weights": {
+        "semantic": 1.0,
+        "bm25": 0.9,
+        "entity": 1.0,
+        "temporal": 0.35,
+        "ppr": 0.55,
+        "salience": 0.25
+      }
+    },
+    "lean": {
+      "recall_at_k": 0.6,
+      "mrr": 0.4133,
+      "p50_ms": 67.612,
+      "p95_ms": 72.641,
+      "p99_ms": 76.074,
+      "n": 200,
+      "channel_weights": {
+        "semantic": 1.0,
+        "bm25": 0.0,
+        "entity": 1.0,
+        "temporal": 0.0,
+        "ppr": 0.55,
+        "salience": 0.0
+      }
+    },
+    "trim": {
+      "recall_at_k": 0.51,
+      "mrr": 0.3304,
+      "p50_ms": 67.864,
+      "p95_ms": 72.344,
+      "p99_ms": 75.071,
+      "n": 200,
+      "channel_weights": {
+        "semantic": 1.0,
+        "bm25": 0.9,
+        "entity": 1.0,
+        "temporal": 0.35,
+        "ppr": 0.55,
+        "salience": 0.0
+      }
+    }
+  },
+  "analysis": {
+    "lean_vs_skynet": {
+      "recall_delta": 0.18,
+      "mrr_delta": 0.1573,
+      "p50_speedup": 1.0,
+      "p50_savings_ms": 0.065
+    },
+    "trim_vs_skynet": {
+      "recall_delta": 0.09,
+      "mrr_delta": 0.0744,
+      "p50_speedup": 1.0,
+      "p50_savings_ms": -0.187
+    },
+    "skynet_vs_semantic_p50_overhead_ms": 10.501,
+    "interpretation": "lean is synthetic-tuned (drops bm25/temporal/salience); on real prose codex v6 verdict caught those channels do contribute. trim drops ONLY salience (universally dead per ablation) so it's the safer production default. Compare trim_vs_skynet on real corpora to decide; lean_vs_skynet on synthetic to see the latency ceiling."
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "raw_cosine_baseline": {
+    "recall_at_k": 1.0,
+    "mrr": 1.0,
+    "p50_ms": 1.54,
+    "p95_ms": 1.708,
+    "n": 50,
+    "setup_s": 0.06
+  },
+  "neural_memory_semantic": {
+    "recall_at_k": 0.42,
+    "mrr": 0.2213,
+    "p50_ms": 32.406,
+    "p95_ms": 39.036,
+    "n": 50,
+    "setup_s": 14.59
+  },
+  "neural_memory_skynet": {
+    "recall_at_k": 0.9,
+    "mrr": 0.7667,
+    "p50_ms": 339.906,
+    "p95_ms": 407.154,
+    "n": 50
+  },
+  "deltas_vs_baseline": {
+    "semantic_recall_lift": -0.58,
+    "semantic_mrr_lift": -0.7787,
+    "skynet_recall_lift": -0.1,
+    "skynet_mrr_lift": -0.2333,
+    "skynet_latency_overhead_p50_ms": 338.366
+  },
+  "k": 5,
+  "n_queries": 50,
+  "n_memories": 2050
+}

@@ -1,0 +1,99 @@
+GPU recall ARMED (load_from_store): 23679 vectors on cuda
+/home/alca/projects/mazemaker/python/memory_client.py:3551: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /pytorch/aten/src/ATen/Context.cpp:760.)
+  self._gpu_ppr_adj = torch.sparse_coo_tensor(
+
+========================================================================
+  inception_bench — Unified Mazemaker Production Benchmark
+  Schema: longmemeval_oracle_bgem3_1024  Questions: 500  Dream: False
+========================================================================
+
+[load] Loading LongMemEval-S questions...
+  500 questions loaded (10,960 sessions in PG)
+  LongMemEval-S: 246,930 sessions
+  LongMemEval-M: 2,450,050 sessions (available)
+
+[engine] Building single PG-backed Mazemaker...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+  engine ready in 8.0s — schema: longmemeval_oracle_bgem3_1024
+
+[ingest] read-cache mode — bench targets cache schema 'longmemeval_oracle_bgem3_1024' directly
+  23,679 memories, 100,692 connections already in place
+
+[graph] Warming HNSW for 23,679 memories...
+  HNSW warm in 0.0s (auto-connect skipped — pass --graph or use --dream to materialise edges)
+
+[recall] Running 500 questions (baseline)...
+
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 391/391 [00:00<00:00, 46701.59it/s]
+
+Loading weights:   0%|          | 0/393 [00:00<?, ?it/s]
+Loading weights:  10%|█         | 40/393 [00:00<00:00, 384.38it/s]
+Loading weights:  20%|██        | 79/393 [00:00<00:00, 349.36it/s]
+Loading weights:  30%|██▉       | 117/393 [00:00<00:00, 353.32it/s]
+Loading weights:  39%|███▉      | 153/393 [00:00<00:00, 298.08it/s]
+Loading weights:  52%|█████▏    | 204/393 [00:00<00:00, 349.05it/s]
+Loading weights:  61%|██████    | 240/393 [00:00<00:00, 343.30it/s]
+Loading weights:  72%|███████▏  | 282/393 [00:00<00:00, 361.68it/s]
+Loading weights:  81%|████████▏ | 320/393 [00:00<00:00, 342.26it/s]
+Loading weights:  91%|█████████ | 358/393 [00:01<00:00, 341.35it/s]
+Loading weights: 100%|██████████| 393/393 [00:01<00:00, 352.59it/s]
+  [  25/500 (  5.0%)]  R@1=0.2400  R@5=0.6000  MRR=0.3847  p50=1651ms  elapsed=39s
+  [  50/500 ( 10.0%)]  R@1=0.3400  R@5=0.6600  MRR=0.4714  p50=1713ms  elapsed=80s
+  [  75/500 ( 15.0%)]  R@1=0.2899  R@5=0.6232  MRR=0.4356  p50=1727ms  elapsed=123s
+  [ 100/500 ( 20.0%)]  R@1=0.2447  R@5=0.6383  MRR=0.4118  p50=1753ms  elapsed=168s
+  [ 125/500 ( 25.0%)]  R@1=0.2212  R@5=0.6372  MRR=0.3953  p50=1762ms  elapsed=212s
+  [ 150/500 ( 30.0%)]  R@1=0.2899  R@5=0.6594  MRR=0.4451  p50=1771ms  elapsed=257s
+  [ 175/500 ( 35.0%)]  R@1=0.3742  R@5=0.7055  MRR=0.5138  p50=1779ms  elapsed=302s
+  [ 200/500 ( 40.0%)]  R@1=0.4176  R@5=0.7308  MRR=0.5484  p50=1788ms  elapsed=349s
+  [ 225/500 ( 45.0%)]  R@1=0.4010  R@5=0.6957  MRR=0.5238  p50=1796ms  elapsed=394s
+  [ 250/500 ( 50.0%)]  R@1=0.4224  R@5=0.6940  MRR=0.5374  p50=1803ms  elapsed=441s
+  [ 275/500 ( 55.0%)]  R@1=0.4708  R@5=0.7160  MRR=0.5746  p50=1813ms  elapsed=487s
+  [ 300/500 ( 60.0%)]  R@1=0.4858  R@5=0.7234  MRR=0.5873  p50=1820ms  elapsed=535s
+  [ 325/500 ( 65.0%)]  R@1=0.4886  R@5=0.7199  MRR=0.5869  p50=1822ms  elapsed=582s
+  [ 350/500 ( 70.0%)]  R@1=0.4880  R@5=0.7229  MRR=0.5877  p50=1821ms  elapsed=627s
+  [ 375/500 ( 75.0%)]  R@1=0.4758  R@5=0.7179  MRR=0.5780  p50=1821ms  elapsed=671s
+  [ 400/500 ( 80.0%)]  R@1=0.4601  R@5=0.7048  MRR=0.5649  p50=1817ms  elapsed=711s
+  [ 425/500 ( 85.0%)]  R@1=0.4439  R@5=0.6783  MRR=0.5447  p50=1807ms  elapsed=750s
+  [ 450/500 ( 90.0%)]  R@1=0.4577  R@5=0.6854  MRR=0.5558  p50=1803ms  elapsed=787s
+  [ 475/500 ( 95.0%)]  R@1=0.4634  R@5=0.6874  MRR=0.5594  p50=1801ms  elapsed=830s
+  [ 500/500 (100.0%)]  R@1=0.4660  R@5=0.6872  MRR=0.5623  p50=1797ms  elapsed=873s
+
+========================================================================
+  BASELINE RECALL (pre-dream)
+========================================================================
+  metric                      value
+  --------------------------------
+  n_total                       500
+  n_gradeable                   470
+  recall@1                   0.4660
+  recall@5                   0.6872
+  recall@10                  0.7745
+  MRR                        0.5623
+  p50_ms                     1797.1inception_bench
+  p95_ms                     2055.1
+
+  question_type                       n      R@1      R@5     R@10      MRR
+  --------------------------------------------------------------------
+  knowledge-update                   72   0.7222   0.8750   0.9167   0.7866
+  multi-session                     121   0.3802   0.6942   0.8347   0.5184
+  single-session-assistant           56   0.9286   0.9286   0.9286   0.9286
+  single-session-preference          30   0.1333   0.3333   0.4667   0.2293
+  single-session-user                64   0.4688   0.7031   0.7812   0.5691
+  temporal-reasoning                127   0.2756   0.5433   0.6378   0.3909
+
+
+[output] /home/alca/projects/mazemaker/benchmarks/external/results/godbench_loop-iter18-bgeReranker-v2-m3-clean_20260517T170719Z.json
+
+[total] 881.3s  (14.7 min)
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7fee28026140>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

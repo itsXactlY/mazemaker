@@ -9,11 +9,10 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
-.neural_memory/
+.mazemaker/engine/
 *.db
 .env
 build_debug/
-benchmarks/results
 tools/dashboard/.certs/
 *.bak
 sqlite-wal
@@ -40,7 +39,6 @@ snapshots/
 smoke/
 probing_eval/
 external/benchmarks/logs/
-benchmarks/logs/
 
 # Operator-internal architecture notes (personal scratchpad; not for
 # git). The engine code and benchmark code referenced inside it ARE

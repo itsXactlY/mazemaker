@@ -1,0 +1,60 @@
+{
+  "modes": {
+    "semantic": {
+      "recall_at_k": 0.68,
+      "mrr": 0.6033,
+      "p50_ms": 66.45,
+      "p95_ms": 76.144,
+      "p99_ms": 77.65,
+      "n": 50,
+      "channel_weights": {
+        "semantic": 1.0,
+        "bm25": 0.9,
+        "entity": 1.0,
+        "temporal": 0.35,
+        "ppr": 0.55,
+        "salience": 0.25
+      }
+    },
+    "skynet": {
+      "recall_at_k": 0.9,
+      "mrr": 0.8483,
+      "p50_ms": 394.245,
+      "p95_ms": 456.4,
+      "p99_ms": 471.648,
+      "n": 50,
+      "channel_weights": {
+        "semantic": 1.0,
+        "bm25": 0.9,
+        "entity": 1.0,
+        "temporal": 0.35,
+        "ppr": 0.55,
+        "salience": 0.25
+      }
+    },
+    "lean": {
+      "recall_at_k": 0.88,
+      "mrr": 0.8407,
+      "p50_ms": 95.716,
+      "p95_ms": 453.193,
+      "p99_ms": 471.086,
+      "n": 50,
+      "channel_weights": {
+        "semantic": 1.0,
+        "bm25": 0.0,
+        "entity": 1.0,
+        "temporal": 0.0,
+        "ppr": 0.55,
+        "salience": 0.0
+      }
+    }
+  },
+  "analysis": {
+    "lean_vs_skynet_recall_delta": -0.02,
+    "lean_vs_skynet_mrr_delta": -0.0076,
+    "lean_vs_skynet_p50_speedup": 4.12,
+    "lean_vs_skynet_p50_savings_ms": 298.529,
+    "skynet_vs_semantic_p50_overhead_ms": 327.795,
+    "interpretation": "lean_vs_skynet_recall_delta should be \u22480 (within ~0.02) \u2014 the dropped channels were proven dead-weight by channel_ablation, so removing them should not hurt recall. lean_vs_skynet_p50_speedup quantifies how much the engineering caveat was worth: > 1.0\u00d7 = lean is the recommended production preset for latency-sensitive callers."
+  }
+}

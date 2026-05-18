@@ -1,7 +1,7 @@
 # External benchmarks
 
 External, third-party memory benchmarks run against the Mazemaker engine.
-Internal benchmarks live in `benchmarks/neural_memory_benchmark/`; the harnesses
+Internal benchmarks live in `benchmarks/mazemaker_benchmark/`; the harnesses
 here only call the public Mazemaker API (`memory_client.Mazemaker`).
 
 ## Verified results — at a glance

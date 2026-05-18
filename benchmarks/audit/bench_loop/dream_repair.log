@@ -1,0 +1,31 @@
+GPU recall ARMED (load_from_store): 23765 vectors on cuda
+/home/alca/projects/mazemaker/python/memory_client.py:3671: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /pytorch/aten/src/ATen/Context.cpp:760.)
+  self._gpu_ppr_adj = torch.sparse_coo_tensor(
+[dream-on-cache] DB=mm10m_bench schema=longmemeval_oracle_bgem3_1024
+[dream-on-cache] max_cycles=1 max_memories=4000 max_isolated=2000
+[dream-on-cache] MM_INSIGHT_MIN_CLUSTER=4 MM_REM_SIM_HIGH=0.99
+[dream-on-cache] Building Mazemaker on longmemeval_oracle_bgem3_1024...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+  cycle  1/1  NREM: proc=4000 +71215/-100215/p559  SUP: 0  REM: bridges=12506/rej=4288  INS: communities=1773 insights=15891 derived=50  AFE: written=916  DAE: written=24531  161.9s
+
+[dream-on-cache] DONE  1 cycles in 2.7m
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7fdb7a7012d0>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7fdb7a7012d0>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

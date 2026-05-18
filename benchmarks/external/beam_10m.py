@@ -134,7 +134,7 @@ def _build_engine(db_path: Path, backend: str) -> Mazemaker:
     # (C++ kNN, advanced multi-channel, rerank, HNSW auto, DAE, ColBERT).
     sys.path.insert(0, str(
         Path(__file__).resolve().parent.parent /
-        "neural_memory_benchmark" / "mm_10m_eval" / "runners"
+        "mazemaker_benchmark" / "mm_10m_eval" / "runners"
     ))
     from engine_config import build_quality_engine
     return build_quality_engine(db_path, backend=backend)

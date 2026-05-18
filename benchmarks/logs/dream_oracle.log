@@ -1,0 +1,50 @@
+[dream-on-cache] DB=mm10m_bench schema=longmemeval_oracle_bgem3_1024
+[dream-on-cache] max_cycles=8 max_memories=4000 max_isolated=2000
+[dream-on-cache] MM_INSIGHT_MIN_CLUSTER=4 MM_REM_SIM_HIGH=0.99
+[dream-on-cache] Building Mazemaker on longmemeval_oracle_bgem3_1024...
+[embed-server] CUDA: 15299 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 27526.48it/s]
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+GPU recall cache absent — auto-building from /dev/null
+GPU recall auto-build skipped (cache-build path): no such table: memories
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+/home/alca/projects/mazemaker/python/memory_client.py:3541: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /pytorch/aten/src/ATen/Context.cpp:760.)
+  self._gpu_ppr_adj = torch.sparse_coo_tensor(
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15299MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+  cycle  1/8  NREM: proc=4000 +27662/-12750/p0  SUP: 0  REM: bridges=16854/rej=1040  INS: communities=1070 insights=2902 derived=50  AFE: written=0  DAE: written=21509  55.5s
+  cycle  2/8  NREM: proc=4000 +27118/-32473/p0  SUP: 0  REM: bridges=11494/rej=6396  INS: communities=1139 insights=5243 derived=50  AFE: written=0  DAE: written=0  51.4s
+  cycle  3/8  NREM: proc=4000 +27007/-46265/p0  SUP: 0  REM: bridges=9288/rej=8543  INS: communities=1141 insights=7085 derived=50  AFE: written=0  DAE: written=0  54.0s
+  cycle  4/8  NREM: proc=4000 +27416/-57593/p0  SUP: 0  REM: bridges=8558/rej=9240  INS: communities=1127 insights=8679 derived=50  AFE: written=0  DAE: written=0  57.7s
+  cycle  5/8  NREM: proc=4000 +26982/-67937/p0  SUP: 0  REM: bridges=8046/rej=9772  INS: communities=1118 insights=10152 derived=50  AFE: written=0  DAE: written=0  78.2s
+  cycle  6/8  NREM: proc=4000 +27731/-77691/p0  SUP: 0  REM: bridges=7466/rej=10278  INS: communities=1092 insights=11296 derived=50  AFE: written=0  DAE: written=21759  102.9s
+PG prune_memories_by_label_prefix failed: update or delete on table "memories" violates foreign key constraint "connections_source_id_fkey" on table "connections"
+DETAIL:  Key (id)=(21460) is still referenced from table "connections".
+  cycle  7/8  NREM: proc=4000 +27609/-86663/p0  SUP: 0  REM: bridges=7036/rej=10703  INS: communities=1057 insights=12331 derived=50  AFE: written=0  DAE: written=0  96.3s
+PG prune_memories_by_label_prefix failed: update or delete on table "memories" violates foreign key constraint "connections_source_id_fkey" on table "connections"
+DETAIL:  Key (id)=(21460) is still referenced from table "connections".
+  cycle  8/8  NREM: proc=4000 +27659/-95108/p0  SUP: 0  REM: bridges=6895/rej=10907  INS: communities=1022 insights=13331 derived=50  AFE: written=0  DAE: written=0  96.5s
+
+[dream-on-cache] DONE  8 cycles in 9.9m
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7f7cc8267060>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7f7cc8267060>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

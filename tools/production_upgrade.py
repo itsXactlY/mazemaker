@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""neural_memory_production_upgrade.py — PoC → Production Upgrade
+"""mazemaker_production_upgrade.py — PoC → Production Upgrade
 
 Fixes database growth problems in Mazemaker SQLite without data loss.
 
@@ -14,7 +14,7 @@ What it does (in order):
   8. Verify integrity after all changes
 
 Usage:
-  python3 neural_memory_production_upgrade.py [--db PATH] [--dry-run] [--history-days 7] [--skip-backup]
+  python3 mazemaker_production_upgrade.py [--db PATH] [--dry-run] [--history-days 7] [--skip-backup]
 
   --db PATH          Path to SQLite database (default: ~/.mazemaker/data/memory.db)
   --dry-run          Show what would change without modifying anything
@@ -423,7 +423,7 @@ def main():
     )
     parser.add_argument(
         "--db", default=os.path.expanduser("~/.mazemaker/data/memory.db"),
-        help="Path to SQLite database (default: ~/.hermes/hermes-agent/plugins/memory/neural/neural_memory.db)"
+        help="Path to SQLite database (default: ~/.hermes/hermes-agent/plugins/memory/mazemaker/engine/memory.db)"
     )
     parser.add_argument(
         "--dry-run", action="store_true",

@@ -1,0 +1,38 @@
+{
+  "with_supersession": {
+    "n_conflict_pairs": 30,
+    "winner_rank_1_rate": 0.1667,
+    "winner_in_top_3_rate": 0.3333,
+    "winner_anywhere_rate": 0.5,
+    "loser_above_winner_rate": 0.2,
+    "per_topic_mean_winner_rank": {
+      "ownership": 4,
+      "config": 2,
+      "metric": 1.8,
+      "schedule": 2.75,
+      "decision": null
+    }
+  },
+  "control_no_supersession": {
+    "n_conflict_pairs": 30,
+    "winner_rank_1_rate": 0.0,
+    "winner_in_top_3_rate": 0.2333,
+    "winner_anywhere_rate": 0.3333,
+    "loser_above_winner_rate": 0.6333,
+    "per_topic_mean_winner_rank": {
+      "ownership": 2.75,
+      "config": 2,
+      "metric": 3,
+      "schedule": 4,
+      "decision": null
+    }
+  },
+  "supersession_lift": {
+    "winner_rank_1": 0.1667,
+    "loser_above_winner_drop": 0.4333
+  },
+  "interpretation": {
+    "supersession_lift.winner_rank_1": "Positive = supersession is responsible for getting the winner to top-1. ~0 = the lift comes from recency / vector similarity, not from the supersession algorithm itself.",
+    "supersession_lift.loser_above_winner_drop": "Positive = supersession suppresses the stale fact. ~0 = the stale fact is just as likely to outrank the new one either way."
+  }
+}

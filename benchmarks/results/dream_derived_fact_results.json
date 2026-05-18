@@ -1,0 +1,28 @@
+{
+  "pre_dream": {
+    "connections": 174,
+    "derived_facts": 0,
+    "recall": {
+      "semantic_both_tokens_rate": 0.24,
+      "multihop_both_tokens_rate": 1.0,
+      "n": 25
+    }
+  },
+  "post_dream": {
+    "connections": 224,
+    "derived_facts": 6,
+    "dream_elapsed_s": 0.12,
+    "recall": {
+      "semantic_both_tokens_rate": 0.48,
+      "multihop_both_tokens_rate": 1.0,
+      "n": 25
+    }
+  },
+  "lift": {
+    "semantic_both_tokens": 0.24,
+    "multihop_both_tokens": 0.0,
+    "new_connections": 50,
+    "new_derived_facts": 6,
+    "interpretation": "If lift.both_tokens > 0, the dream engine produced edges or derived facts that improved cross-memory recall. If both lifts are 0 even though new_connections/new_derived_facts > 0, the structural changes did not improve task quality."
+  }
+}

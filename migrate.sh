@@ -18,7 +18,7 @@
 #   bash migrate.sh [--db PATH] [--plugin-dir PATH] [--dry-run] [--skip-mssql]
 #
 # Defaults:
-#   --db         ~/.neural_memory/memory.db
+#   --db         ~/.mazemaker/engine/memory.db
 #   --plugin-dir ~/.hermes/hermes-agent/plugins/memory/neural
 # ============================================================================
 
@@ -39,11 +39,11 @@ fail()  { echo -e "${RED}[FAIL]${RESET}  $*"; }
 step()  { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
 
 # ── Parse args ───────────────────────────────────────────────────────────────
-DB_PATH="${HOME}/.neural_memory/memory.db"
+DB_PATH="${HOME}/.mazemaker/engine/memory.db"
 PLUGIN_DIR="${HOME}/.hermes/hermes-agent/plugins/memory/neural"
 DRY_RUN=""
 SKIP_MSSQL=""
-ADAPTER_DIR="${HOME}/projects/neural-memory-adapter"
+ADAPTER_DIR="${HOME}/projects/mazemaker-engine"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in

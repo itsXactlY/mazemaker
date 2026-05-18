@@ -3,7 +3,7 @@
 
 Replaces the local `ollama run qwen2.5:3b` subprocess path with parallel
 HTTP calls to OpenAI. Motivation: the qwen2.5:3b Stage C bake produced
-2,706 user-side facts that lifted ssp R@5 0.2333→0.3667 on godbench, but
+2,706 user-side facts that lifted ssp R@5 0.2333→0.3667 on inception_bench, but
 the remaining ~19/30 ssp golds aren't in top-5 — likely because the small
 local model missed subtle preferences or phrased them in a way that didn't
 match the bench query semantics. A stronger extractor *might* recover

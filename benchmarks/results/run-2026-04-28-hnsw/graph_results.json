@@ -1,0 +1,473 @@
+{
+  "db_stats": {
+    "memories": 2368,
+    "connections": 142818,
+    "revisions": 13532,
+    "embedding_dim": 1024,
+    "embedding_backend": "SentenceTransformerBackend",
+    "embed_fingerprint": "SentenceTransformerBackend::1024::",
+    "dim_locked": true,
+    "dim_mismatch_reason": null,
+    "quarantined_dim": 0,
+    "retrieval_mode": "semantic",
+    "lazy_graph": false,
+    "hnsw_enabled": "auto"
+  },
+  "bfs": {
+    "depth_2": {
+      "total_visited": 1723,
+      "nodes_per_layer": {
+        "0": 50,
+        "1": 1345,
+        "2": 378
+      },
+      "avg_layer_time_ms": 1465.96,
+      "total_time_ms": 2931.92
+    },
+    "depth_3": {
+      "total_visited": 1858,
+      "nodes_per_layer": {
+        "0": 50,
+        "1": 1345,
+        "2": 378,
+        "3": 135
+      },
+      "avg_layer_time_ms": 1034.99,
+      "total_time_ms": 3104.98
+    },
+    "depth_5": {
+      "total_visited": 1990,
+      "nodes_per_layer": {
+        "0": 50,
+        "1": 1345,
+        "2": 378,
+        "3": 135,
+        "4": 106,
+        "5": 26
+      },
+      "avg_layer_time_ms": 635.21,
+      "total_time_ms": 3176.06
+    }
+  },
+  "think": {
+    "depth_2": {
+      "total_activated": 1337,
+      "time_ms": 1644.2,
+      "ms_per_start_node": 164.42
+    },
+    "depth_3": {
+      "total_activated": 1680,
+      "time_ms": 4027.0,
+      "ms_per_start_node": 402.7
+    },
+    "depth_5": {
+      "total_activated": 1724,
+      "time_ms": 4863.94,
+      "ms_per_start_node": 486.39
+    }
+  },
+  "ppr": {
+    "alpha_0.7_iters_20": {
+      "total_activated": 1268,
+      "time_ms": 686.09,
+      "ms_per_start_node": 137.22,
+      "top_results": [
+        {
+          "id": 1338,
+          "label": "conversational:session_137",
+          "activation": 0.6863,
+          "engine": "bfs"
+        },
+        {
+          "id": 1738,
+          "label": "conversational:session_134",
+          "activation": 0.6851,
+          "engine": "bfs"
+        },
+        {
+          "id": 1546,
+          "label": "conversational:session_145",
+          "activation": 0.685,
+          "engine": "bfs"
+        },
+        {
+          "id": 654,
+          "label": "conversational:session_125",
+          "activation": 0.6846,
+          "engine": "bfs"
+        },
+        {
+          "id": 1905,
+          "label": "conversational:session_138",
+          "activation": 0.6836,
+          "engine": "bfs"
+        },
+        {
+          "id": 2035,
+          "label": "conversational:session_136",
+          "activation": 0.6834,
+          "engine": "bfs"
+        },
+        {
+          "id": 1539,
+          "label": "conversational:session_35",
+          "activation": 0.6806,
+          "engine": "bfs"
+        },
+        {
+          "id": 2022,
+          "label": "conversational:session_85",
+          "activation": 0.6804,
+          "engine": "bfs"
+        },
+        {
+          "id": 2180,
+          "label": "conversational:session_141",
+          "activation": 0.6798,
+          "engine": "bfs"
+        },
+        {
+          "id": 854,
+          "label": "conversational:session_143",
+          "activation": 0.6798,
+          "engine": "bfs"
+        }
+      ]
+    },
+    "alpha_0.7_iters_50": {
+      "total_activated": 1723,
+      "time_ms": 1951.15,
+      "ms_per_start_node": 390.23,
+      "top_results": [
+        {
+          "id": 1338,
+          "label": "conversational:session_137",
+          "activation": 0.6863,
+          "engine": "bfs"
+        },
+        {
+          "id": 1738,
+          "label": "conversational:session_134",
+          "activation": 0.6851,
+          "engine": "bfs"
+        },
+        {
+          "id": 1546,
+          "label": "conversational:session_145",
+          "activation": 0.685,
+          "engine": "bfs"
+        },
+        {
+          "id": 654,
+          "label": "conversational:session_125",
+          "activation": 0.6846,
+          "engine": "bfs"
+        },
+        {
+          "id": 1905,
+          "label": "conversational:session_138",
+          "activation": 0.6836,
+          "engine": "bfs"
+        },
+        {
+          "id": 2035,
+          "label": "conversational:session_136",
+          "activation": 0.6834,
+          "engine": "bfs"
+        },
+        {
+          "id": 1539,
+          "label": "conversational:session_35",
+          "activation": 0.6806,
+          "engine": "bfs"
+        },
+        {
+          "id": 2022,
+          "label": "conversational:session_85",
+          "activation": 0.6804,
+          "engine": "bfs"
+        },
+        {
+          "id": 2180,
+          "label": "conversational:session_141",
+          "activation": 0.6798,
+          "engine": "bfs"
+        },
+        {
+          "id": 854,
+          "label": "conversational:session_143",
+          "activation": 0.6798,
+          "engine": "bfs"
+        }
+      ]
+    },
+    "alpha_0.85_iters_20": {
+      "total_activated": 1268,
+      "time_ms": 676.57,
+      "ms_per_start_node": 135.31,
+      "top_results": [
+        {
+          "id": 1338,
+          "label": "conversational:session_137",
+          "activation": 0.8333,
+          "engine": "bfs"
+        },
+        {
+          "id": 1738,
+          "label": "conversational:session_134",
+          "activation": 0.8319,
+          "engine": "bfs"
+        },
+        {
+          "id": 1546,
+          "label": "conversational:session_145",
+          "activation": 0.8318,
+          "engine": "bfs"
+        },
+        {
+          "id": 654,
+          "label": "conversational:session_125",
+          "activation": 0.8313,
+          "engine": "bfs"
+        },
+        {
+          "id": 1905,
+          "label": "conversational:session_138",
+          "activation": 0.8301,
+          "engine": "bfs"
+        },
+        {
+          "id": 2035,
+          "label": "conversational:session_136",
+          "activation": 0.8299,
+          "engine": "bfs"
+        },
+        {
+          "id": 1539,
+          "label": "conversational:session_35",
+          "activation": 0.8265,
+          "engine": "bfs"
+        },
+        {
+          "id": 2022,
+          "label": "conversational:session_85",
+          "activation": 0.8262,
+          "engine": "bfs"
+        },
+        {
+          "id": 2180,
+          "label": "conversational:session_141",
+          "activation": 0.8255,
+          "engine": "bfs"
+        },
+        {
+          "id": 854,
+          "label": "conversational:session_143",
+          "activation": 0.8255,
+          "engine": "bfs"
+        }
+      ]
+    },
+    "alpha_0.85_iters_50": {
+      "total_activated": 1723,
+      "time_ms": 1978.94,
+      "ms_per_start_node": 395.79,
+      "top_results": [
+        {
+          "id": 1338,
+          "label": "conversational:session_137",
+          "activation": 0.8333,
+          "engine": "bfs"
+        },
+        {
+          "id": 1738,
+          "label": "conversational:session_134",
+          "activation": 0.8319,
+          "engine": "bfs"
+        },
+        {
+          "id": 1546,
+          "label": "conversational:session_145",
+          "activation": 0.8318,
+          "engine": "bfs"
+        },
+        {
+          "id": 654,
+          "label": "conversational:session_125",
+          "activation": 0.8313,
+          "engine": "bfs"
+        },
+        {
+          "id": 1905,
+          "label": "conversational:session_138",
+          "activation": 0.8301,
+          "engine": "bfs"
+        },
+        {
+          "id": 2035,
+          "label": "conversational:session_136",
+          "activation": 0.8299,
+          "engine": "bfs"
+        },
+        {
+          "id": 1539,
+          "label": "conversational:session_35",
+          "activation": 0.8265,
+          "engine": "bfs"
+        },
+        {
+          "id": 2022,
+          "label": "conversational:session_85",
+          "activation": 0.8262,
+          "engine": "bfs"
+        },
+        {
+          "id": 2180,
+          "label": "conversational:session_141",
+          "activation": 0.8255,
+          "engine": "bfs"
+        },
+        {
+          "id": 854,
+          "label": "conversational:session_143",
+          "activation": 0.8255,
+          "engine": "bfs"
+        }
+      ]
+    },
+    "alpha_0.95_iters_20": {
+      "total_activated": 1268,
+      "time_ms": 681.73,
+      "ms_per_start_node": 136.35,
+      "top_results": [
+        {
+          "id": 1338,
+          "label": "conversational:session_137",
+          "activation": 0.9314,
+          "engine": "bfs"
+        },
+        {
+          "id": 1738,
+          "label": "conversational:session_134",
+          "activation": 0.9298,
+          "engine": "bfs"
+        },
+        {
+          "id": 1546,
+          "label": "conversational:session_145",
+          "activation": 0.9296,
+          "engine": "bfs"
+        },
+        {
+          "id": 654,
+          "label": "conversational:session_125",
+          "activation": 0.9291,
+          "engine": "bfs"
+        },
+        {
+          "id": 1905,
+          "label": "conversational:session_138",
+          "activation": 0.9278,
+          "engine": "bfs"
+        },
+        {
+          "id": 2035,
+          "label": "conversational:session_136",
+          "activation": 0.9275,
+          "engine": "bfs"
+        },
+        {
+          "id": 1539,
+          "label": "conversational:session_35",
+          "activation": 0.9237,
+          "engine": "bfs"
+        },
+        {
+          "id": 2022,
+          "label": "conversational:session_85",
+          "activation": 0.9234,
+          "engine": "bfs"
+        },
+        {
+          "id": 2180,
+          "label": "conversational:session_141",
+          "activation": 0.9226,
+          "engine": "bfs"
+        },
+        {
+          "id": 854,
+          "label": "conversational:session_143",
+          "activation": 0.9226,
+          "engine": "bfs"
+        }
+      ]
+    },
+    "alpha_0.95_iters_50": {
+      "total_activated": 1723,
+      "time_ms": 1935.7,
+      "ms_per_start_node": 387.14,
+      "top_results": [
+        {
+          "id": 1338,
+          "label": "conversational:session_137",
+          "activation": 0.9314,
+          "engine": "bfs"
+        },
+        {
+          "id": 1738,
+          "label": "conversational:session_134",
+          "activation": 0.9298,
+          "engine": "bfs"
+        },
+        {
+          "id": 1546,
+          "label": "conversational:session_145",
+          "activation": 0.9296,
+          "engine": "bfs"
+        },
+        {
+          "id": 654,
+          "label": "conversational:session_125",
+          "activation": 0.9291,
+          "engine": "bfs"
+        },
+        {
+          "id": 1905,
+          "label": "conversational:session_138",
+          "activation": 0.9278,
+          "engine": "bfs"
+        },
+        {
+          "id": 2035,
+          "label": "conversational:session_136",
+          "activation": 0.9275,
+          "engine": "bfs"
+        },
+        {
+          "id": 1539,
+          "label": "conversational:session_35",
+          "activation": 0.9237,
+          "engine": "bfs"
+        },
+        {
+          "id": 2022,
+          "label": "conversational:session_85",
+          "activation": 0.9234,
+          "engine": "bfs"
+        },
+        {
+          "id": 2180,
+          "label": "conversational:session_141",
+          "activation": 0.9226,
+          "engine": "bfs"
+        },
+        {
+          "id": 854,
+          "label": "conversational:session_143",
+          "activation": 0.9226,
+          "engine": "bfs"
+        }
+      ]
+    }
+  }
+}

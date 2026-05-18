@@ -1,0 +1,893 @@
+{
+  "meta": {
+    "started_at": "2026-04-28T19:19:41.271418",
+    "version": "1.0.0",
+    "config": {
+      "memory_db": "/home/alca/.neural_memory/memory.db",
+      "suites": [
+        "retrieval",
+        "graph",
+        "conflict",
+        "agentic"
+      ]
+    },
+    "finished_at": "2026-04-28T19:23:28.963505",
+    "total_elapsed_s": 227.69
+  },
+  "suites": {
+    "retrieval": {
+      "result": {
+        "setup": {
+          "stored_count": 2288,
+          "insert_elapsed_s": 16.82,
+          "insert_rate_per_s": 136.0,
+          "db_stats": {
+            "memories": 707,
+            "connections": 16597,
+            "revisions": 1310,
+            "embedding_dim": 1024,
+            "embedding_backend": "SentenceTransformerBackend",
+            "embed_fingerprint": "SentenceTransformerBackend::1024::",
+            "dim_locked": true,
+            "dim_mismatch_reason": null,
+            "quarantined_dim": 0,
+            "retrieval_mode": "semantic",
+            "lazy_graph": false,
+            "hnsw_enabled": "auto"
+          }
+        },
+        "modes": {
+          "semantic": {
+            "queries": {
+              "recall@1": {
+                "recall": 0.32,
+                "mrr": 0.32,
+                "hit_rate": 0.32,
+                "total_queries": 50
+              },
+              "recall@3": {
+                "recall": 0.5,
+                "mrr": 0.3333,
+                "hit_rate": 0.5,
+                "total_queries": 50
+              },
+              "recall@5": {
+                "recall": 0.54,
+                "mrr": 0.286,
+                "hit_rate": 0.54,
+                "total_queries": 50
+              },
+              "recall@10": {
+                "recall": 0.78,
+                "mrr": 0.2979,
+                "hit_rate": 0.78,
+                "total_queries": 50
+              }
+            },
+            "latency": {
+              "p50_ms": 18.23,
+              "p95_ms": 18.23,
+              "p99_ms": 18.23,
+              "mean_ms": 18.44
+            },
+            "throughput": {
+              "queries_per_second": 54.71,
+              "total_queries": 50,
+              "elapsed_s": 0.91
+            }
+          },
+          "hybrid": {
+            "queries": {
+              "recall@1": {
+                "recall": 0.52,
+                "mrr": 0.52,
+                "hit_rate": 0.52,
+                "total_queries": 50
+              },
+              "recall@3": {
+                "recall": 0.8,
+                "mrr": 0.6467,
+                "hit_rate": 0.8,
+                "total_queries": 50
+              },
+              "recall@5": {
+                "recall": 0.86,
+                "mrr": 0.6573,
+                "hit_rate": 0.86,
+                "total_queries": 50
+              },
+              "recall@10": {
+                "recall": 0.98,
+                "mrr": 0.6603,
+                "hit_rate": 0.98,
+                "total_queries": 50
+              }
+            },
+            "latency": {
+              "p50_ms": 176.36,
+              "p95_ms": 176.36,
+              "p99_ms": 176.36,
+              "mean_ms": 176.48
+            },
+            "throughput": {
+              "queries_per_second": 5.14,
+              "total_queries": 50,
+              "elapsed_s": 9.73
+            }
+          },
+          "advanced": {
+            "queries": {
+              "recall@1": {
+                "recall": 0.5,
+                "mrr": 0.5,
+                "hit_rate": 0.5,
+                "total_queries": 50
+              },
+              "recall@3": {
+                "recall": 0.7,
+                "mrr": 0.5967,
+                "hit_rate": 0.7,
+                "total_queries": 50
+              },
+              "recall@5": {
+                "recall": 0.86,
+                "mrr": 0.6347,
+                "hit_rate": 0.86,
+                "total_queries": 50
+              },
+              "recall@10": {
+                "recall": 0.98,
+                "mrr": 0.6652,
+                "hit_rate": 0.98,
+                "total_queries": 50
+              }
+            },
+            "latency": {
+              "p50_ms": 174.44,
+              "p95_ms": 174.44,
+              "p99_ms": 174.44,
+              "mean_ms": 177.61
+            },
+            "throughput": {
+              "queries_per_second": 5.03,
+              "total_queries": 50,
+              "elapsed_s": 9.94
+            }
+          },
+          "skynet": {
+            "queries": {
+              "recall@1": {
+                "recall": 0.52,
+                "mrr": 0.52,
+                "hit_rate": 0.52,
+                "total_queries": 50
+              },
+              "recall@3": {
+                "recall": 0.7,
+                "mrr": 0.6067,
+                "hit_rate": 0.7,
+                "total_queries": 50
+              },
+              "recall@5": {
+                "recall": 0.86,
+                "mrr": 0.6447,
+                "hit_rate": 0.86,
+                "total_queries": 50
+              },
+              "recall@10": {
+                "recall": 0.98,
+                "mrr": 0.6611,
+                "hit_rate": 0.98,
+                "total_queries": 50
+              }
+            },
+            "latency": {
+              "p50_ms": 181.49,
+              "p95_ms": 181.49,
+              "p99_ms": 181.49,
+              "mean_ms": 181.3
+            },
+            "throughput": {
+              "queries_per_second": 5.0,
+              "total_queries": 50,
+              "elapsed_s": 9.99
+            }
+          }
+        },
+        "summary": {
+          "best_mode": "hybrid",
+          "modes": {
+            "semantic": {
+              "recall@5": 0.54,
+              "mrr@5": 0.286,
+              "latency_p50_ms": 18.23,
+              "qps": 54.71
+            },
+            "hybrid": {
+              "recall@5": 0.86,
+              "mrr@5": 0.6573,
+              "latency_p50_ms": 176.36,
+              "qps": 5.14
+            },
+            "advanced": {
+              "recall@5": 0.86,
+              "mrr@5": 0.6347,
+              "latency_p50_ms": 174.44,
+              "qps": 5.03
+            },
+            "skynet": {
+              "recall@5": 0.86,
+              "mrr@5": 0.6447,
+              "latency_p50_ms": 181.49,
+              "qps": 5.0
+            }
+          }
+        }
+      },
+      "elapsed_s": 202.62,
+      "status": "ok"
+    },
+    "graph": {
+      "result": {
+        "db_stats": {
+          "memories": 707,
+          "connections": 16597,
+          "revisions": 1310,
+          "embedding_dim": 1024,
+          "embedding_backend": "SentenceTransformerBackend",
+          "embed_fingerprint": "SentenceTransformerBackend::1024::",
+          "dim_locked": true,
+          "dim_mismatch_reason": null,
+          "quarantined_dim": 0,
+          "retrieval_mode": "semantic",
+          "lazy_graph": false,
+          "hnsw_enabled": "auto"
+        },
+        "bfs": {
+          "depth_2": {
+            "total_visited": 456,
+            "nodes_per_layer": {
+              "0": 50,
+              "1": 352,
+              "2": 104
+            },
+            "avg_layer_time_ms": 104.44,
+            "total_time_ms": 208.88
+          },
+          "depth_3": {
+            "total_visited": 499,
+            "nodes_per_layer": {
+              "0": 50,
+              "1": 352,
+              "2": 104,
+              "3": 43
+            },
+            "avg_layer_time_ms": 79.6,
+            "total_time_ms": 238.79
+          },
+          "depth_5": {
+            "total_visited": 564,
+            "nodes_per_layer": {
+              "0": 50,
+              "1": 352,
+              "2": 104,
+              "3": 43,
+              "4": 37,
+              "5": 28
+            },
+            "avg_layer_time_ms": 47.89,
+            "total_time_ms": 239.46
+          }
+        },
+        "think": {
+          "depth_2": {
+            "total_activated": 364,
+            "time_ms": 141.83,
+            "ms_per_start_node": 14.18
+          },
+          "depth_3": {
+            "total_activated": 399,
+            "time_ms": 297.12,
+            "ms_per_start_node": 29.71
+          },
+          "depth_5": {
+            "total_activated": 416,
+            "time_ms": 318.49,
+            "ms_per_start_node": 31.85
+          }
+        },
+        "ppr": {
+          "alpha_0.7_iters_20": {
+            "total_activated": 50,
+            "time_ms": 2.22,
+            "ms_per_start_node": 0.44,
+            "top_results": [
+              {
+                "id": 522,
+                "label": "conversational:session_14",
+                "activation": 0.6713,
+                "engine": "bfs"
+              },
+              {
+                "id": 335,
+                "label": "conversational:session_15",
+                "activation": 0.6667,
+                "engine": "bfs"
+              },
+              {
+                "id": 558,
+                "label": "conversational:session_6",
+                "activation": 0.666,
+                "engine": "bfs"
+              },
+              {
+                "id": 549,
+                "label": "conversational:session_8",
+                "activation": 0.657,
+                "engine": "bfs"
+              },
+              {
+                "id": 196,
+                "label": "conversational:session_10",
+                "activation": 0.6566,
+                "engine": "bfs"
+              },
+              {
+                "id": 507,
+                "label": "conversational:session_9",
+                "activation": 0.6518,
+                "engine": "bfs"
+              },
+              {
+                "id": 514,
+                "label": "conversational:session_7",
+                "activation": 0.6485,
+                "engine": "bfs"
+              },
+              {
+                "id": 591,
+                "label": "conversational:session_16",
+                "activation": 0.5046,
+                "engine": "bfs"
+              },
+              {
+                "id": 691,
+                "label": "graph:bridge_benchmarks_models",
+                "activation": 0.4963,
+                "engine": "bfs"
+              },
+              {
+                "id": 407,
+                "label": "conversational:session_6",
+                "activation": 0.3358,
+                "engine": "bfs"
+              }
+            ]
+          },
+          "alpha_0.7_iters_50": {
+            "total_activated": 92,
+            "time_ms": 18.66,
+            "ms_per_start_node": 3.73,
+            "top_results": [
+              {
+                "id": 522,
+                "label": "conversational:session_14",
+                "activation": 0.6713,
+                "engine": "bfs"
+              },
+              {
+                "id": 335,
+                "label": "conversational:session_15",
+                "activation": 0.6667,
+                "engine": "bfs"
+              },
+              {
+                "id": 558,
+                "label": "conversational:session_6",
+                "activation": 0.666,
+                "engine": "bfs"
+              },
+              {
+                "id": 549,
+                "label": "conversational:session_8",
+                "activation": 0.657,
+                "engine": "bfs"
+              },
+              {
+                "id": 196,
+                "label": "conversational:session_10",
+                "activation": 0.6566,
+                "engine": "bfs"
+              },
+              {
+                "id": 507,
+                "label": "conversational:session_9",
+                "activation": 0.6518,
+                "engine": "bfs"
+              },
+              {
+                "id": 514,
+                "label": "conversational:session_7",
+                "activation": 0.6485,
+                "engine": "bfs"
+              },
+              {
+                "id": 591,
+                "label": "conversational:session_16",
+                "activation": 0.5046,
+                "engine": "bfs"
+              },
+              {
+                "id": 691,
+                "label": "graph:bridge_benchmarks_models",
+                "activation": 0.4963,
+                "engine": "bfs"
+              },
+              {
+                "id": 407,
+                "label": "conversational:session_6",
+                "activation": 0.3358,
+                "engine": "bfs"
+              }
+            ]
+          },
+          "alpha_0.85_iters_20": {
+            "total_activated": 50,
+            "time_ms": 1.89,
+            "ms_per_start_node": 0.38,
+            "top_results": [
+              {
+                "id": 522,
+                "label": "conversational:session_14",
+                "activation": 0.8151,
+                "engine": "bfs"
+              },
+              {
+                "id": 335,
+                "label": "conversational:session_15",
+                "activation": 0.8096,
+                "engine": "bfs"
+              },
+              {
+                "id": 558,
+                "label": "conversational:session_6",
+                "activation": 0.8087,
+                "engine": "bfs"
+              },
+              {
+                "id": 549,
+                "label": "conversational:session_8",
+                "activation": 0.7977,
+                "engine": "bfs"
+              },
+              {
+                "id": 196,
+                "label": "conversational:session_10",
+                "activation": 0.7973,
+                "engine": "bfs"
+              },
+              {
+                "id": 507,
+                "label": "conversational:session_9",
+                "activation": 0.7915,
+                "engine": "bfs"
+              },
+              {
+                "id": 514,
+                "label": "conversational:session_7",
+                "activation": 0.7875,
+                "engine": "bfs"
+              },
+              {
+                "id": 591,
+                "label": "conversational:session_16",
+                "activation": 0.6127,
+                "engine": "bfs"
+              },
+              {
+                "id": 691,
+                "label": "graph:bridge_benchmarks_models",
+                "activation": 0.6026,
+                "engine": "bfs"
+              },
+              {
+                "id": 407,
+                "label": "conversational:session_6",
+                "activation": 0.4952,
+                "engine": "bfs"
+              }
+            ]
+          },
+          "alpha_0.85_iters_50": {
+            "total_activated": 92,
+            "time_ms": 17.79,
+            "ms_per_start_node": 3.56,
+            "top_results": [
+              {
+                "id": 522,
+                "label": "conversational:session_14",
+                "activation": 0.8151,
+                "engine": "bfs"
+              },
+              {
+                "id": 335,
+                "label": "conversational:session_15",
+                "activation": 0.8096,
+                "engine": "bfs"
+              },
+              {
+                "id": 558,
+                "label": "conversational:session_6",
+                "activation": 0.8087,
+                "engine": "bfs"
+              },
+              {
+                "id": 549,
+                "label": "conversational:session_8",
+                "activation": 0.7977,
+                "engine": "bfs"
+              },
+              {
+                "id": 196,
+                "label": "conversational:session_10",
+                "activation": 0.7973,
+                "engine": "bfs"
+              },
+              {
+                "id": 507,
+                "label": "conversational:session_9",
+                "activation": 0.7915,
+                "engine": "bfs"
+              },
+              {
+                "id": 514,
+                "label": "conversational:session_7",
+                "activation": 0.7875,
+                "engine": "bfs"
+              },
+              {
+                "id": 591,
+                "label": "conversational:session_16",
+                "activation": 0.6127,
+                "engine": "bfs"
+              },
+              {
+                "id": 691,
+                "label": "graph:bridge_benchmarks_models",
+                "activation": 0.6026,
+                "engine": "bfs"
+              },
+              {
+                "id": 407,
+                "label": "conversational:session_6",
+                "activation": 0.4952,
+                "engine": "bfs"
+              }
+            ]
+          },
+          "alpha_0.95_iters_20": {
+            "total_activated": 50,
+            "time_ms": 1.87,
+            "ms_per_start_node": 0.37,
+            "top_results": [
+              {
+                "id": 522,
+                "label": "conversational:session_14",
+                "activation": 0.911,
+                "engine": "bfs"
+              },
+              {
+                "id": 335,
+                "label": "conversational:session_15",
+                "activation": 0.9049,
+                "engine": "bfs"
+              },
+              {
+                "id": 558,
+                "label": "conversational:session_6",
+                "activation": 0.9039,
+                "engine": "bfs"
+              },
+              {
+                "id": 549,
+                "label": "conversational:session_8",
+                "activation": 0.8916,
+                "engine": "bfs"
+              },
+              {
+                "id": 196,
+                "label": "conversational:session_10",
+                "activation": 0.8911,
+                "engine": "bfs"
+              },
+              {
+                "id": 507,
+                "label": "conversational:session_9",
+                "activation": 0.8846,
+                "engine": "bfs"
+              },
+              {
+                "id": 514,
+                "label": "conversational:session_7",
+                "activation": 0.8801,
+                "engine": "bfs"
+              },
+              {
+                "id": 591,
+                "label": "conversational:session_16",
+                "activation": 0.6848,
+                "engine": "bfs"
+              },
+              {
+                "id": 691,
+                "label": "graph:bridge_benchmarks_models",
+                "activation": 0.6735,
+                "engine": "bfs"
+              },
+              {
+                "id": 407,
+                "label": "conversational:session_6",
+                "activation": 0.6186,
+                "engine": "bfs"
+              }
+            ]
+          },
+          "alpha_0.95_iters_50": {
+            "total_activated": 92,
+            "time_ms": 17.75,
+            "ms_per_start_node": 3.55,
+            "top_results": [
+              {
+                "id": 522,
+                "label": "conversational:session_14",
+                "activation": 0.911,
+                "engine": "bfs"
+              },
+              {
+                "id": 335,
+                "label": "conversational:session_15",
+                "activation": 0.9049,
+                "engine": "bfs"
+              },
+              {
+                "id": 558,
+                "label": "conversational:session_6",
+                "activation": 0.9039,
+                "engine": "bfs"
+              },
+              {
+                "id": 549,
+                "label": "conversational:session_8",
+                "activation": 0.8916,
+                "engine": "bfs"
+              },
+              {
+                "id": 196,
+                "label": "conversational:session_10",
+                "activation": 0.8911,
+                "engine": "bfs"
+              },
+              {
+                "id": 507,
+                "label": "conversational:session_9",
+                "activation": 0.8846,
+                "engine": "bfs"
+              },
+              {
+                "id": 514,
+                "label": "conversational:session_7",
+                "activation": 0.8801,
+                "engine": "bfs"
+              },
+              {
+                "id": 591,
+                "label": "conversational:session_16",
+                "activation": 0.6848,
+                "engine": "bfs"
+              },
+              {
+                "id": 691,
+                "label": "graph:bridge_benchmarks_models",
+                "activation": 0.6735,
+                "engine": "bfs"
+              },
+              {
+                "id": 407,
+                "label": "conversational:session_6",
+                "activation": 0.6186,
+                "engine": "bfs"
+              }
+            ]
+          }
+        }
+      },
+      "elapsed_s": 17.55,
+      "status": "ok"
+    },
+    "conflict": {
+      "result": {
+        "supersession": {
+          "conflict_pairs_stored": 8,
+          "superseded_detected": 0
+        },
+        "recall_quality": {
+          "FastEmbed": {
+            "hits": 5,
+            "should_match": true,
+            "correct": true
+          },
+          "Dream Engine phases": {
+            "hits": 5,
+            "should_match": true,
+            "correct": true
+          },
+          "HNSW threshold": {
+            "hits": 5,
+            "should_match": true,
+            "correct": true
+          },
+          "something unrelated": {
+            "hits": 5,
+            "should_match": false,
+            "correct": false
+          }
+        },
+        "salience": {
+          "access_time_100_calls_s": 0.081,
+          "sample_saliences": {
+            "min": 1.0,
+            "max": 1.0,
+            "mean": 1.0
+          }
+        },
+        "adversarial": {
+          "poison_attempts": 5,
+          "post_poison_stats": {
+            "memories": 14,
+            "connections": 0,
+            "revisions": 6,
+            "embedding_dim": 1024,
+            "embedding_backend": "SentenceTransformerBackend",
+            "embed_fingerprint": "SentenceTransformerBackend::1024::",
+            "dim_locked": true,
+            "dim_mismatch_reason": null,
+            "quarantined_dim": 0,
+            "retrieval_mode": "semantic",
+            "lazy_graph": false,
+            "hnsw_enabled": "auto"
+          }
+        }
+      },
+      "elapsed_s": 0.62,
+      "status": "ok"
+    },
+    "agentic": {
+      "result": {
+        "sessions": [
+          {
+            "session_id": 0,
+            "elapsed_s": 0.29,
+            "total_actions": 10,
+            "actions_per_second": 34.7,
+            "timings": {
+              "remember": {
+                "count": 4,
+                "mean_ms": 38.03,
+                "p50_ms": 38.07,
+                "p95_ms": 39.01,
+                "p99_ms": 39.01
+              },
+              "recall": {
+                "count": 4,
+                "mean_ms": 19.8,
+                "p50_ms": 20.31,
+                "p95_ms": 28.1,
+                "p99_ms": 28.1
+              },
+              "think": {
+                "count": 2,
+                "mean_ms": 28.53,
+                "p50_ms": 28.53,
+                "p95_ms": 29.22,
+                "p99_ms": 29.22
+              }
+            }
+          },
+          {
+            "session_id": 1,
+            "elapsed_s": 0.17,
+            "total_actions": 10,
+            "actions_per_second": 59.0,
+            "timings": {
+              "remember": {
+                "count": 2,
+                "mean_ms": 18.83,
+                "p50_ms": 18.83,
+                "p95_ms": 37.58,
+                "p99_ms": 37.58
+              },
+              "recall": {
+                "count": 5,
+                "mean_ms": 15.21,
+                "p50_ms": 13.64,
+                "p95_ms": 26.32,
+                "p99_ms": 26.32
+              },
+              "think": {
+                "count": 1,
+                "mean_ms": 51.08,
+                "p50_ms": 51.08,
+                "p95_ms": 51.08,
+                "p99_ms": 51.08
+              },
+              "graph": {
+                "count": 2,
+                "mean_ms": 2.21,
+                "p50_ms": 2.21,
+                "p95_ms": 2.24,
+                "p99_ms": 2.24
+              }
+            }
+          },
+          {
+            "session_id": 2,
+            "elapsed_s": 0.3,
+            "total_actions": 10,
+            "actions_per_second": 33.1,
+            "timings": {
+              "remember": {
+                "count": 2,
+                "mean_ms": 38.27,
+                "p50_ms": 38.27,
+                "p95_ms": 39.24,
+                "p99_ms": 39.24
+              },
+              "recall": {
+                "count": 5,
+                "mean_ms": 18.98,
+                "p50_ms": 13.81,
+                "p95_ms": 29.54,
+                "p99_ms": 29.54
+              },
+              "think": {
+                "count": 3,
+                "mean_ms": 43.64,
+                "p50_ms": 52.76,
+                "p95_ms": 67.09,
+                "p99_ms": 67.09
+              }
+            }
+          }
+        ],
+        "summary": {
+          "num_sessions": 3,
+          "total_actions": 30,
+          "avg_actions_per_second": 42.3,
+          "min_aps": 33.1,
+          "max_aps": 59.0,
+          "action_aggregates": {
+            "remember": {
+              "avg_mean_ms": 31.71,
+              "avg_p95_ms": 38.61
+            },
+            "recall": {
+              "avg_mean_ms": 18.0,
+              "avg_p95_ms": 27.99
+            },
+            "think": {
+              "avg_mean_ms": 41.08,
+              "avg_p95_ms": 49.13
+            },
+            "graph": {
+              "avg_mean_ms": 2.21,
+              "avg_p95_ms": 0.75
+            }
+          }
+        }
+      },
+      "elapsed_s": 6.89,
+      "status": "ok"
+    }
+  },
+  "errors": {}
+}

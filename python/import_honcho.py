@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 import_honcho.py - Import Honcho Export into Mazemaker
-Uses the exact neural_memory.Memory API. No message_embeddings (9524d != 1024d).
+Uses the exact memory_client.Mazemaker API. No message_embeddings (9524d != 1024d).
 """
 
 import argparse

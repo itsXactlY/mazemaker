@@ -1,0 +1,97 @@
+GPU recall ARMED (load_from_store): 25964 vectors on cuda
+/home/alca/projects/mazemaker/python/memory_client.py:3835: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /pytorch/aten/src/ATen/Context.cpp:760.)
+  self._gpu_ppr_adj = torch.sparse_coo_tensor(
+
+========================================================================
+  inception_bench — Unified Mazemaker Production Benchmark
+  Schema: longmemeval_oracle_bgem3_1024  Questions: 500  Dream: False
+========================================================================
+
+[load] Loading LongMemEval-S questions...
+  500 questions loaded (10,960 sessions in PG)
+  LongMemEval-S: 246,930 sessions
+  LongMemEval-M: 2,450,050 sessions (available)
+
+[engine] Building single PG-backed Mazemaker...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+  engine ready in 8.6s — schema: longmemeval_oracle_bgem3_1024
+
+[ingest] read-cache mode — bench targets cache schema 'longmemeval_oracle_bgem3_1024' directly
+  25,964 memories, 112,782 connections already in place
+
+[graph] Warming HNSW for 25,964 memories...
+  HNSW warm in 0.0s (auto-connect skipped — pass --graph or use --dream to materialise edges)
+
+[recall] Running 500 questions (baseline)...
+
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 391/391 [00:00<00:00, 46608.68it/s]
+
+Loading weights:   0%|          | 0/105 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 105/105 [00:00<00:00, 13967.27it/s]
+[1mBertForSequenceClassification LOAD REPORT[0m from: /home/alca/.mazemaker/engine/models/models--cross-encoder--ms-marco-MiniLM-L-6-v2/snapshots/c5ee24cb16019beea0893ab7796b1df96625c6b8
+Key                          | Status     |  | 
+-----------------------------+------------+--+-
+bert.embeddings.position_ids | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+  [  25/500 (  5.0%)]  R@1=0.3600  R@5=0.6400  MRR=0.4867  p50=1743ms  elapsed=38s
+  [  50/500 ( 10.0%)]  R@1=0.5200  R@5=0.7800  MRR=0.6373  p50=1763ms  elapsed=83s
+  [  75/500 ( 15.0%)]  R@1=0.4928  R@5=0.7971  MRR=0.6279  p50=1786ms  elapsed=131s
+  [ 100/500 ( 20.0%)]  R@1=0.4787  R@5=0.7979  MRR=0.6101  p50=1787ms  elapsed=176s
+  [ 125/500 ( 25.0%)]  R@1=0.4956  R@5=0.8053  MRR=0.6248  p50=1789ms  elapsed=220s
+  [ 150/500 ( 30.0%)]  R@1=0.5362  R@5=0.8116  MRR=0.6529  p50=1800ms  elapsed=268s
+  [ 175/500 ( 35.0%)]  R@1=0.5890  R@5=0.8344  MRR=0.6910  p50=1803ms  elapsed=315s
+  [ 200/500 ( 40.0%)]  R@1=0.6154  R@5=0.8352  MRR=0.7089  p50=1807ms  elapsed=363s
+  [ 225/500 ( 45.0%)]  R@1=0.6135  R@5=0.8164  MRR=0.7019  p50=1803ms  elapsed=409s
+  [ 250/500 ( 50.0%)]  R@1=0.6250  R@5=0.8190  MRR=0.7096  p50=1810ms  elapsed=456s
+  [ 275/500 ( 55.0%)]  R@1=0.6498  R@5=0.8288  MRR=0.7270  p50=1804ms  elapsed=501s
+  [ 300/500 ( 60.0%)]  R@1=0.6667  R@5=0.8369  MRR=0.7411  p50=1803ms  elapsed=547s
+  [ 325/500 ( 65.0%)]  R@1=0.6678  R@5=0.8469  MRR=0.7443  p50=1794ms  elapsed=592s
+  [ 350/500 ( 70.0%)]  R@1=0.6747  R@5=0.8554  MRR=0.7514  p50=1787ms  elapsed=636s
+  [ 375/500 ( 75.0%)]  R@1=0.6581  R@5=0.8433  MRR=0.7381  p50=1786ms  elapsed=678s
+  [ 400/500 ( 80.0%)]  R@1=0.6410  R@5=0.8404  MRR=0.7253  p50=1782ms  elapsed=720s
+  [ 425/500 ( 85.0%)]  R@1=0.6185  R@5=0.8329  MRR=0.7094  p50=1775ms  elapsed=761s
+  [ 450/500 ( 90.0%)]  R@1=0.6268  R@5=0.8310  MRR=0.7139  p50=1767ms  elapsed=799s
+  [ 475/500 ( 95.0%)]  R@1=0.6253  R@5=0.8293  MRR=0.7116  p50=1759ms  elapsed=840s
+  [ 500/500 (100.0%)]  R@1=0.6170  R@5=0.8340  MRR=0.7076  p50=1755ms  elapsed=883s
+
+========================================================================
+  BASELINE RECALL (pre-dream)
+========================================================================
+  metric                      value
+  --------------------------------
+  n_total                       500
+  n_gradeable                   470
+  recall@1                   0.6170
+  recall@5                   0.8340
+  recall@10                  0.8957
+  MRR                        0.7076
+  p50_ms                     1754.8
+  p95_ms                     2293.4
+
+  question_type                       n      R@1      R@5     R@10      MRR
+  --------------------------------------------------------------------
+  knowledge-update                   72   0.8056   0.8750   0.9167   0.8392
+  multi-session                     121   0.5620   0.8595   0.9256   0.6758
+  single-session-assistant           56   0.8929   0.9286   0.9286   0.9054
+  single-session-preference          30   0.5000   0.6667   0.7333   0.5867
+  single-session-user                64   0.7344   0.9375   1.0000 inception_bench
+  temporal-reasoning                127   0.4094   0.7323   0.8268   0.5506
+
+
+[output] /home/alca/projects/mazemaker/benchmarks/external/results/godbench_loop-iter93-temporal0.9_20260518T155242Z.json
+
+[total] 891.8s  (14.9 min)
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7fbf43d3d220>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

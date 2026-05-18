@@ -8,7 +8,7 @@ build/CMakeFiles
 build/Testing
 build/test_*
 build/bench_*
-build/neural_memory_demo
+build/mazemaker_demo
 build/Makefile
 build/CMakeCache.txt
 build/CTestTestfile.txt

@@ -144,7 +144,7 @@ KNOWN_FEATURES = frozenset({
                      # breaker.
     "pref_multi_recall", # Deterministic preference query rewriter
                      # (_preference_query) + --pref-multi-recall path
-                     # in godbench.  Pattern-based multi-angle recall
+                     # in inception_bench.  Pattern-based multi-angle recall
                      # for single-session-preference questions.
 })
 

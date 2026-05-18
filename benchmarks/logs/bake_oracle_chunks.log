@@ -1,0 +1,246 @@
+[chunk-bake] DB: mm10m_bench.longmemeval_oracle_bgem3_1024
+[chunk-bake] chunk_chars=2000  overlap=200  min_chars=2001
+[chunk-bake] Initialising embed-server + colbert encoder...
+[embed-server] CUDA: 15329 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 43328.21it/s]
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15329MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 34989.82it/s]
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+[chunk-bake] Source long sessions (≥2001 chars): 944
+    flushed   70 chunks  embed=2.95s colbert=2.54s copy=0.10s
+  sources=    8/944  chunks=    70  rate=1.4 src/s  eta=11.1m
+    flushed   69 chunks  embed=2.79s colbert=2.45s copy=0.10s
+  sources=   16/944  chunks=   139  rate=1.5 src/s  eta=10.7m
+    flushed   67 chunks  embed=2.67s colbert=2.44s copy=0.11s
+  sources=   24/944  chunks=   206  rate=1.5 src/s  eta=10.4m
+    flushed   67 chunks  embed=2.23s colbert=2.37s copy=0.10s
+  sources=   32/944  chunks=   273  rate=1.5 src/s  eta=9.9m
+    flushed   71 chunks  embed=2.78s colbert=2.55s copy=0.10s
+  sources=   40/944  chunks=   344  rate=1.5 src/s  eta=9.9m
+    flushed   72 chunks  embed=2.85s colbert=2.58s copy=0.11s
+  sources=   49/944  chunks=   416  rate=1.5 src/s  eta=9.7m
+    flushed   68 chunks  embed=2.28s colbert=2.49s copy=0.11s
+  sources=   57/944  chunks=   484  rate=1.5 src/s  eta=9.5m
+    flushed   69 chunks  embed=2.68s colbert=2.51s copy=0.12s
+  sources=   66/944  chunks=   553  rate=1.6 src/s  eta=9.3m
+    flushed   67 chunks  embed=2.68s colbert=2.43s copy=0.13s
+  sources=   74/944  chunks=   620  rate=1.6 src/s  eta=9.3m
+    flushed   70 chunks  embed=3.17s colbert=2.56s copy=0.12s
+  sources=   82/944  chunks=   690  rate=1.5 src/s  eta=9.3m
+    flushed   69 chunks  embed=2.95s colbert=2.54s copy=0.09s
+  sources=   91/944  chunks=   759  rate=1.5 src/s  eta=9.2m
+    flushed   65 chunks  embed=2.59s colbert=2.34s copy=0.10s
+  sources=   99/944  chunks=   824  rate=1.6 src/s  eta=9.1m
+    flushed   69 chunks  embed=2.67s colbert=2.49s copy=0.11s
+  sources=  108/944  chunks=   893  rate=1.6 src/s  eta=8.9m
+    flushed   70 chunks  embed=2.41s colbert=2.52s copy=0.10s
+  sources=  117/944  chunks=   963  rate=1.6 src/s  eta=8.7m
+    flushed   64 chunks  embed=2.36s colbert=2.31s copy=0.11s
+  sources=  125/944  chunks=  1027  rate=1.6 src/s  eta=8.6m
+    flushed   69 chunks  embed=2.03s colbert=2.48s copy=0.10s
+  sources=  132/944  chunks=  1096  rate=1.6 src/s  eta=8.6m
+    flushed   72 chunks  embed=2.98s colbert=2.60s copy=0.09s
+  sources=  141/944  chunks=  1168  rate=1.6 src/s  eta=8.5m
+    flushed   67 chunks  embed=2.67s colbert=2.42s copy=0.10s
+  sources=  148/944  chunks=  1235  rate=1.6 src/s  eta=8.5m
+    flushed   67 chunks  embed=2.64s colbert=2.42s copy=0.09s
+  sources=  157/944  chunks=  1302  rate=1.6 src/s  eta=8.3m
+    flushed   66 chunks  embed=2.54s colbert=2.38s copy=0.09s
+  sources=  165/944  chunks=  1368  rate=1.6 src/s  eta=8.2m
+    flushed   66 chunks  embed=2.67s colbert=2.38s copy=0.10s
+  sources=  173/944  chunks=  1434  rate=1.6 src/s  eta=8.1m
+    flushed   71 chunks  embed=2.81s colbert=2.58s copy=0.12s
+  sources=  181/944  chunks=  1505  rate=1.6 src/s  eta=8.1m
+    flushed   73 chunks  embed=2.96s colbert=2.58s copy=0.09s
+  sources=  189/944  chunks=  1578  rate=1.6 src/s  eta=8.0m
+    flushed   71 chunks  embed=2.77s colbert=2.58s copy=0.10s
+  sources=  198/944  chunks=  1649  rate=1.6 src/s  eta=7.9m
+    flushed   73 chunks  embed=3.00s colbert=2.61s copy=0.12s
+  sources=  207/944  chunks=  1722  rate=1.6 src/s  eta=7.8m
+    flushed   70 chunks  embed=2.80s colbert=2.57s copy=0.09s
+  sources=  218/944  chunks=  1792  rate=1.6 src/s  eta=7.6m
+    flushed   64 chunks  embed=2.36s colbert=2.32s copy=0.10s
+  sources=  226/944  chunks=  1856  rate=1.6 src/s  eta=7.5m
+    flushed   64 chunks  embed=2.55s colbert=2.34s copy=0.10s
+  sources=  234/944  chunks=  1920  rate=1.6 src/s  eta=7.4m
+    flushed   66 chunks  embed=2.55s colbert=2.35s copy=0.17s
+  sources=  243/944  chunks=  1986  rate=1.6 src/s  eta=7.3m
+    flushed   70 chunks  embed=2.79s colbert=2.50s copy=0.13s
+  sources=  252/944  chunks=  2056  rate=1.6 src/s  eta=7.2m
+    flushed   69 chunks  embed=2.72s colbert=2.47s copy=0.09s
+  sources=  260/944  chunks=  2125  rate=1.6 src/s  eta=7.1m
+    flushed   69 chunks  embed=2.77s colbert=2.51s copy=0.10s
+  sources=  268/944  chunks=  2194  rate=1.6 src/s  eta=7.1m
+    flushed   69 chunks  embed=2.16s colbert=2.48s copy=0.11s
+  sources=  277/944  chunks=  2263  rate=1.6 src/s  eta=6.9m
+    flushed   67 chunks  embed=2.43s colbert=2.44s copy=0.09s
+  sources=  286/944  chunks=  2330  rate=1.6 src/s  eta=6.8m
+    flushed   76 chunks  embed=2.95s colbert=2.73s copy=0.10s
+  sources=  294/944  chunks=  2406  rate=1.6 src/s  eta=6.8m
+    flushed   70 chunks  embed=2.80s colbert=2.55s copy=0.10s
+  sources=  303/944  chunks=  2476  rate=1.6 src/s  eta=6.7m
+    flushed   64 chunks  embed=2.43s colbert=2.28s copy=0.08s
+  sources=  310/944  chunks=  2540  rate=1.6 src/s  eta=6.6m
+    flushed   65 chunks  embed=2.62s colbert=2.33s copy=0.09s
+  sources=  316/944  chunks=  2605  rate=1.6 src/s  eta=6.6m
+    flushed   64 chunks  embed=2.61s colbert=2.30s copy=0.09s
+  sources=  323/944  chunks=  2669  rate=1.6 src/s  eta=6.5m
+    flushed   65 chunks  embed=2.61s colbert=2.35s copy=0.11s
+  sources=  332/944  chunks=  2734  rate=1.6 src/s  eta=6.4m
+    flushed   70 chunks  embed=2.82s colbert=2.47s copy=0.11s
+  sources=  340/944  chunks=  2804  rate=1.6 src/s  eta=6.4m
+    flushed   65 chunks  embed=2.33s colbert=2.21s copy=0.09s
+  sources=  351/944  chunks=  2869  rate=1.6 src/s  eta=6.2m
+    flushed   67 chunks  embed=2.29s colbert=2.21s copy=0.10s
+  sources=  360/944  chunks=  2936  rate=1.6 src/s  eta=6.1m
+    flushed   65 chunks  embed=2.44s colbert=2.22s copy=0.09s
+  sources=  369/944  chunks=  3001  rate=1.6 src/s  eta=5.9m
+    flushed   71 chunks  embed=2.90s colbert=2.48s copy=0.09s
+  sources=  379/944  chunks=  3072  rate=1.6 src/s  eta=5.8m
+    flushed   69 chunks  embed=1.89s colbert=2.36s copy=0.10s
+  sources=  388/944  chunks=  3141  rate=1.6 src/s  eta=5.7m
+    flushed   65 chunks  embed=2.10s colbert=2.22s copy=0.08s
+  sources=  396/944  chunks=  3206  rate=1.6 src/s  eta=5.6m
+    flushed   73 chunks  embed=2.68s colbert=2.49s copy=0.09s
+  sources=  404/944  chunks=  3279  rate=1.6 src/s  eta=5.5m
+    flushed   69 chunks  embed=2.57s colbert=2.39s copy=0.12s
+  sources=  412/944  chunks=  3348  rate=1.6 src/s  eta=5.4m
+    flushed   67 chunks  embed=2.48s colbert=2.29s copy=0.09s
+  sources=  420/944  chunks=  3415  rate=1.6 src/s  eta=5.4m
+    flushed   67 chunks  embed=2.54s colbert=2.29s copy=0.09s
+  sources=  429/944  chunks=  3482  rate=1.6 src/s  eta=5.3m
+    flushed   66 chunks  embed=2.59s colbert=2.26s copy=0.10s
+  sources=  437/944  chunks=  3548  rate=1.6 src/s  eta=5.2m
+    flushed   73 chunks  embed=2.70s colbert=2.52s copy=0.19s
+  sources=  445/944  chunks=  3621  rate=1.6 src/s  eta=5.1m
+    flushed   71 chunks  embed=2.58s colbert=2.52s copy=0.11s
+  sources=  455/944  chunks=  3692  rate=1.6 src/s  eta=5.0m
+    flushed   65 chunks  embed=2.49s colbert=2.34s copy=0.10s
+  sources=  463/944  chunks=  3757  rate=1.6 src/s  eta=4.9m
+    flushed   64 chunks  embed=2.40s colbert=2.36s copy=0.09s
+  sources=  471/944  chunks=  3821  rate=1.6 src/s  eta=4.8m
+    flushed   65 chunks  embed=2.81s colbert=2.45s copy=0.10s
+  sources=  479/944  chunks=  3886  rate=1.6 src/s  eta=4.8m
+    flushed   69 chunks  embed=2.80s colbert=2.62s copy=0.08s
+  sources=  487/944  chunks=  3955  rate=1.6 src/s  eta=4.7m
+    flushed   64 chunks  embed=2.75s colbert=2.39s copy=0.09s
+  sources=  494/944  chunks=  4019  rate=1.6 src/s  eta=4.6m
+    flushed   68 chunks  embed=1.86s colbert=2.55s copy=0.10s
+  sources=  502/944  chunks=  4087  rate=1.6 src/s  eta=4.5m
+    flushed   71 chunks  embed=2.86s colbert=2.65s copy=0.10s
+  sources=  512/944  chunks=  4158  rate=1.6 src/s  eta=4.4m
+    flushed   66 chunks  embed=2.63s colbert=2.47s copy=0.10s
+  sources=  520/944  chunks=  4224  rate=1.6 src/s  eta=4.3m
+    flushed   66 chunks  embed=2.74s colbert=2.45s copy=0.09s
+  sources=  528/944  chunks=  4290  rate=1.6 src/s  eta=4.3m
+    flushed   65 chunks  embed=2.74s colbert=2.41s copy=0.09s
+  sources=  535/944  chunks=  4355  rate=1.6 src/s  eta=4.2m
+    flushed   64 chunks  embed=2.62s colbert=2.38s copy=0.09s
+  sources=  544/944  chunks=  4419  rate=1.6 src/s  eta=4.1m
+    flushed   68 chunks  embed=2.84s colbert=2.54s copy=0.09s
+  sources=  553/944  chunks=  4487  rate=1.6 src/s  eta=4.0m
+    flushed   68 chunks  embed=2.84s colbert=2.54s copy=0.10s
+  sources=  562/944  chunks=  4555  rate=1.6 src/s  eta=3.9m
+    flushed   70 chunks  embed=2.88s colbert=2.61s copy=0.12s
+  sources=  570/944  chunks=  4625  rate=1.6 src/s  eta=3.8m
+    flushed   67 chunks  embed=2.87s colbert=2.50s copy=0.09s
+  sources=  578/944  chunks=  4692  rate=1.6 src/s  eta=3.8m
+    flushed   67 chunks  embed=2.78s colbert=2.50s copy=0.09s
+  sources=  587/944  chunks=  4759  rate=1.6 src/s  eta=3.7m
+    flushed   72 chunks  embed=2.75s colbert=2.63s copy=0.10s
+  sources=  596/944  chunks=  4831  rate=1.6 src/s  eta=3.6m
+    flushed   67 chunks  embed=2.91s colbert=2.50s copy=0.10s
+  sources=  605/944  chunks=  4898  rate=1.6 src/s  eta=3.5m
+    flushed   66 chunks  embed=2.67s colbert=2.46s copy=0.09s
+  sources=  613/944  chunks=  4964  rate=1.6 src/s  eta=3.4m
+    flushed   68 chunks  embed=2.72s colbert=2.53s copy=0.10s
+  sources=  622/944  chunks=  5032  rate=1.6 src/s  eta=3.3m
+    flushed   65 chunks  embed=2.85s colbert=2.42s copy=0.10s
+  sources=  631/944  chunks=  5097  rate=1.6 src/s  eta=3.2m
+    flushed   64 chunks  embed=2.84s colbert=2.39s copy=0.09s
+  sources=  640/944  chunks=  5161  rate=1.6 src/s  eta=3.1m
+    flushed   66 chunks  embed=2.76s colbert=2.47s copy=0.10s
+  sources=  648/944  chunks=  5227  rate=1.6 src/s  eta=3.0m
+    flushed   64 chunks  embed=2.68s colbert=2.39s copy=0.09s
+  sources=  656/944  chunks=  5291  rate=1.6 src/s  eta=3.0m
+    flushed   68 chunks  embed=2.67s colbert=2.53s copy=0.10s
+  sources=  665/944  chunks=  5359  rate=1.6 src/s  eta=2.9m
+    flushed   70 chunks  embed=2.67s colbert=2.60s copy=0.11s
+  sources=  675/944  chunks=  5429  rate=1.6 src/s  eta=2.8m
+    flushed   66 chunks  embed=2.80s colbert=2.47s copy=0.11s
+  sources=  684/944  chunks=  5495  rate=1.6 src/s  eta=2.7m
+    flushed   71 chunks  embed=2.88s colbert=2.65s copy=0.12s
+  sources=  693/944  chunks=  5566  rate=1.6 src/s  eta=2.6m
+    flushed   72 chunks  embed=2.92s colbert=2.68s copy=0.10s
+  sources=  701/944  chunks=  5638  rate=1.6 src/s  eta=2.5m
+    flushed   64 chunks  embed=2.72s colbert=2.39s copy=0.12s
+  sources=  708/944  chunks=  5702  rate=1.6 src/s  eta=2.4m
+    flushed   66 chunks  embed=2.66s colbert=2.45s copy=0.10s
+  sources=  715/944  chunks=  5768  rate=1.6 src/s  eta=2.4m
+    flushed   66 chunks  embed=2.86s colbert=2.47s copy=0.09s
+  sources=  723/944  chunks=  5834  rate=1.6 src/s  eta=2.3m
+    flushed   66 chunks  embed=2.66s colbert=2.45s copy=0.09s
+  sources=  731/944  chunks=  5900  rate=1.6 src/s  eta=2.2m
+    flushed   67 chunks  embed=2.62s colbert=2.54s copy=0.11s
+  sources=  738/944  chunks=  5967  rate=1.6 src/s  eta=2.1m
+    flushed   69 chunks  embed=2.78s colbert=2.40s copy=0.09s
+  sources=  745/944  chunks=  6036  rate=1.6 src/s  eta=2.1m
+    flushed   65 chunks  embed=1.74s colbert=2.42s copy=0.09s
+  sources=  753/944  chunks=  6101  rate=1.6 src/s  eta=2.0m
+    flushed   64 chunks  embed=2.07s colbert=2.38s copy=0.09s
+  sources=  760/944  chunks=  6165  rate=1.6 src/s  eta=1.9m
+    flushed   68 chunks  embed=2.76s colbert=2.56s copy=0.12s
+  sources=  767/944  chunks=  6233  rate=1.6 src/s  eta=1.8m
+    flushed   69 chunks  embed=2.94s colbert=2.57s copy=0.11s
+  sources=  774/944  chunks=  6302  rate=1.6 src/s  eta=1.8m
+    flushed   72 chunks  embed=2.62s colbert=2.71s copy=0.11s
+  sources=  781/944  chunks=  6374  rate=1.6 src/s  eta=1.7m
+    flushed   64 chunks  embed=2.70s colbert=2.38s copy=0.11s
+  sources=  789/944  chunks=  6438  rate=1.6 src/s  eta=1.6m
+    flushed   64 chunks  embed=2.80s colbert=2.40s copy=0.10s
+  sources=  796/944  chunks=  6502  rate=1.6 src/s  eta=1.6m
+    flushed   74 chunks  embed=2.97s colbert=2.74s copy=0.11s
+  sources=  804/944  chunks=  6576  rate=1.6 src/s  eta=1.5m
+    flushed   65 chunks  embed=2.72s colbert=2.43s copy=0.10s
+  sources=  812/944  chunks=  6641  rate=1.6 src/s  eta=1.4m
+    flushed   68 chunks  embed=2.67s colbert=2.53s copy=0.10s
+  sources=  820/944  chunks=  6709  rate=1.6 src/s  eta=1.3m
+    flushed   69 chunks  embed=2.79s colbert=2.58s copy=0.09s
+  sources=  829/944  chunks=  6778  rate=1.6 src/s  eta=1.2m
+    flushed   65 chunks  embed=2.72s colbert=2.41s copy=0.10s
+  sources=  836/944  chunks=  6843  rate=1.6 src/s  eta=1.1m
+    flushed   64 chunks  embed=2.65s colbert=2.40s copy=0.11s
+  sources=  844/944  chunks=  6907  rate=1.6 src/s  eta=1.1m
+    flushed   69 chunks  embed=2.50s colbert=2.55s copy=0.10s
+  sources=  851/944  chunks=  6976  rate=1.6 src/s  eta=1.0m
+    flushed   73 chunks  embed=2.84s colbert=2.68s copy=0.11s
+  sources=  859/944  chunks=  7049  rate=1.6 src/s  eta=0.9m
+    flushed   67 chunks  embed=2.81s colbert=2.50s copy=0.09s
+  sources=  866/944  chunks=  7116  rate=1.6 src/s  eta=0.8m
+    flushed   66 chunks  embed=2.79s colbert=2.46s copy=0.09s
+  sources=  874/944  chunks=  7182  rate=1.6 src/s  eta=0.7m
+    flushed   69 chunks  embed=2.71s colbert=2.57s copy=0.10s
+  sources=  882/944  chunks=  7251  rate=1.6 src/s  eta=0.7m
+    flushed   66 chunks  embed=2.76s colbert=2.46s copy=0.12s
+  sources=  890/944  chunks=  7317  rate=1.6 src/s  eta=0.6m
+    flushed   64 chunks  embed=1.83s colbert=2.38s copy=0.09s
+  sources=  897/944  chunks=  7381  rate=1.6 src/s  eta=0.5m
+    flushed   65 chunks  embed=2.70s colbert=2.40s copy=0.21s
+  sources=  905/944  chunks=  7446  rate=1.6 src/s  eta=0.4m
+    flushed   64 chunks  embed=2.86s colbert=2.39s copy=0.12s
+  sources=  913/944  chunks=  7510  rate=1.6 src/s  eta=0.3m
+    flushed   64 chunks  embed=2.71s colbert=2.39s copy=0.09s
+  sources=  921/944  chunks=  7574  rate=1.6 src/s  eta=0.2m
+    flushed   65 chunks  embed=2.69s colbert=2.42s copy=0.11s
+  sources=  929/944  chunks=  7639  rate=1.6 src/s  eta=0.2m
+    flushed   68 chunks  embed=2.14s colbert=2.54s copy=0.09s
+  sources=  938/944  chunks=  7707  rate=1.6 src/s  eta=0.1m
+    flushed   54 chunks  embed=2.26s colbert=2.01s copy=0.07s
+
+[chunk-bake] DONE  sources=944  chunks=7,761  10.0m  (1.6 sources/s)
+[chunk-bake] Next: pg_dump -U mazemaker -d mm10m_bench --schema=longmemeval_oracle_bgem3_1024 -Fc -f benchmarks/snapshots/longmemeval_oracle_bgem3_1024.dump

@@ -37,7 +37,7 @@ SNAPSHOT
         benchmarks/snapshots/longmemeval_s_bgem3_1024.dump
 
 WORKFLOW
-    restore  →  godbench (writes to godbench_<ts>)  →  drop godbench_<ts>
+    restore  →  inception_bench (writes to inception_bench_<ts>)  →  drop inception_bench_<ts>
         ↑                                                       │
         └───────────────────────────────────────────────────────┘
 """
@@ -256,7 +256,7 @@ def main():
             print("[bake] Nothing to do.  Snapshot is up to date.")
             return 0
 
-        # Embed via the shared CUDA server (same as godbench uses).
+        # Embed via the shared CUDA server (same as inception_bench uses).
         # Initialising the EmbeddingProvider auto-starts the server.
         print("[bake] Initialising embed-server...")
         embedder = EmbeddingProvider(backend="auto")

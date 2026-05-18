@@ -1,0 +1,584 @@
+{
+  "meta": {
+    "started_at": "2026-04-28T21:08:46.713394",
+    "version": "1.0.0",
+    "config": {
+      "memory_db": "/home/alca/.neural_memory_benchmark/sandbox.db",
+      "suites": [
+        "baseline",
+        "diversity",
+        "lstm_knn",
+        "conflict_quality",
+        "graph_reasoning",
+        "dream_derived_fact",
+        "continuity_controls",
+        "channel_ablation"
+      ]
+    },
+    "finished_at": "2026-04-28T21:21:34.141615",
+    "total_elapsed_s": 767.43
+  },
+  "suites": {
+    "baseline": {
+      "result": {
+        "raw_cosine_baseline": {
+          "recall_at_k": 1.0,
+          "mrr": 1.0,
+          "p50_ms": 1.54,
+          "p95_ms": 1.708,
+          "n": 50,
+          "setup_s": 0.06
+        },
+        "neural_memory_semantic": {
+          "recall_at_k": 0.42,
+          "mrr": 0.2213,
+          "p50_ms": 32.406,
+          "p95_ms": 39.036,
+          "n": 50,
+          "setup_s": 14.59
+        },
+        "neural_memory_skynet": {
+          "recall_at_k": 0.9,
+          "mrr": 0.7667,
+          "p50_ms": 339.906,
+          "p95_ms": 407.154,
+          "n": 50
+        },
+        "deltas_vs_baseline": {
+          "semantic_recall_lift": -0.58,
+          "semantic_mrr_lift": -0.7787,
+          "skynet_recall_lift": -0.1,
+          "skynet_mrr_lift": -0.2333,
+          "skynet_latency_overhead_p50_ms": 338.366
+        },
+        "k": 5,
+        "n_queries": 50,
+        "n_memories": 2050
+      },
+      "elapsed_s": 41.83,
+      "status": "ok"
+    },
+    "diversity": {
+      "result": {
+        "sweep": {
+          "mmr=0.0_floor=0.0": {
+            "recall_at_k": 0.42,
+            "mrr": 0.2213,
+            "mean_results_returned": 5,
+            "topic_entropy_bits": 2.0838,
+            "topic_count": 8,
+            "topic_distribution_top5": {
+              "incident": 93,
+              "metric": 81,
+              "person": 49,
+              "deprecation": 11,
+              "decision": 7
+            }
+          },
+          "mmr=0.0_floor=0.2": {
+            "recall_at_k": 0.0,
+            "mrr": 0.0,
+            "mean_results_returned": 0,
+            "topic_entropy_bits": 0,
+            "topic_count": 0,
+            "topic_distribution_top5": {}
+          },
+          "mmr=0.0_floor=0.4": {
+            "recall_at_k": 0.0,
+            "mrr": 0.0,
+            "mean_results_returned": 0,
+            "topic_entropy_bits": 0,
+            "topic_count": 0,
+            "topic_distribution_top5": {}
+          },
+          "mmr=0.3_floor=0.0": {
+            "recall_at_k": 0.22,
+            "mrr": 0.21,
+            "mean_results_returned": 5,
+            "topic_entropy_bits": 3.8805,
+            "topic_count": 29,
+            "topic_distribution_top5": {
+              "person": 42,
+              "incident": 41,
+              "metric": 40,
+              "wal": 15,
+              "deprecation": 14
+            }
+          },
+          "mmr=0.3_floor=0.2": {
+            "recall_at_k": 0.0,
+            "mrr": 0.0,
+            "mean_results_returned": 0,
+            "topic_entropy_bits": 0,
+            "topic_count": 0,
+            "topic_distribution_top5": {}
+          },
+          "mmr=0.3_floor=0.4": {
+            "recall_at_k": 0.0,
+            "mrr": 0.0,
+            "mean_results_returned": 0,
+            "topic_entropy_bits": 0,
+            "topic_count": 0,
+            "topic_distribution_top5": {}
+          },
+          "mmr=0.5_floor=0.0": {
+            "recall_at_k": 0.3,
+            "mrr": 0.2733,
+            "mean_results_returned": 5,
+            "topic_entropy_bits": 3.54,
+            "topic_count": 19,
+            "topic_distribution_top5": {
+              "incident": 47,
+              "metric": 36,
+              "person": 31,
+              "deprecation": 27,
+              "schedule": 17
+            }
+          },
+          "mmr=0.5_floor=0.2": {
+            "recall_at_k": 0.0,
+            "mrr": 0.0,
+            "mean_results_returned": 0,
+            "topic_entropy_bits": 0,
+            "topic_count": 0,
+            "topic_distribution_top5": {}
+          },
+          "mmr=0.5_floor=0.4": {
+            "recall_at_k": 0.0,
+            "mrr": 0.0,
+            "mean_results_returned": 0,
+            "topic_entropy_bits": 0,
+            "topic_count": 0,
+            "topic_distribution_top5": {}
+          },
+          "mmr=0.7_floor=0.0": {
+            "recall_at_k": 0.32,
+            "mrr": 0.2933,
+            "mean_results_returned": 5,
+            "topic_entropy_bits": 3.3519,
+            "topic_count": 15,
+            "topic_distribution_top5": {
+              "incident": 54,
+              "metric": 37,
+              "person": 30,
+              "deprecation": 28,
+              "schedule": 23
+            }
+          },
+          "mmr=0.7_floor=0.2": {
+            "recall_at_k": 0.0,
+            "mrr": 0.0,
+            "mean_results_returned": 0,
+            "topic_entropy_bits": 0,
+            "topic_count": 0,
+            "topic_distribution_top5": {}
+          },
+          "mmr=0.7_floor=0.4": {
+            "recall_at_k": 0.0,
+            "mrr": 0.0,
+            "mean_results_returned": 0,
+            "topic_entropy_bits": 0,
+            "topic_count": 0,
+            "topic_distribution_top5": {}
+          }
+        },
+        "analysis": {
+          "best_recall_setting": "mmr=0.0_floor=0.0",
+          "best_recall_value": 0.42,
+          "best_diversity_within_5pct_recall": "mmr=0.0_floor=0.0",
+          "best_diversity_entropy": 2.0838,
+          "note": "If best_diversity_within_5pct_recall != best_recall_setting, MMR is producing a real diversity/recall trade-off."
+        }
+      },
+      "elapsed_s": 28.85,
+      "status": "ok"
+    },
+    "lstm_knn": {
+      "result": {
+        "cpp_loaded": true,
+        "warmup_passes": 3,
+        "baseline": {
+          "recall_at_k": 0.7,
+          "mrr": 0.6057,
+          "p50_ms": 16.919,
+          "p95_ms": 25.373,
+          "n": 50
+        },
+        "enhanced": {
+          "recall_at_k": 0.74,
+          "mrr": 0.6817,
+          "p50_ms": 55.74,
+          "p95_ms": 62.318,
+          "n": 50
+        },
+        "delta": {
+          "recall_at_k": 0.04,
+          "mrr": 0.076,
+          "p50_ms_overhead": 38.821,
+          "p95_ms_overhead": 36.945
+        }
+      },
+      "elapsed_s": 27.68,
+      "status": "ok"
+    },
+    "conflict_quality": {
+      "result": {
+        "with_supersession": {
+          "n_conflict_pairs": 30,
+          "winner_rank_1_rate": 0.3333,
+          "winner_in_top_3_rate": 0.4667,
+          "winner_anywhere_rate": 0.5,
+          "loser_above_winner_rate": 0.1333,
+          "per_topic_mean_winner_rank": {
+            "ownership": 1.3,
+            "config": 3,
+            "metric": 3,
+            "schedule": 2,
+            "decision": null
+          }
+        },
+        "control_no_supersession": {
+          "n_conflict_pairs": 30,
+          "winner_rank_1_rate": 0.0333,
+          "winner_in_top_3_rate": 0.3667,
+          "winner_anywhere_rate": 0.4667,
+          "loser_above_winner_rate": 0.6,
+          "per_topic_mean_winner_rank": {
+            "ownership": 2.9,
+            "config": 3,
+            "metric": 2,
+            "schedule": 3,
+            "decision": null
+          }
+        },
+        "supersession_lift": {
+          "winner_rank_1": 0.3,
+          "loser_above_winner_drop": 0.4667
+        },
+        "interpretation": {
+          "supersession_lift.winner_rank_1": "Positive = supersession is responsible for getting the winner to top-1. ~0 = the lift comes from recency / vector similarity, not from the supersession algorithm itself.",
+          "supersession_lift.loser_above_winner_drop": "Positive = supersession suppresses the stale fact. ~0 = the stale fact is just as likely to outrank the new one either way."
+        }
+      },
+      "elapsed_s": 3.5,
+      "status": "ok"
+    },
+    "graph_reasoning": {
+      "result": {
+        "setup": {
+          "chains": 30,
+          "memories": 90,
+          "explicit_edges": 60
+        },
+        "raw_cosine": {
+          "label": "raw_cosine",
+          "recall_C_at_k": 0.0,
+          "recall_C_at_3": 0.0,
+          "mrr_C": 0.0,
+          "p50_ms": 13.943,
+          "p95_ms": 14.683,
+          "n": 30
+        },
+        "nm_semantic": {
+          "label": "nm_semantic",
+          "recall_C_at_k": 0.1333,
+          "recall_C_at_3": 0.0,
+          "mrr_C": 0.0191,
+          "p50_ms": 19.004,
+          "p95_ms": 20.812,
+          "n": 30
+        },
+        "nm_skynet": {
+          "label": "nm_skynet",
+          "recall_C_at_k": 0.9333,
+          "recall_C_at_3": 0.4,
+          "mrr_C": 0.2863,
+          "p50_ms": 8.293,
+          "p95_ms": 9.014,
+          "n": 30
+        },
+        "nm_multihop": {
+          "label": "nm_multihop",
+          "recall_C_at_k": 1.0,
+          "recall_C_at_3": 0.3333,
+          "mrr_C": 0.2867,
+          "p50_ms": 10.588,
+          "p95_ms": 11.772,
+          "n": 30
+        },
+        "nm_think": {
+          "label": "nm_think",
+          "recall_C_at_k": 0.2333,
+          "recall_C_at_3": 0.2333,
+          "mrr_C": 0.2333,
+          "p50_ms": 4.436,
+          "p95_ms": 5.03,
+          "n": 30
+        },
+        "nm_multihop_shuffled": {
+          "label": "nm_multihop_shuffled",
+          "recall_C_at_k": 0.2667,
+          "recall_C_at_3": 0.0,
+          "mrr_C": 0.0258,
+          "p50_ms": 12.973,
+          "p95_ms": 14.159,
+          "n": 30
+        },
+        "analysis": {
+          "graph_lift_vs_raw": {
+            "nm_semantic": 0.1333,
+            "nm_skynet": 0.9333,
+            "nm_multihop": 1.0,
+            "nm_think": 0.2333
+          },
+          "shuffle_collapse": 0.7333,
+          "interpretation": "graph_lift_vs_raw should be > 0 for multihop/think if the graph is doing real work. shuffle_collapse should be > 0 (multihop drops back when chain edges are scrambled) \u2014 that proves the lift was edge-driven not semantic-driven."
+        }
+      },
+      "elapsed_s": 5.04,
+      "status": "ok"
+    },
+    "dream_derived_fact": {
+      "result": {
+        "pre_dream": {
+          "connections": 1050,
+          "derived_facts": 0,
+          "recall": {
+            "legacy_collective_metric_inflated": true,
+            "semantic_both_tokens_rate": 0.92,
+            "multihop_both_tokens_rate": 0.92,
+            "single_doc_both_tokens_rate_semantic": 0.0,
+            "single_doc_both_tokens_rate_multihop": 0.0,
+            "derived_fact_hit_rate_semantic": 0.0,
+            "derived_fact_hit_rate_multihop": 0.0,
+            "k_legacy": 5,
+            "k_strict": 3,
+            "n": 25
+          }
+        },
+        "post_dream": {
+          "connections": 1301,
+          "derived_facts": 12,
+          "dream_elapsed_s": 0.43,
+          "recall": {
+            "legacy_collective_metric_inflated": true,
+            "semantic_both_tokens_rate": 0.64,
+            "multihop_both_tokens_rate": 0.96,
+            "single_doc_both_tokens_rate_semantic": 0.0,
+            "single_doc_both_tokens_rate_multihop": 0.0,
+            "derived_fact_hit_rate_semantic": 0.04,
+            "derived_fact_hit_rate_multihop": 0.32,
+            "k_legacy": 5,
+            "k_strict": 3,
+            "n": 25
+          }
+        },
+        "lift": {
+          "semantic_both_tokens_legacy": -0.28,
+          "multihop_both_tokens_legacy": 0.04,
+          "single_doc_both_tokens_semantic": 0.0,
+          "single_doc_both_tokens_multihop": 0.0,
+          "derived_fact_hit_rate_semantic": 0.04,
+          "derived_fact_hit_rate_multihop": 0.32,
+          "new_connections": 251,
+          "new_derived_facts": 12,
+          "interpretation": "Read the STRICT metrics (single_doc_both_tokens, derived_fact_hit_rate). Pre-dream both must be 0 by construction: no premise template puts both a_tok and b_tok in the same memory and no derived:* labels exist. Post-dream derived_fact_hit_rate > 0 is the unambiguous signal that the Insight phase materialised a synthesised memory AND retrieval surfaced it. The legacy *_both_tokens_rate fields use a collective top-k metric and saturate above ~0.9 even pre-dream \u2014 do not interpret them as evidence either way (legacy_collective_metric_inflated)."
+        }
+      },
+      "elapsed_s": 10.92,
+      "status": "ok"
+    },
+    "continuity_controls": {
+      "result": {
+        "tiers": {
+          "tier_0_noise_0_dist_0": {
+            "cumulative_generic_noise": 0,
+            "cumulative_near_distractors": 0,
+            "neural_memory": {
+              "recall_at_k": 0.66,
+              "mrr": 0.3457,
+              "errors": 0
+            },
+            "raw_cosine": {
+              "recall_at_k": 0.46,
+              "mrr": 0.2123,
+              "errors": 0
+            },
+            "recency_only": {
+              "recall_at_k": 0.1,
+              "mrr": 0.0457,
+              "errors": 0
+            }
+          },
+          "tier_1_noise_200_dist_100": {
+            "cumulative_generic_noise": 200,
+            "cumulative_near_distractors": 100,
+            "neural_memory": {
+              "recall_at_k": 0.62,
+              "mrr": 0.2867,
+              "errors": 0
+            },
+            "raw_cosine": {
+              "recall_at_k": 0.06,
+              "mrr": 0.034,
+              "errors": 0
+            },
+            "recency_only": {
+              "recall_at_k": 0.0,
+              "mrr": 0.0,
+              "errors": 0
+            }
+          },
+          "tier_2_noise_1200_dist_200": {
+            "cumulative_generic_noise": 1200,
+            "cumulative_near_distractors": 200,
+            "neural_memory": {
+              "recall_at_k": 0.58,
+              "mrr": 0.2557,
+              "errors": 0
+            },
+            "raw_cosine": {
+              "recall_at_k": 0.06,
+              "mrr": 0.034,
+              "errors": 0
+            },
+            "recency_only": {
+              "recall_at_k": 0.0,
+              "mrr": 0.0,
+              "errors": 0
+            }
+          },
+          "tier_3_noise_6200_dist_300": {
+            "cumulative_generic_noise": 6200,
+            "cumulative_near_distractors": 300,
+            "neural_memory": {
+              "recall_at_k": 0.2,
+              "mrr": 0.0757,
+              "errors": 0
+            },
+            "raw_cosine": {
+              "recall_at_k": 0.06,
+              "mrr": 0.034,
+              "errors": 0
+            },
+            "recency_only": {
+              "recall_at_k": 0.0,
+              "mrr": 0.0,
+              "errors": 0
+            }
+          }
+        },
+        "analysis": {
+          "nm_curve": [
+            0.66,
+            0.62,
+            0.58,
+            0.2
+          ],
+          "raw_cosine_curve": [
+            0.46,
+            0.06,
+            0.06,
+            0.06
+          ],
+          "recency_curve": [
+            0.1,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_cosine_drop_first_to_last": 0.4,
+          "nm_vs_raw_lift_at_max_noise": 0.14,
+          "recency_floor_at_max_noise": 0.0,
+          "interpretation": "Concept-mode continuity. Queries paraphrase the target's concept and never mention its anchor; near-distractors per noise tier share concept vocabulary with the query but use different anchors. Expected: raw_cosine_drop_first_to_last > 0 (distractors lure raw cosine away from the target). recency_curve should hover near 0 since targets are the OLDEST items. nm_vs_raw_lift_at_max_noise > 0 would indicate neural-memory uses graph/salience to hold the original target above semantically-closer distractors. <= 0 is an honest negative result on this adversarial task."
+        }
+      },
+      "elapsed_s": 440.6,
+      "status": "ok"
+    },
+    "channel_ablation": {
+      "result": {
+        "all_channels": {
+          "recall_at_k": 0.9,
+          "mrr": 0.8483,
+          "p50_ms": 378.087,
+          "n": 50
+        },
+        "ablation": {
+          "no_semantic": {
+            "recall_at_k": 0.88,
+            "mrr": 0.8067,
+            "p50_ms": 451.6,
+            "n": 50,
+            "delta_recall": -0.02,
+            "delta_mrr": -0.0416
+          },
+          "no_bm25": {
+            "recall_at_k": 0.9,
+            "mrr": 0.8483,
+            "p50_ms": 380.717,
+            "n": 50,
+            "delta_recall": 0.0,
+            "delta_mrr": 0.0
+          },
+          "no_entity": {
+            "recall_at_k": 0.86,
+            "mrr": 0.8267,
+            "p50_ms": 369.207,
+            "n": 50,
+            "delta_recall": -0.04,
+            "delta_mrr": -0.0216
+          },
+          "no_temporal": {
+            "recall_at_k": 0.9,
+            "mrr": 0.8457,
+            "p50_ms": 95.122,
+            "n": 50,
+            "delta_recall": 0.0,
+            "delta_mrr": -0.0026
+          },
+          "no_ppr": {
+            "recall_at_k": 0.86,
+            "mrr": 0.7267,
+            "p50_ms": 378.931,
+            "n": 50,
+            "delta_recall": -0.04,
+            "delta_mrr": -0.1216
+          },
+          "no_salience": {
+            "recall_at_k": 0.9,
+            "mrr": 0.8547,
+            "p50_ms": 380.38,
+            "n": 50,
+            "delta_recall": 0.0,
+            "delta_mrr": 0.0064
+          }
+        },
+        "resolved_defaults": {
+          "semantic": 1.0,
+          "bm25": 0.9,
+          "entity": 1.0,
+          "temporal": 0.35,
+          "ppr": 0.55,
+          "salience": 0.25
+        },
+        "analysis": {
+          "per_channel_contribution_to_recall": {
+            "semantic": 0.02,
+            "bm25": -0.0,
+            "entity": 0.04,
+            "temporal": -0.0,
+            "ppr": 0.04,
+            "salience": -0.0
+          },
+          "most_helpful_channel": "entity",
+          "most_harmful_channel": "bm25",
+          "interpretation": "per_channel_contribution = -delta_recall when that channel is removed. Positive = removing it hurt recall (channel was helping). Negative = removing it improved recall (channel was hurting on this dataset)."
+        }
+      },
+      "elapsed_s": 208.99,
+      "status": "ok"
+    }
+  },
+  "errors": {}
+}

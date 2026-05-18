@@ -68,7 +68,7 @@ from memory_client import Mazemaker  # noqa: E402
 # back to bare Mazemaker if the helper isn't on path (e.g. running outside
 # the benchmark tree).
 try:
-    sys.path.insert(0, str(HERE.parent / "neural_memory_benchmark" / "mm_10m_eval" / "runners"))
+    sys.path.insert(0, str(HERE.parent / "mazemaker_benchmark" / "mm_10m_eval" / "runners"))
     from engine_config import build_quality_engine  # noqa: E402
     _USE_QUALITY = True
 except ImportError:

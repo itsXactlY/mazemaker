@@ -51,7 +51,7 @@ def _default_sqlite_path() -> str:
     candidates = (
         "~/.mazemaker/data/memory.db",   # current (post-rename)
         "~/.mazemaker/memory.db",        # transitional
-        "~/.neural_memory/memory.db",    # legacy
+        "~/.mazemaker/engine/memory.db",    # legacy
     )
     for p in candidates:
         full = os.path.expanduser(p)

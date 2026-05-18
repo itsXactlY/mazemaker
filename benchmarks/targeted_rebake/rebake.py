@@ -3,7 +3,7 @@
 gold sessions that the engine missed on a benchmark, insert them at
 salience=2.0 with a distinct label namespace.
 
-This is the formation-side lever that lifted godbench-oracle 500q R@5
+This is the formation-side lever that lifted inception_bench-oracle 500q R@5
 from 0.7404 (retrieval-tuning ceiling) to 0.8043 (above the 0.80
 stretch target). See ``decision_iter79_target_exceeded`` in auto-memory
 for the full case study.

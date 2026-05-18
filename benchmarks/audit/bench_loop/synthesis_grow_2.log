@@ -1,0 +1,12 @@
+Embedding backend: SentenceTransformerBackend (1024d)
+DONE took=73.6s
+STATS: {'clusters_seen': 300, 'clusters_synthesised': 169, 'proposals': 17, 'crystallised': 17, 'rejected_low_conf': 0, 'by_type': {'preference': 0, 'pattern': 13, 'trait': 3, 'fact': 1}}
+---pass 1 synth count: 42---
+Embedding backend: SentenceTransformerBackend (1024d)
+DONE took=68.9s
+STATS: {'clusters_seen': 300, 'clusters_synthesised': 169, 'proposals': 19, 'crystallised': 19, 'rejected_low_conf': 0, 'by_type': {'preference': 1, 'pattern': 15, 'trait': 1, 'fact': 2}}
+---pass 2 synth count: 61---
+Embedding backend: SentenceTransformerBackend (1024d)
+DONE took=69.1s
+STATS: {'clusters_seen': 300, 'clusters_synthesised': 169, 'proposals': 16, 'crystallised': 16, 'rejected_low_conf': 0, 'by_type': {'preference': 1, 'pattern': 9, 'trait': 2, 'fact': 4}}
+---pass 3 synth count: 77---

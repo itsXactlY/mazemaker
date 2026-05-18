@@ -1,0 +1,369 @@
+
+======================================================================
+                    NEURAL MEMORY BENCHMARK SUITE
+======================================================================
+
+Output: /tmp/nmb-hnsw
+DB:     /home/alca/.neural_memory_benchmark/sandbox.db
+Suites: ['retrieval', 'graph', 'conflict', 'agentic', 'qa']
+Started: 2026-04-28T19:32:59.072743
+
+======================================================================
+                          Generating Dataset
+======================================================================
+
+Generated 17168 memories
+Generated 50 recall queries
+
+======================================================================
+                       Running suite: RETRIEVAL
+======================================================================
+
+  [setup] Storing 17168 memories in /tmp/nmb-awf_m_as.db
+[embed-server] CUDA: 15361 MB free
+[embed-server] Loading /home/alca/.neural_memory/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 44176.73it/s]
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.neural_memory/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15360MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+    stored 500/17168...
+    stored 1000/17168...
+    stored 1500/17168...
+    stored 2000/17168...
+    stored 2500/17168...
+    stored 3000/17168...
+    stored 3500/17168...
+    stored 4000/17168...
+    stored 4500/17168...
+    stored 5000/17168...
+    stored 5500/17168...
+    stored 6000/17168...
+    stored 6500/17168...
+    stored 7000/17168...
+    stored 7500/17168...
+    stored 8000/17168...
+    stored 8500/17168...
+    stored 9000/17168...
+    stored 9500/17168...
+    stored 10000/17168...
+    stored 10500/17168...
+    stored 11000/17168...
+    stored 11500/17168...
+    stored 12000/17168...
+    stored 12500/17168...
+    stored 13000/17168...
+    stored 13500/17168...
+    stored 14000/17168...
+    stored 14500/17168...
+    stored 15000/17168...
+    stored 15500/17168...
+    stored 16000/17168...
+    stored 16500/17168...
+    stored 17000/17168...
+  [setup] Done: 17168 memories in 317.3s (54/s)
+  [setup] DB stats: {'memories': 2368, 'connections': 142818, 'revisions': 13532, 'embedding_dim': 1024, 'embedding_backend': 'SentenceTransformerBackend', 'embed_fingerprint': 'SentenceTransformerBackend::1024::', 'dim_locked': True, 'dim_mismatch_reason': None, 'quarantined_dim': 0, 'retrieval_mode': 'semantic', 'lazy_graph': False, 'hnsw_enabled': 'auto'}
+
+  === Mode: semantic ===
+    recall@1: query='[Session user: 82] recall GPU', hit_rank=0, top_labels=['conversational:session_103']
+    recall@1: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_101']
+    recall@1: query="[Session 94] Applied 'semantic' fix:", hit_rank=0, top_labels=['conversational:session_107']
+    recall@1: R=0.1200, MRR=0.1200, Hit=0.1200
+    recall@3: query='[Session user: 82] recall GPU', hit_rank=0, top_labels=['conversational:session_103', 'conversational:session_104', 'conversational:session_73']
+    recall@3: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_101', 'conversational:session_104', 'conversational:session_105']
+    recall@3: query="[Session 94] Applied 'semantic' fix:", hit_rank=0, top_labels=['conversational:session_107', 'conversational:session_138', 'conversational:session_137']
+    recall@3: R=0.1600, MRR=0.1133, Hit=0.1600
+    recall@5: query='[Session user: 82] recall GPU', hit_rank=0, top_labels=['conversational:session_103', 'conversational:session_104', 'conversational:session_73']
+    recall@5: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_101', 'conversational:session_104', 'conversational:session_105']
+    recall@5: query="[Session 94] Applied 'semantic' fix:", hit_rank=0, top_labels=['conversational:session_107', 'conversational:session_138', 'conversational:session_137']
+    recall@5: R=0.1800, MRR=0.1150, Hit=0.1800
+    recall@10: query='[Session user: 82] recall GPU', hit_rank=0, top_labels=['conversational:session_103', 'conversational:session_104', 'conversational:session_73']
+    recall@10: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_101', 'conversational:session_104', 'conversational:session_105']
+    recall@10: query="[Session 94] Applied 'semantic' fix:", hit_rank=0, top_labels=['conversational:session_107', 'conversational:session_138', 'conversational:session_137']
+    recall@10: R=0.3000, MRR=0.1121, Hit=0.3000
+    Latency: p50=46.42ms, p95=46.42ms, p99=46.42ms
+    Throughput: 22.80 queries/second
+
+  === Mode: hybrid ===
+    recall@1: query='[Session user: 82] recall GPU', hit_rank=0, top_labels=['conversational:session_14']
+    recall@1: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_139']
+    recall@1: query="[Session 94] Applied 'semantic' fix:", hit_rank=0, top_labels=['conversational:session_101']
+[embed-server] Ejected to CPU (freed GPU)
+    recall@1: R=0.4400, MRR=0.4400, Hit=0.4400
+    recall@3: query='[Session user: 82] recall GPU', hit_rank=2, top_labels=['conversational:session_14', 'conversational:session_82', 'conversational:session_103']
+    recall@3: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_139', 'conversational:session_111', 'conversational:session_105']
+    recall@3: query="[Session 94] Applied 'semantic' fix:", hit_rank=2, top_labels=['conversational:session_101', 'conversational:session_94', 'conversational:session_107']
+    recall@3: R=0.5800, MRR=0.5067, Hit=0.5800
+    recall@5: query='[Session user: 82] recall GPU', hit_rank=2, top_labels=['conversational:session_14', 'conversational:session_82', 'conversational:session_103']
+    recall@5: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_139', 'conversational:session_111', 'conversational:session_105']
+    recall@5: query="[Session 94] Applied 'semantic' fix:", hit_rank=2, top_labels=['conversational:session_101', 'conversational:session_94', 'conversational:session_107']
+    recall@5: R=0.6400, MRR=0.4863, Hit=0.6400
+    recall@10: query='[Session user: 82] recall GPU', hit_rank=2, top_labels=['conversational:session_14', 'conversational:session_82', 'conversational:session_103']
+    recall@10: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_139', 'conversational:session_111', 'conversational:session_105']
+    recall@10: query="[Session 94] Applied 'semantic' fix:", hit_rank=2, top_labels=['conversational:session_101', 'conversational:session_94', 'conversational:session_107']
+[embed-server] Reloaded to GPU after 1 attempt(s)
+    recall@10: R=0.7200, MRR=0.4919, Hit=0.7200
+    Latency: p50=1738.18ms, p95=1738.18ms, p99=1738.18ms
+[embed-server] Ejected to CPU (freed GPU)
+    Throughput: 0.57 queries/second
+
+  === Mode: advanced ===
+[embed-server] Reloaded to GPU after 1 attempt(s)
+    recall@1: query='[Session user: 82] recall GPU', hit_rank=0, top_labels=['conversational:session_14']
+    recall@1: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_111']
+    recall@1: query="[Session 94] Applied 'semantic' fix:", hit_rank=0, top_labels=['conversational:session_101']
+    recall@1: R=0.4400, MRR=0.4400, Hit=0.4400
+    recall@3: query='[Session user: 82] recall GPU', hit_rank=2, top_labels=['conversational:session_14', 'conversational:session_82', 'conversational:session_94']
+    recall@3: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_111', 'conversational:session_139', 'conversational:session_105']
+    recall@3: query="[Session 94] Applied 'semantic' fix:", hit_rank=2, top_labels=['conversational:session_101', 'conversational:session_94', 'conversational:session_127']
+    recall@3: R=0.5800, MRR=0.5033, Hit=0.5800
+    recall@5: query='[Session user: 82] recall GPU', hit_rank=2, top_labels=['conversational:session_14', 'conversational:session_82', 'conversational:session_94']
+    recall@5: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_111', 'conversational:session_139', 'conversational:session_105']
+    recall@5: query="[Session 94] Applied 'semantic' fix:", hit_rank=2, top_labels=['conversational:session_101', 'conversational:session_94', 'conversational:session_127']
+    recall@5: R=0.6600, MRR=0.5103, Hit=0.6600
+    recall@10: query='[Session user: 82] recall GPU', hit_rank=2, top_labels=['conversational:session_14', 'conversational:session_82', 'conversational:session_94']
+    recall@10: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_111', 'conversational:session_139', 'conversational:session_105']
+    recall@10: query="[Session 94] Applied 'semantic' fix:", hit_rank=2, top_labels=['conversational:session_101', 'conversational:session_94', 'conversational:session_127']
+    recall@10: R=0.7200, MRR=0.5190, Hit=0.7200
+    Latency: p50=1573.88ms, p95=1573.88ms, p99=1573.88ms
+    Throughput: 0.59 queries/second
+
+  === Mode: skynet ===
+    recall@1: query='[Session user: 82] recall GPU', hit_rank=0, top_labels=['conversational:session_14']
+    recall@1: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_111']
+    recall@1: query="[Session 94] Applied 'semantic' fix:", hit_rank=0, top_labels=['conversational:session_101']
+[embed-server] Ejected to CPU (freed GPU)
+[embed-server] Reloaded to GPU after 1 attempt(s)
+    recall@1: R=0.4200, MRR=0.4200, Hit=0.4200
+    recall@3: query='[Session user: 82] recall GPU', hit_rank=2, top_labels=['conversational:session_14', 'conversational:session_82', 'conversational:session_94']
+    recall@3: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_111', 'conversational:session_139', 'conversational:session_105']
+    recall@3: query="[Session 94] Applied 'semantic' fix:", hit_rank=2, top_labels=['conversational:session_101', 'conversational:session_94', 'conversational:session_127']
+[embed-server] Ejected to CPU (freed GPU)
+    recall@3: R=0.5800, MRR=0.4900, Hit=0.5800
+    recall@5: query='[Session user: 82] recall GPU', hit_rank=2, top_labels=['conversational:session_14', 'conversational:session_82', 'conversational:session_94']
+    recall@5: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_111', 'conversational:session_139', 'conversational:session_105']
+    recall@5: query="[Session 94] Applied 'semantic' fix:", hit_rank=2, top_labels=['conversational:session_101', 'conversational:session_94', 'conversational:session_127']
+    recall@5: R=0.6600, MRR=0.5070, Hit=0.6600
+    recall@10: query='[Session user: 82] recall GPU', hit_rank=2, top_labels=['conversational:session_14', 'conversational:session_82', 'conversational:session_94']
+    recall@10: query='benchmark suite the [Session user:', hit_rank=0, top_labels=['conversational:session_111', 'conversational:session_139', 'conversational:session_105']
+    recall@10: query="[Session 94] Applied 'semantic' fix:", hit_rank=2, top_labels=['conversational:session_101', 'conversational:session_94', 'conversational:session_127']
+    recall@10: R=0.7200, MRR=0.5148, Hit=0.7200
+    Latency: p50=1224.76ms, p95=1224.76ms, p99=1224.76ms
+    Throughput: 0.80 queries/second
+
+  [saved] /tmp/nmb-hnsw/results/retrieval_results.json
+
+[OK] retrieval completed in 1748.5s
+
+======================================================================
+                         Running suite: GRAPH
+======================================================================
+
+
+=== Graph Traversal Benchmark ===
+  [setup] Storing 17168 memories...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+[embed-server] Reloaded to GPU after 1 attempt(s)
+  [setup] Done
+  Starting from 50 nodes
+
+[BFS] Traversal depth comparison
+  depth=2... visited=1723, time=2931.92ms
+  depth=3... visited=1858, time=3104.98ms
+  depth=5... visited=1990, time=3176.06ms
+
+[Think] Spreading activation
+  depth=2... activated=1337, time=1644.2ms
+  depth=3... activated=1680, time=4027.0ms
+  depth=5... activated=1724, time=4863.94ms
+
+[PPR] Personalized PageRank
+  alpha_0.7_iters_20... activated=1268, time=686.09ms
+  alpha_0.7_iters_50... [embed-server] Ejected to CPU (freed GPU)
+activated=1723, time=1951.15ms
+  alpha_0.85_iters_20... activated=1268, time=676.57ms
+  alpha_0.85_iters_50... activated=1723, time=1978.94ms
+  alpha_0.95_iters_20... activated=1268, time=681.73ms
+  alpha_0.95_iters_50... activated=1723, time=1935.7ms
+
+[saved] /tmp/nmb-hnsw/results/graph_results.json
+
+[OK] graph completed in 311.3s
+
+======================================================================
+                       Running suite: CONFLICT
+======================================================================
+
+
+=== Conflict Detection Benchmark ===
+
+[1] Storing conflicting memory pairs...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+[embed-server] Reloaded to GPU after 1 attempt(s)
+  Stored 16 conflicting memories
+
+[2] Checking for supersession markers...
+  Superseded markers found: 0
+
+[3] Recall quality comparison...
+
+[4] Salience decay simulation...
+
+[5] Adversarial poison resistance...
+  Post-poison stats: {'memories': 14, 'connections': 0, 'revisions': 6, 'embedding_dim': 1024, 'embedding_backend': 'SentenceTransformerBackend', 'embed_fingerprint': 'SentenceTransformerBackend::1024::', 'dim_locked': True, 'dim_mismatch_reason': None, 'quarantined_dim': 0, 'retrieval_mode': 'semantic', 'lazy_graph': False, 'hnsw_enabled': 'auto'}
+
+[saved] /tmp/nmb-hnsw/results/conflict_results.json
+
+[OK] conflict completed in 1.2s
+
+======================================================================
+                        Running suite: AGENTIC
+======================================================================
+
+
+=== Agentic Workflow Benchmark ===
+  [setup] Pre-populating with 1000 memories...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+  [setup] Done
+
+  Session 1/3... 10 actions in 0.3s (32.8 actions/s)
+
+  Session 2/3... 10 actions in 0.1s (75.3 actions/s)
+
+  Session 3/3... 10 actions in 0.2s (42.3 actions/s)
+
+[saved] /tmp/nmb-hnsw/results/agentic_results.json
+  Avg throughput: 50.1 actions/s
+
+[OK] agentic completed in 7.6s
+
+======================================================================
+                          Running suite: QA
+======================================================================
+
+
+=== QA Benchmark (Ollama LLM-judged) ===
+  [setup] Storing 20 QA facts + 17168 distractors in /tmp/nmb-w0jgkolc.db
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+
+  === Mode: semantic ===
+    [RQ] Where does Ada store the launch key?                    → under the blue ceramic owl               (1.3s)
+    [RQ] What is Bruno's backup server called?                   → pinecone-seven                           (1.1s)
+    [RQ] When is the Atlas migration window?                     → 03:40 UTC on Sunday                      (3.1s)
+    [RQ] What does Mira prefer for cold start speed?             → FastEmbed                                (1.0s)
+    [RQ] Which port does project Zephyr use?                     → 7443                                     (1.0s)
+    [RQ] Which treats are bad for Kai's dog Lou?                 → chicken treats                           (1.4s)
+    [RQ] What incident caused the demo API key rotation?         → ORCHID-19.                               (1.2s)
+    [RQ] Where does the telemetry dashboard live?                → behind the cloudflared tunnel            (1.2s)
+    [RQ] What should stay opt-in?                                → raw turn dumps                           (1.2s)
+    [..] What does the dream engine insight phase use?           → unknown                                  (0.9s)
+    [RQ] What dedup is needed before neural ingestion?           → content-hash dedup                       (1.1s)
+    [RQ] What must remain production-safe if the C++ bridge is a → Python fallback must remain production‑s (1.3s)
+    [..] When should HNSW activate automatically?                → unknown                                  (1.9s)
+    [RQ] What file does the weekly rollup write?                 → WEEKLY.md                                (1.1s)
+    [RQ] What is the primary neural memory database file named?  → memory.db                                (1.9s)
+    [RQ] When does Ola's on-call shift start?                    → Tuesday at 09:00 CET                     (2.8s)
+    [RQ] What is the fallback embedding backend?                 → sentence-transformers                    (2.2s)
+    [RQ] What is the default daily salience decay factor?        → 0.95                                     (1.5s)
+    [..] Which direction does the MSSQL bridge sync?             → unknown                                  (1.1s)
+    [RQ] Where is the shared embedding server's UNIX socket?     → ~/.neural_memory/embed.sock              (1.2s)
+
+    semantic: retrieval@5=0.850, qa=0.850, loss=0.000, p50=1.17s
+
+  === Mode: hybrid ===
+    [RQ] Where does Ada store the launch key?                    → under the blue ceramic owl               (1.5s)
+    [RQ] What is Bruno's backup server called?                   → pinecone-seven                           (1.0s)
+    [RQ] When is the Atlas migration window?                     → 03:40 UTC on Sunday                      (1.6s)
+    [RQ] What does Mira prefer for cold start speed?             → FastEmbed                                (1.1s)
+    [RQ] Which port does project Zephyr use?                     → 7443                                     (1.1s)
+    [RQ] Which treats are bad for Kai's dog Lou?                 → chicken treats                           (1.2s)
+    [RQ] What incident caused the demo API key rotation?         → incident ORCHID-19                       (1.9s)
+    [RQ] Where does the telemetry dashboard live?                → behind the cloudflared tunnel            (1.2s)
+    [RQ] What should stay opt-in?                                → raw turn dumps                           (1.1s)
+    [..] What does the dream engine insight phase use?           → unknown                                  (1.1s)
+    [RQ] What dedup is needed before neural ingestion?           → content-hash dedup                       (1.2s)
+    [RQ] What must remain production-safe if the C++ bridge is a → Python fallback.                         (1.3s)
+    [..] When should HNSW activate automatically?                → unknown                                  (7.1s)
+    [RQ] What file does the weekly rollup write?                 → WEEKLY.md                                (1.4s)
+    [RQ] What is the primary neural memory database file named?  → memory.db                                (1.2s)
+    [RQ] When does Ola's on-call shift start?                    → Every Tuesday at 09:00 CET.              (1.2s)
+    [RQ] What is the fallback embedding backend?                 → sentence-transformers                    (2.3s)
+    [RQ] What is the default daily salience decay factor?        → 0.95                                     (1.4s)
+    [..] Which direction does the MSSQL bridge sync?             → unknown                                  (1.2s)
+    [RQ] Where is the shared embedding server's UNIX socket?     → ~/.neural_memory/embed.sock              (1.2s)
+
+    hybrid: retrieval@5=0.850, qa=0.850, loss=0.000, p50=1.21s
+
+  === Mode: advanced ===
+    [RQ] Where does Ada store the launch key?                    → under the blue ceramic owl               (1.0s)
+    [RQ] What is Bruno's backup server called?                   → pinecone-seven                           (1.0s)
+    [RQ] When is the Atlas migration window?                     → 03:40 UTC on Sunday                      (1.1s)
+    [RQ] What does Mira prefer for cold start speed?             → FastEmbed                                (1.2s)
+    [RQ] Which port does project Zephyr use?                     → 7443                                     (1.0s)
+    [RQ] Which treats are bad for Kai's dog Lou?                 → chicken treats                           (0.9s)
+    [R.] What incident caused the demo API key rotation?         → incident ORCHID‑19                       (1.4s)
+    [RQ] Where does the telemetry dashboard live?                → behind the cloudflared tunnel            (1.2s)
+    [RQ] What should stay opt-in?                                → raw turn dumps                           (1.3s)
+    [..] What does the dream engine insight phase use?           → unknown                                  (1.1s)
+    [RQ] What dedup is needed before neural ingestion?           → content-hash dedup                       (1.3s)
+    [RQ] What must remain production-safe if the C++ bridge is a → Python fallback.                         (1.2s)
+    [..] When should HNSW activate automatically?                → unknown                                  (1.3s)
+    [RQ] What file does the weekly rollup write?                 → WEEKLY.md                                (1.1s)
+    [RQ] What is the primary neural memory database file named?  → memory.db                                (1.2s)
+    [RQ] When does Ola's on-call shift start?                    → Every Tuesday at 09:00 CET.              (1.4s)
+    [RQ] What is the fallback embedding backend?                 → sentence-transformers                    (1.3s)
+    [RQ] What is the default daily salience decay factor?        → 0.95                                     (2.1s)
+    [..] Which direction does the MSSQL bridge sync?             → unknown                                  (1.1s)
+    [RQ] Where is the shared embedding server's UNIX socket?     → ~/.neural_memory/embed.sock              (1.1s)
+
+    advanced: retrieval@5=0.850, qa=0.800, loss=0.050, p50=1.18s
+
+  === Mode: skynet ===
+    [RQ] Where does Ada store the launch key?                    → under the blue ceramic owl               (1.1s)
+    [RQ] What is Bruno's backup server called?                   → pinecone-seven                           (1.0s)
+    [RQ] When is the Atlas migration window?                     → 03:40 UTC on Sunday                      (1.2s)
+    [RQ] What does Mira prefer for cold start speed?             → FastEmbed                                (1.3s)
+    [RQ] Which port does project Zephyr use?                     → 7443                                     (1.0s)
+    [RQ] Which treats are bad for Kai's dog Lou?                 → chicken treats                           (1.1s)
+    [R.] What incident caused the demo API key rotation?         → ORCHID‑19                                (1.2s)
+    [RQ] Where does the telemetry dashboard live?                → behind the cloudflared tunnel            (1.0s)
+    [RQ] What should stay opt-in?                                → raw turn dumps                           (1.2s)
+    [..] What does the dream engine insight phase use?           → unknown                                  (1.1s)
+    [RQ] What dedup is needed before neural ingestion?           → content-hash dedup                       (1.1s)
+    [RQ] What must remain production-safe if the C++ bridge is a → Python fallback.                         (1.3s)
+    [RQ] When should HNSW activate automatically?                → Only when the corpus is large enough.    (1.2s)
+    [RQ] What file does the weekly rollup write?                 → WEEKLY.md                                (1.3s)
+    [RQ] What is the primary neural memory database file named?  → memory.db                                (1.1s)
+    [RQ] When does Ola's on-call shift start?                    → Every Tuesday at 09:00 CET.              (1.1s)
+    [RQ] What is the fallback embedding backend?                 → sentence-transformers                    (1.2s)
+    [RQ] What is the default daily salience decay factor?        → 0.95                                     (3.0s)
+    [..] Which direction does the MSSQL bridge sync?             → unknown                                  (1.9s)
+    [RQ] Where is the shared embedding server's UNIX socket?     → ~/.neural_memory/embed.sock              (1.3s)
+
+    skynet: retrieval@5=0.900, qa=0.850, loss=0.050, p50=1.23s
+
+[saved] /tmp/nmb-hnsw/results/qa_results.json
+
+[OK] qa completed in 232.5s
+
+======================================================================
+  Results saved to /tmp/nmb-hnsw/results/full_benchmark_results.json
+======================================================================
+
+
+=== FINAL STATUS ===
+  retrieval: ok in 1748.47s
+  graph: ok in 311.33s
+  conflict: ok in 1.2s
+  agentic: ok in 7.64s
+  qa: ok in 232.52s
+Errors: {}

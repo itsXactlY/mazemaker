@@ -1,0 +1,399 @@
+{
+  "meta": {
+    "started_at": "2026-04-28T22:31:54.731867",
+    "version": "1.0.0",
+    "config": {
+      "memory_db": "/home/alca/.neural_memory_benchmark/sandbox.db",
+      "suites": [
+        "baseline",
+        "lean_skynet",
+        "graph_reasoning",
+        "dream_derived_fact",
+        "conflict_quality",
+        "channel_ablation"
+      ]
+    },
+    "finished_at": "2026-04-28T22:36:05.047761",
+    "total_elapsed_s": 250.32
+  },
+  "suites": {
+    "baseline": {
+      "result": {
+        "raw_cosine_baseline": {
+          "recall_at_k": 0.84,
+          "mrr": 0.699,
+          "p50_ms": 0.188,
+          "p95_ms": 0.194,
+          "n": 200,
+          "setup_s": 0.01
+        },
+        "neural_memory_semantic": {
+          "recall_at_k": 0.25,
+          "mrr": 0.1207,
+          "p50_ms": 19.745,
+          "p95_ms": 20.214,
+          "n": 200,
+          "setup_s": 5.17
+        },
+        "neural_memory_skynet": {
+          "recall_at_k": 0.5,
+          "mrr": 0.333,
+          "p50_ms": 15.706,
+          "p95_ms": 17.427,
+          "n": 200
+        },
+        "deltas_vs_baseline": {
+          "semantic_recall_lift": -0.59,
+          "semantic_mrr_lift": -0.5783,
+          "skynet_recall_lift": -0.34,
+          "skynet_mrr_lift": -0.366,
+          "skynet_latency_overhead_p50_ms": 15.518
+        },
+        "k": 5,
+        "n_queries": 200,
+        "n_memories": 200
+      },
+      "elapsed_s": 24.4,
+      "status": "ok"
+    },
+    "lean_skynet": {
+      "result": {
+        "modes": {
+          "semantic": {
+            "recall_at_k": 0.29,
+            "mrr": 0.2329,
+            "p50_ms": 57.176,
+            "p95_ms": 61.421,
+            "p99_ms": 63.003,
+            "n": 200,
+            "channel_weights": {
+              "semantic": 1.0,
+              "bm25": 0.9,
+              "entity": 1.0,
+              "temporal": 0.35,
+              "ppr": 0.55,
+              "salience": 0.25
+            }
+          },
+          "skynet": {
+            "recall_at_k": 0.42,
+            "mrr": 0.256,
+            "p50_ms": 67.677,
+            "p95_ms": 72.26,
+            "p99_ms": 74.838,
+            "n": 200,
+            "channel_weights": {
+              "semantic": 1.0,
+              "bm25": 0.9,
+              "entity": 1.0,
+              "temporal": 0.35,
+              "ppr": 0.55,
+              "salience": 0.25
+            }
+          },
+          "lean": {
+            "recall_at_k": 0.6,
+            "mrr": 0.4133,
+            "p50_ms": 67.612,
+            "p95_ms": 72.641,
+            "p99_ms": 76.074,
+            "n": 200,
+            "channel_weights": {
+              "semantic": 1.0,
+              "bm25": 0.0,
+              "entity": 1.0,
+              "temporal": 0.0,
+              "ppr": 0.55,
+              "salience": 0.0
+            }
+          },
+          "trim": {
+            "recall_at_k": 0.51,
+            "mrr": 0.3304,
+            "p50_ms": 67.864,
+            "p95_ms": 72.344,
+            "p99_ms": 75.071,
+            "n": 200,
+            "channel_weights": {
+              "semantic": 1.0,
+              "bm25": 0.9,
+              "entity": 1.0,
+              "temporal": 0.35,
+              "ppr": 0.55,
+              "salience": 0.0
+            }
+          }
+        },
+        "analysis": {
+          "lean_vs_skynet": {
+            "recall_delta": 0.18,
+            "mrr_delta": 0.1573,
+            "p50_speedup": 1.0,
+            "p50_savings_ms": 0.065
+          },
+          "trim_vs_skynet": {
+            "recall_delta": 0.09,
+            "mrr_delta": 0.0744,
+            "p50_speedup": 1.0,
+            "p50_savings_ms": -0.187
+          },
+          "skynet_vs_semantic_p50_overhead_ms": 10.501,
+          "interpretation": "lean is synthetic-tuned (drops bm25/temporal/salience); on real prose codex v6 verdict caught those channels do contribute. trim drops ONLY salience (universally dead per ablation) so it's the safer production default. Compare trim_vs_skynet on real corpora to decide; lean_vs_skynet on synthetic to see the latency ceiling."
+        }
+      },
+      "elapsed_s": 73.89,
+      "status": "ok"
+    },
+    "graph_reasoning": {
+      "result": {
+        "setup": {
+          "chains": 30,
+          "memories": 90,
+          "explicit_edges": 60
+        },
+        "raw_cosine": {
+          "label": "raw_cosine",
+          "recall_C_at_k": 0.1,
+          "recall_C_at_3": 0.0,
+          "mrr_C": 0.02,
+          "p50_ms": 13.209,
+          "p95_ms": 13.505,
+          "n": 30
+        },
+        "nm_semantic": {
+          "label": "nm_semantic",
+          "recall_C_at_k": 0.0667,
+          "recall_C_at_3": 0.0667,
+          "mrr_C": 0.05,
+          "p50_ms": 18.119,
+          "p95_ms": 19.005,
+          "n": 30
+        },
+        "nm_skynet": {
+          "label": "nm_skynet",
+          "recall_C_at_k": 0.8667,
+          "recall_C_at_3": 0.6,
+          "mrr_C": 0.3508,
+          "p50_ms": 7.984,
+          "p95_ms": 8.275,
+          "n": 30
+        },
+        "nm_multihop": {
+          "label": "nm_multihop",
+          "recall_C_at_k": 1.0,
+          "recall_C_at_3": 0.5333,
+          "mrr_C": 0.3322,
+          "p50_ms": 10.024,
+          "p95_ms": 10.992,
+          "n": 30
+        },
+        "nm_think": {
+          "label": "nm_think",
+          "recall_C_at_k": 0.2,
+          "recall_C_at_3": 0.2,
+          "mrr_C": 0.2,
+          "p50_ms": 4.446,
+          "p95_ms": 4.513,
+          "n": 30
+        },
+        "nm_multihop_shuffled": {
+          "label": "nm_multihop_shuffled",
+          "recall_C_at_k": 0.4333,
+          "recall_C_at_3": 0.0667,
+          "mrr_C": 0.0676,
+          "p50_ms": 12.706,
+          "p95_ms": 14.014,
+          "n": 30
+        },
+        "analysis": {
+          "graph_lift_vs_raw": {
+            "nm_semantic": -0.0333,
+            "nm_skynet": 0.7667,
+            "nm_multihop": 0.9,
+            "nm_think": 0.1
+          },
+          "shuffle_collapse": 0.5667,
+          "interpretation": "graph_lift_vs_raw should be > 0 for multihop/think if the graph is doing real work. shuffle_collapse should be > 0 (multihop drops back when chain edges are scrambled) \u2014 that proves the lift was edge-driven not semantic-driven."
+        }
+      },
+      "elapsed_s": 4.82,
+      "status": "ok"
+    },
+    "dream_derived_fact": {
+      "result": {
+        "pre_dream": {
+          "connections": 1052,
+          "derived_facts": 0,
+          "recall": {
+            "legacy_collective_metric_inflated": true,
+            "semantic_both_tokens_rate": 0.68,
+            "multihop_both_tokens_rate": 0.96,
+            "single_doc_both_tokens_rate_semantic": 0.0,
+            "single_doc_both_tokens_rate_multihop": 0.0,
+            "derived_fact_hit_rate_semantic": 0.0,
+            "derived_fact_hit_rate_multihop": 0.0,
+            "k_legacy": 5,
+            "k_strict": 3,
+            "n": 25
+          }
+        },
+        "post_dream": {
+          "connections": 1303,
+          "derived_facts": 12,
+          "dream_elapsed_s": 0.4,
+          "recall": {
+            "legacy_collective_metric_inflated": true,
+            "semantic_both_tokens_rate": 0.56,
+            "multihop_both_tokens_rate": 0.96,
+            "single_doc_both_tokens_rate_semantic": 0.0,
+            "single_doc_both_tokens_rate_multihop": 0.0,
+            "derived_fact_hit_rate_semantic": 0.04,
+            "derived_fact_hit_rate_multihop": 0.04,
+            "k_legacy": 5,
+            "k_strict": 3,
+            "n": 25
+          }
+        },
+        "lift": {
+          "semantic_both_tokens_legacy": -0.12,
+          "multihop_both_tokens_legacy": 0.0,
+          "single_doc_both_tokens_semantic": 0.0,
+          "single_doc_both_tokens_multihop": 0.0,
+          "derived_fact_hit_rate_semantic": 0.04,
+          "derived_fact_hit_rate_multihop": 0.04,
+          "new_connections": 251,
+          "new_derived_facts": 12,
+          "interpretation": "Read the STRICT metrics (single_doc_both_tokens, derived_fact_hit_rate). Pre-dream both must be 0 by construction: no premise template puts both a_tok and b_tok in the same memory and no derived:* labels exist. Post-dream derived_fact_hit_rate > 0 is the unambiguous signal that the Insight phase materialised a synthesised memory AND retrieval surfaced it. The legacy *_both_tokens_rate fields use a collective top-k metric and saturate above ~0.9 even pre-dream \u2014 do not interpret them as evidence either way (legacy_collective_metric_inflated)."
+        }
+      },
+      "elapsed_s": 10.28,
+      "status": "ok"
+    },
+    "conflict_quality": {
+      "result": {
+        "with_supersession": {
+          "n_conflict_pairs": 30,
+          "winner_rank_1_rate": 0.3333,
+          "winner_in_top_3_rate": 0.4667,
+          "winner_anywhere_rate": 0.5,
+          "loser_above_winner_rate": 0.1333,
+          "per_topic_mean_winner_rank": {
+            "ownership": 1.3,
+            "config": 3,
+            "metric": 3,
+            "schedule": 2,
+            "decision": null
+          }
+        },
+        "control_no_supersession": {
+          "n_conflict_pairs": 30,
+          "winner_rank_1_rate": 0.0333,
+          "winner_in_top_3_rate": 0.3667,
+          "winner_anywhere_rate": 0.4667,
+          "loser_above_winner_rate": 0.6,
+          "per_topic_mean_winner_rank": {
+            "ownership": 2.9,
+            "config": 3,
+            "metric": 2,
+            "schedule": 3,
+            "decision": null
+          }
+        },
+        "supersession_lift": {
+          "winner_rank_1": 0.3,
+          "loser_above_winner_drop": 0.4667
+        },
+        "interpretation": {
+          "supersession_lift.winner_rank_1": "Positive = supersession is responsible for getting the winner to top-1. ~0 = the lift comes from recency / vector similarity, not from the supersession algorithm itself.",
+          "supersession_lift.loser_above_winner_drop": "Positive = supersession suppresses the stale fact. ~0 = the stale fact is just as likely to outrank the new one either way."
+        }
+      },
+      "elapsed_s": 3.21,
+      "status": "ok"
+    },
+    "channel_ablation": {
+      "result": {
+        "all_channels": {
+          "recall_at_k": 0.42,
+          "mrr": 0.256,
+          "p50_ms": 67.708,
+          "n": 200
+        },
+        "ablation": {
+          "no_semantic": {
+            "recall_at_k": 0.165,
+            "mrr": 0.1326,
+            "p50_ms": 67.777,
+            "n": 200,
+            "delta_recall": -0.255,
+            "delta_mrr": -0.1234
+          },
+          "no_bm25": {
+            "recall_at_k": 0.42,
+            "mrr": 0.2537,
+            "p50_ms": 67.99,
+            "n": 200,
+            "delta_recall": 0.0,
+            "delta_mrr": -0.0023
+          },
+          "no_entity": {
+            "recall_at_k": 0.41,
+            "mrr": 0.2509,
+            "p50_ms": 68.037,
+            "n": 200,
+            "delta_recall": -0.01,
+            "delta_mrr": -0.0051
+          },
+          "no_temporal": {
+            "recall_at_k": 0.495,
+            "mrr": 0.3493,
+            "p50_ms": 68.179,
+            "n": 200,
+            "delta_recall": 0.075,
+            "delta_mrr": 0.0933
+          },
+          "no_ppr": {
+            "recall_at_k": 0.265,
+            "mrr": 0.1924,
+            "p50_ms": 68.133,
+            "n": 200,
+            "delta_recall": -0.155,
+            "delta_mrr": -0.0636
+          },
+          "no_salience": {
+            "recall_at_k": 0.51,
+            "mrr": 0.3304,
+            "p50_ms": 68.195,
+            "n": 200,
+            "delta_recall": 0.09,
+            "delta_mrr": 0.0744
+          }
+        },
+        "resolved_defaults": {
+          "semantic": 1.0,
+          "bm25": 0.9,
+          "entity": 1.0,
+          "temporal": 0.35,
+          "ppr": 0.55,
+          "salience": 0.25
+        },
+        "analysis": {
+          "per_channel_contribution_to_recall": {
+            "semantic": 0.255,
+            "bm25": -0.0,
+            "entity": 0.01,
+            "temporal": -0.075,
+            "ppr": 0.155,
+            "salience": -0.09
+          },
+          "most_helpful_channel": "semantic",
+          "most_harmful_channel": "salience",
+          "interpretation": "per_channel_contribution = -delta_recall when that channel is removed. Positive = removing it hurt recall (channel was helping). Negative = removing it improved recall (channel was hurting on this dataset)."
+        }
+      },
+      "elapsed_s": 133.67,
+      "status": "ok"
+    }
+  },
+  "errors": {}
+}

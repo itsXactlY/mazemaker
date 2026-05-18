@@ -1,0 +1,1773 @@
+{
+  "meta": {
+    "started_at": "2026-04-28T19:32:59.072664",
+    "version": "1.0.0",
+    "config": {
+      "memory_db": "/home/alca/.neural_memory_benchmark/sandbox.db",
+      "suites": [
+        "retrieval",
+        "graph",
+        "conflict",
+        "agentic",
+        "qa"
+      ]
+    },
+    "finished_at": "2026-04-28T20:11:20.326744",
+    "total_elapsed_s": 2301.25
+  },
+  "suites": {
+    "retrieval": {
+      "result": {
+        "setup": {
+          "stored_count": 17168,
+          "insert_elapsed_s": 317.34,
+          "insert_rate_per_s": 54.1,
+          "db_stats": {
+            "memories": 2368,
+            "connections": 142818,
+            "revisions": 13532,
+            "embedding_dim": 1024,
+            "embedding_backend": "SentenceTransformerBackend",
+            "embed_fingerprint": "SentenceTransformerBackend::1024::",
+            "dim_locked": true,
+            "dim_mismatch_reason": null,
+            "quarantined_dim": 0,
+            "retrieval_mode": "semantic",
+            "lazy_graph": false,
+            "hnsw_enabled": "auto"
+          }
+        },
+        "modes": {
+          "semantic": {
+            "queries": {
+              "recall@1": {
+                "recall": 0.12,
+                "mrr": 0.12,
+                "hit_rate": 0.12,
+                "total_queries": 50
+              },
+              "recall@3": {
+                "recall": 0.16,
+                "mrr": 0.1133,
+                "hit_rate": 0.16,
+                "total_queries": 50
+              },
+              "recall@5": {
+                "recall": 0.18,
+                "mrr": 0.115,
+                "hit_rate": 0.18,
+                "total_queries": 50
+              },
+              "recall@10": {
+                "recall": 0.3,
+                "mrr": 0.1121,
+                "hit_rate": 0.3,
+                "total_queries": 50
+              }
+            },
+            "latency": {
+              "p50_ms": 46.42,
+              "p95_ms": 46.42,
+              "p99_ms": 46.42,
+              "mean_ms": 46.48
+            },
+            "throughput": {
+              "queries_per_second": 22.8,
+              "total_queries": 50,
+              "elapsed_s": 2.19
+            }
+          },
+          "hybrid": {
+            "queries": {
+              "recall@1": {
+                "recall": 0.44,
+                "mrr": 0.44,
+                "hit_rate": 0.44,
+                "total_queries": 50
+              },
+              "recall@3": {
+                "recall": 0.58,
+                "mrr": 0.5067,
+                "hit_rate": 0.58,
+                "total_queries": 50
+              },
+              "recall@5": {
+                "recall": 0.64,
+                "mrr": 0.4863,
+                "hit_rate": 0.64,
+                "total_queries": 50
+              },
+              "recall@10": {
+                "recall": 0.72,
+                "mrr": 0.4919,
+                "hit_rate": 0.72,
+                "total_queries": 50
+              }
+            },
+            "latency": {
+              "p50_ms": 1738.18,
+              "p95_ms": 1738.18,
+              "p99_ms": 1738.18,
+              "mean_ms": 1748.59
+            },
+            "throughput": {
+              "queries_per_second": 0.57,
+              "total_queries": 50,
+              "elapsed_s": 87.38
+            }
+          },
+          "advanced": {
+            "queries": {
+              "recall@1": {
+                "recall": 0.44,
+                "mrr": 0.44,
+                "hit_rate": 0.44,
+                "total_queries": 50
+              },
+              "recall@3": {
+                "recall": 0.58,
+                "mrr": 0.5033,
+                "hit_rate": 0.58,
+                "total_queries": 50
+              },
+              "recall@5": {
+                "recall": 0.66,
+                "mrr": 0.5103,
+                "hit_rate": 0.66,
+                "total_queries": 50
+              },
+              "recall@10": {
+                "recall": 0.72,
+                "mrr": 0.519,
+                "hit_rate": 0.72,
+                "total_queries": 50
+              }
+            },
+            "latency": {
+              "p50_ms": 1573.88,
+              "p95_ms": 1573.88,
+              "p99_ms": 1573.88,
+              "mean_ms": 1575.16
+            },
+            "throughput": {
+              "queries_per_second": 0.59,
+              "total_queries": 50,
+              "elapsed_s": 84.59
+            }
+          },
+          "skynet": {
+            "queries": {
+              "recall@1": {
+                "recall": 0.42,
+                "mrr": 0.42,
+                "hit_rate": 0.42,
+                "total_queries": 50
+              },
+              "recall@3": {
+                "recall": 0.58,
+                "mrr": 0.49,
+                "hit_rate": 0.58,
+                "total_queries": 50
+              },
+              "recall@5": {
+                "recall": 0.66,
+                "mrr": 0.507,
+                "hit_rate": 0.66,
+                "total_queries": 50
+              },
+              "recall@10": {
+                "recall": 0.72,
+                "mrr": 0.5148,
+                "hit_rate": 0.72,
+                "total_queries": 50
+              }
+            },
+            "latency": {
+              "p50_ms": 1224.76,
+              "p95_ms": 1224.76,
+              "p99_ms": 1224.76,
+              "mean_ms": 1224.83
+            },
+            "throughput": {
+              "queries_per_second": 0.8,
+              "total_queries": 50,
+              "elapsed_s": 62.84
+            }
+          }
+        },
+        "summary": {
+          "best_mode": "advanced",
+          "modes": {
+            "semantic": {
+              "recall@5": 0.18,
+              "mrr@5": 0.115,
+              "latency_p50_ms": 46.42,
+              "qps": 22.8
+            },
+            "hybrid": {
+              "recall@5": 0.64,
+              "mrr@5": 0.4863,
+              "latency_p50_ms": 1738.18,
+              "qps": 0.57
+            },
+            "advanced": {
+              "recall@5": 0.66,
+              "mrr@5": 0.5103,
+              "latency_p50_ms": 1573.88,
+              "qps": 0.59
+            },
+            "skynet": {
+              "recall@5": 0.66,
+              "mrr@5": 0.507,
+              "latency_p50_ms": 1224.76,
+              "qps": 0.8
+            }
+          }
+        }
+      },
+      "elapsed_s": 1748.47,
+      "status": "ok"
+    },
+    "graph": {
+      "result": {
+        "db_stats": {
+          "memories": 2368,
+          "connections": 142818,
+          "revisions": 13532,
+          "embedding_dim": 1024,
+          "embedding_backend": "SentenceTransformerBackend",
+          "embed_fingerprint": "SentenceTransformerBackend::1024::",
+          "dim_locked": true,
+          "dim_mismatch_reason": null,
+          "quarantined_dim": 0,
+          "retrieval_mode": "semantic",
+          "lazy_graph": false,
+          "hnsw_enabled": "auto"
+        },
+        "bfs": {
+          "depth_2": {
+            "total_visited": 1723,
+            "nodes_per_layer": {
+              "0": 50,
+              "1": 1345,
+              "2": 378
+            },
+            "avg_layer_time_ms": 1465.96,
+            "total_time_ms": 2931.92
+          },
+          "depth_3": {
+            "total_visited": 1858,
+            "nodes_per_layer": {
+              "0": 50,
+              "1": 1345,
+              "2": 378,
+              "3": 135
+            },
+            "avg_layer_time_ms": 1034.99,
+            "total_time_ms": 3104.98
+          },
+          "depth_5": {
+            "total_visited": 1990,
+            "nodes_per_layer": {
+              "0": 50,
+              "1": 1345,
+              "2": 378,
+              "3": 135,
+              "4": 106,
+              "5": 26
+            },
+            "avg_layer_time_ms": 635.21,
+            "total_time_ms": 3176.06
+          }
+        },
+        "think": {
+          "depth_2": {
+            "total_activated": 1337,
+            "time_ms": 1644.2,
+            "ms_per_start_node": 164.42
+          },
+          "depth_3": {
+            "total_activated": 1680,
+            "time_ms": 4027.0,
+            "ms_per_start_node": 402.7
+          },
+          "depth_5": {
+            "total_activated": 1724,
+            "time_ms": 4863.94,
+            "ms_per_start_node": 486.39
+          }
+        },
+        "ppr": {
+          "alpha_0.7_iters_20": {
+            "total_activated": 1268,
+            "time_ms": 686.09,
+            "ms_per_start_node": 137.22,
+            "top_results": [
+              {
+                "id": 1338,
+                "label": "conversational:session_137",
+                "activation": 0.6863,
+                "engine": "bfs"
+              },
+              {
+                "id": 1738,
+                "label": "conversational:session_134",
+                "activation": 0.6851,
+                "engine": "bfs"
+              },
+              {
+                "id": 1546,
+                "label": "conversational:session_145",
+                "activation": 0.685,
+                "engine": "bfs"
+              },
+              {
+                "id": 654,
+                "label": "conversational:session_125",
+                "activation": 0.6846,
+                "engine": "bfs"
+              },
+              {
+                "id": 1905,
+                "label": "conversational:session_138",
+                "activation": 0.6836,
+                "engine": "bfs"
+              },
+              {
+                "id": 2035,
+                "label": "conversational:session_136",
+                "activation": 0.6834,
+                "engine": "bfs"
+              },
+              {
+                "id": 1539,
+                "label": "conversational:session_35",
+                "activation": 0.6806,
+                "engine": "bfs"
+              },
+              {
+                "id": 2022,
+                "label": "conversational:session_85",
+                "activation": 0.6804,
+                "engine": "bfs"
+              },
+              {
+                "id": 2180,
+                "label": "conversational:session_141",
+                "activation": 0.6798,
+                "engine": "bfs"
+              },
+              {
+                "id": 854,
+                "label": "conversational:session_143",
+                "activation": 0.6798,
+                "engine": "bfs"
+              }
+            ]
+          },
+          "alpha_0.7_iters_50": {
+            "total_activated": 1723,
+            "time_ms": 1951.15,
+            "ms_per_start_node": 390.23,
+            "top_results": [
+              {
+                "id": 1338,
+                "label": "conversational:session_137",
+                "activation": 0.6863,
+                "engine": "bfs"
+              },
+              {
+                "id": 1738,
+                "label": "conversational:session_134",
+                "activation": 0.6851,
+                "engine": "bfs"
+              },
+              {
+                "id": 1546,
+                "label": "conversational:session_145",
+                "activation": 0.685,
+                "engine": "bfs"
+              },
+              {
+                "id": 654,
+                "label": "conversational:session_125",
+                "activation": 0.6846,
+                "engine": "bfs"
+              },
+              {
+                "id": 1905,
+                "label": "conversational:session_138",
+                "activation": 0.6836,
+                "engine": "bfs"
+              },
+              {
+                "id": 2035,
+                "label": "conversational:session_136",
+                "activation": 0.6834,
+                "engine": "bfs"
+              },
+              {
+                "id": 1539,
+                "label": "conversational:session_35",
+                "activation": 0.6806,
+                "engine": "bfs"
+              },
+              {
+                "id": 2022,
+                "label": "conversational:session_85",
+                "activation": 0.6804,
+                "engine": "bfs"
+              },
+              {
+                "id": 2180,
+                "label": "conversational:session_141",
+                "activation": 0.6798,
+                "engine": "bfs"
+              },
+              {
+                "id": 854,
+                "label": "conversational:session_143",
+                "activation": 0.6798,
+                "engine": "bfs"
+              }
+            ]
+          },
+          "alpha_0.85_iters_20": {
+            "total_activated": 1268,
+            "time_ms": 676.57,
+            "ms_per_start_node": 135.31,
+            "top_results": [
+              {
+                "id": 1338,
+                "label": "conversational:session_137",
+                "activation": 0.8333,
+                "engine": "bfs"
+              },
+              {
+                "id": 1738,
+                "label": "conversational:session_134",
+                "activation": 0.8319,
+                "engine": "bfs"
+              },
+              {
+                "id": 1546,
+                "label": "conversational:session_145",
+                "activation": 0.8318,
+                "engine": "bfs"
+              },
+              {
+                "id": 654,
+                "label": "conversational:session_125",
+                "activation": 0.8313,
+                "engine": "bfs"
+              },
+              {
+                "id": 1905,
+                "label": "conversational:session_138",
+                "activation": 0.8301,
+                "engine": "bfs"
+              },
+              {
+                "id": 2035,
+                "label": "conversational:session_136",
+                "activation": 0.8299,
+                "engine": "bfs"
+              },
+              {
+                "id": 1539,
+                "label": "conversational:session_35",
+                "activation": 0.8265,
+                "engine": "bfs"
+              },
+              {
+                "id": 2022,
+                "label": "conversational:session_85",
+                "activation": 0.8262,
+                "engine": "bfs"
+              },
+              {
+                "id": 2180,
+                "label": "conversational:session_141",
+                "activation": 0.8255,
+                "engine": "bfs"
+              },
+              {
+                "id": 854,
+                "label": "conversational:session_143",
+                "activation": 0.8255,
+                "engine": "bfs"
+              }
+            ]
+          },
+          "alpha_0.85_iters_50": {
+            "total_activated": 1723,
+            "time_ms": 1978.94,
+            "ms_per_start_node": 395.79,
+            "top_results": [
+              {
+                "id": 1338,
+                "label": "conversational:session_137",
+                "activation": 0.8333,
+                "engine": "bfs"
+              },
+              {
+                "id": 1738,
+                "label": "conversational:session_134",
+                "activation": 0.8319,
+                "engine": "bfs"
+              },
+              {
+                "id": 1546,
+                "label": "conversational:session_145",
+                "activation": 0.8318,
+                "engine": "bfs"
+              },
+              {
+                "id": 654,
+                "label": "conversational:session_125",
+                "activation": 0.8313,
+                "engine": "bfs"
+              },
+              {
+                "id": 1905,
+                "label": "conversational:session_138",
+                "activation": 0.8301,
+                "engine": "bfs"
+              },
+              {
+                "id": 2035,
+                "label": "conversational:session_136",
+                "activation": 0.8299,
+                "engine": "bfs"
+              },
+              {
+                "id": 1539,
+                "label": "conversational:session_35",
+                "activation": 0.8265,
+                "engine": "bfs"
+              },
+              {
+                "id": 2022,
+                "label": "conversational:session_85",
+                "activation": 0.8262,
+                "engine": "bfs"
+              },
+              {
+                "id": 2180,
+                "label": "conversational:session_141",
+                "activation": 0.8255,
+                "engine": "bfs"
+              },
+              {
+                "id": 854,
+                "label": "conversational:session_143",
+                "activation": 0.8255,
+                "engine": "bfs"
+              }
+            ]
+          },
+          "alpha_0.95_iters_20": {
+            "total_activated": 1268,
+            "time_ms": 681.73,
+            "ms_per_start_node": 136.35,
+            "top_results": [
+              {
+                "id": 1338,
+                "label": "conversational:session_137",
+                "activation": 0.9314,
+                "engine": "bfs"
+              },
+              {
+                "id": 1738,
+                "label": "conversational:session_134",
+                "activation": 0.9298,
+                "engine": "bfs"
+              },
+              {
+                "id": 1546,
+                "label": "conversational:session_145",
+                "activation": 0.9296,
+                "engine": "bfs"
+              },
+              {
+                "id": 654,
+                "label": "conversational:session_125",
+                "activation": 0.9291,
+                "engine": "bfs"
+              },
+              {
+                "id": 1905,
+                "label": "conversational:session_138",
+                "activation": 0.9278,
+                "engine": "bfs"
+              },
+              {
+                "id": 2035,
+                "label": "conversational:session_136",
+                "activation": 0.9275,
+                "engine": "bfs"
+              },
+              {
+                "id": 1539,
+                "label": "conversational:session_35",
+                "activation": 0.9237,
+                "engine": "bfs"
+              },
+              {
+                "id": 2022,
+                "label": "conversational:session_85",
+                "activation": 0.9234,
+                "engine": "bfs"
+              },
+              {
+                "id": 2180,
+                "label": "conversational:session_141",
+                "activation": 0.9226,
+                "engine": "bfs"
+              },
+              {
+                "id": 854,
+                "label": "conversational:session_143",
+                "activation": 0.9226,
+                "engine": "bfs"
+              }
+            ]
+          },
+          "alpha_0.95_iters_50": {
+            "total_activated": 1723,
+            "time_ms": 1935.7,
+            "ms_per_start_node": 387.14,
+            "top_results": [
+              {
+                "id": 1338,
+                "label": "conversational:session_137",
+                "activation": 0.9314,
+                "engine": "bfs"
+              },
+              {
+                "id": 1738,
+                "label": "conversational:session_134",
+                "activation": 0.9298,
+                "engine": "bfs"
+              },
+              {
+                "id": 1546,
+                "label": "conversational:session_145",
+                "activation": 0.9296,
+                "engine": "bfs"
+              },
+              {
+                "id": 654,
+                "label": "conversational:session_125",
+                "activation": 0.9291,
+                "engine": "bfs"
+              },
+              {
+                "id": 1905,
+                "label": "conversational:session_138",
+                "activation": 0.9278,
+                "engine": "bfs"
+              },
+              {
+                "id": 2035,
+                "label": "conversational:session_136",
+                "activation": 0.9275,
+                "engine": "bfs"
+              },
+              {
+                "id": 1539,
+                "label": "conversational:session_35",
+                "activation": 0.9237,
+                "engine": "bfs"
+              },
+              {
+                "id": 2022,
+                "label": "conversational:session_85",
+                "activation": 0.9234,
+                "engine": "bfs"
+              },
+              {
+                "id": 2180,
+                "label": "conversational:session_141",
+                "activation": 0.9226,
+                "engine": "bfs"
+              },
+              {
+                "id": 854,
+                "label": "conversational:session_143",
+                "activation": 0.9226,
+                "engine": "bfs"
+              }
+            ]
+          }
+        }
+      },
+      "elapsed_s": 311.33,
+      "status": "ok"
+    },
+    "conflict": {
+      "result": {
+        "supersession": {
+          "conflict_pairs_stored": 8,
+          "superseded_detected": 0
+        },
+        "recall_quality": {
+          "FastEmbed": {
+            "hits": 5,
+            "should_match": true,
+            "correct": true
+          },
+          "Dream Engine phases": {
+            "hits": 5,
+            "should_match": true,
+            "correct": true
+          },
+          "HNSW threshold": {
+            "hits": 5,
+            "should_match": true,
+            "correct": true
+          },
+          "something unrelated": {
+            "hits": 5,
+            "should_match": false,
+            "correct": false
+          }
+        },
+        "salience": {
+          "access_time_100_calls_s": 0.08,
+          "sample_saliences": {
+            "min": 1.0,
+            "max": 1.0,
+            "mean": 1.0
+          }
+        },
+        "adversarial": {
+          "poison_attempts": 5,
+          "post_poison_stats": {
+            "memories": 14,
+            "connections": 0,
+            "revisions": 6,
+            "embedding_dim": 1024,
+            "embedding_backend": "SentenceTransformerBackend",
+            "embed_fingerprint": "SentenceTransformerBackend::1024::",
+            "dim_locked": true,
+            "dim_mismatch_reason": null,
+            "quarantined_dim": 0,
+            "retrieval_mode": "semantic",
+            "lazy_graph": false,
+            "hnsw_enabled": "auto"
+          }
+        }
+      },
+      "elapsed_s": 1.2,
+      "status": "ok"
+    },
+    "agentic": {
+      "result": {
+        "sessions": [
+          {
+            "session_id": 0,
+            "elapsed_s": 0.3,
+            "total_actions": 10,
+            "actions_per_second": 32.8,
+            "timings": {
+              "remember": {
+                "count": 4,
+                "mean_ms": 40.49,
+                "p50_ms": 40.48,
+                "p95_ms": 41.14,
+                "p99_ms": 41.14
+              },
+              "recall": {
+                "count": 4,
+                "mean_ms": 19.98,
+                "p50_ms": 19.29,
+                "p95_ms": 29.37,
+                "p99_ms": 29.37
+              },
+              "think": {
+                "count": 2,
+                "mean_ms": 31.24,
+                "p50_ms": 31.24,
+                "p95_ms": 32.48,
+                "p99_ms": 32.48
+              }
+            }
+          },
+          {
+            "session_id": 1,
+            "elapsed_s": 0.13,
+            "total_actions": 10,
+            "actions_per_second": 75.3,
+            "timings": {
+              "remember": {
+                "count": 2,
+                "mean_ms": 20.37,
+                "p50_ms": 20.37,
+                "p95_ms": 40.64,
+                "p99_ms": 40.64
+              },
+              "recall": {
+                "count": 5,
+                "mean_ms": 14.99,
+                "p50_ms": 12.13,
+                "p95_ms": 26.49,
+                "p99_ms": 26.49
+              },
+              "think": {
+                "count": 1,
+                "mean_ms": 11.82,
+                "p50_ms": 11.82,
+                "p95_ms": 11.82,
+                "p99_ms": 11.82
+              },
+              "graph": {
+                "count": 2,
+                "mean_ms": 2.53,
+                "p50_ms": 2.53,
+                "p95_ms": 2.59,
+                "p99_ms": 2.59
+              }
+            }
+          },
+          {
+            "session_id": 2,
+            "elapsed_s": 0.24,
+            "total_actions": 10,
+            "actions_per_second": 42.3,
+            "timings": {
+              "remember": {
+                "count": 2,
+                "mean_ms": 40.14,
+                "p50_ms": 40.14,
+                "p95_ms": 40.25,
+                "p99_ms": 40.25
+              },
+              "recall": {
+                "count": 5,
+                "mean_ms": 20.1,
+                "p50_ms": 16.77,
+                "p95_ms": 29.52,
+                "p99_ms": 29.52
+              },
+              "think": {
+                "count": 3,
+                "mean_ms": 18.4,
+                "p50_ms": 13.07,
+                "p95_ms": 30.22,
+                "p99_ms": 30.22
+              }
+            }
+          }
+        ],
+        "summary": {
+          "num_sessions": 3,
+          "total_actions": 30,
+          "avg_actions_per_second": 50.1,
+          "min_aps": 32.8,
+          "max_aps": 75.3,
+          "action_aggregates": {
+            "remember": {
+              "avg_mean_ms": 33.67,
+              "avg_p95_ms": 40.68
+            },
+            "recall": {
+              "avg_mean_ms": 18.36,
+              "avg_p95_ms": 28.46
+            },
+            "think": {
+              "avg_mean_ms": 20.49,
+              "avg_p95_ms": 24.84
+            },
+            "graph": {
+              "avg_mean_ms": 2.53,
+              "avg_p95_ms": 0.86
+            }
+          }
+        }
+      },
+      "elapsed_s": 7.64,
+      "status": "ok"
+    },
+    "qa": {
+      "result": {
+        "model": "gpt-oss:120b-cloud",
+        "top_k": 5,
+        "setup": {
+          "qa_facts_stored": 20,
+          "distractors_stored": 17168,
+          "setup_elapsed_s": 118.17,
+          "stats": {
+            "memories": 2388,
+            "connections": 0,
+            "revisions": 13532,
+            "embedding_dim": 1024,
+            "embedding_backend": "SentenceTransformerBackend",
+            "embed_fingerprint": "SentenceTransformerBackend::1024::",
+            "dim_locked": true,
+            "dim_mismatch_reason": null,
+            "quarantined_dim": 0,
+            "retrieval_mode": "semantic",
+            "lazy_graph": false,
+            "hnsw_enabled": "auto"
+          }
+        },
+        "modes": {
+          "semantic": {
+            "retrieval_accuracy@5": 0.85,
+            "qa_accuracy": 0.85,
+            "compounding_loss": 0.0,
+            "llm_latency_p50_s": 1.17,
+            "llm_latency_p95_s": 2.77,
+            "llm_latency_mean_s": 1.46,
+            "llm_errors": 0,
+            "n": 20
+          },
+          "hybrid": {
+            "retrieval_accuracy@5": 0.85,
+            "qa_accuracy": 0.85,
+            "compounding_loss": 0.0,
+            "llm_latency_p50_s": 1.21,
+            "llm_latency_p95_s": 2.25,
+            "llm_latency_mean_s": 1.61,
+            "llm_errors": 0,
+            "n": 20
+          },
+          "advanced": {
+            "retrieval_accuracy@5": 0.85,
+            "qa_accuracy": 0.8,
+            "compounding_loss": 0.05,
+            "llm_latency_p50_s": 1.18,
+            "llm_latency_p95_s": 1.45,
+            "llm_latency_mean_s": 1.23,
+            "llm_errors": 0,
+            "n": 20
+          },
+          "skynet": {
+            "retrieval_accuracy@5": 0.9,
+            "qa_accuracy": 0.85,
+            "compounding_loss": 0.05,
+            "llm_latency_p50_s": 1.23,
+            "llm_latency_p95_s": 1.9,
+            "llm_latency_mean_s": 1.29,
+            "llm_errors": 0,
+            "n": 20
+          }
+        },
+        "per_question": {
+          "semantic": [
+            {
+              "question": "Where does Ada store the launch key?",
+              "gold": "blue ceramic owl",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "under the blue ceramic owl",
+              "llm_latency_s": 1.318,
+              "eval_count": 59
+            },
+            {
+              "question": "What is Bruno's backup server called?",
+              "gold": "pinecone-seven",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "pinecone-seven",
+              "llm_latency_s": 1.058,
+              "eval_count": 45
+            },
+            {
+              "question": "When is the Atlas migration window?",
+              "gold": "03:40",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "03:40\u202fUTC on Sunday",
+              "llm_latency_s": 3.14,
+              "eval_count": 58
+            },
+            {
+              "question": "What does Mira prefer for cold start speed?",
+              "gold": "fastembed",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "FastEmbed",
+              "llm_latency_s": 0.986,
+              "eval_count": 37
+            },
+            {
+              "question": "Which port does project Zephyr use?",
+              "gold": "7443",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "7443",
+              "llm_latency_s": 1.017,
+              "eval_count": 44
+            },
+            {
+              "question": "Which treats are bad for Kai's dog Lou?",
+              "gold": "chicken",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "chicken treats",
+              "llm_latency_s": 1.4,
+              "eval_count": 50
+            },
+            {
+              "question": "What incident caused the demo API key rotation?",
+              "gold": "orchid-19",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "ORCHID-19.",
+              "llm_latency_s": 1.171,
+              "eval_count": 71
+            },
+            {
+              "question": "Where does the telemetry dashboard live?",
+              "gold": "cloudflared",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "behind the cloudflared tunnel",
+              "llm_latency_s": 1.154,
+              "eval_count": 64
+            },
+            {
+              "question": "What should stay opt-in?",
+              "gold": "raw turn dumps",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "raw turn dumps",
+              "llm_latency_s": 1.174,
+              "eval_count": 51
+            },
+            {
+              "question": "What does the dream engine insight phase use?",
+              "gold": "louvain",
+              "mode": "semantic",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 0.931,
+              "eval_count": 36
+            },
+            {
+              "question": "What dedup is needed before neural ingestion?",
+              "gold": "content-hash",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "content-hash dedup",
+              "llm_latency_s": 1.112,
+              "eval_count": 61
+            },
+            {
+              "question": "What must remain production-safe if the C++ bridge is absent?",
+              "gold": "python fallback",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "Python fallback must remain production\u2011safe.",
+              "llm_latency_s": 1.278,
+              "eval_count": 77
+            },
+            {
+              "question": "When should HNSW activate automatically?",
+              "gold": "corpus is large",
+              "mode": "semantic",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 1.889,
+              "eval_count": 61
+            },
+            {
+              "question": "What file does the weekly rollup write?",
+              "gold": "weekly.md",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "WEEKLY.md",
+              "llm_latency_s": 1.082,
+              "eval_count": 53
+            },
+            {
+              "question": "What is the primary neural memory database file named?",
+              "gold": "memory.db",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "memory.db",
+              "llm_latency_s": 1.886,
+              "eval_count": 67
+            },
+            {
+              "question": "When does Ola's on-call shift start?",
+              "gold": "tuesday",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "Tuesday at\u202f09:00\u202fCET",
+              "llm_latency_s": 2.771,
+              "eval_count": 69
+            },
+            {
+              "question": "What is the fallback embedding backend?",
+              "gold": "sentence-transformers",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "sentence-transformers",
+              "llm_latency_s": 2.186,
+              "eval_count": 61
+            },
+            {
+              "question": "What is the default daily salience decay factor?",
+              "gold": "0.95",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "0.95",
+              "llm_latency_s": 1.455,
+              "eval_count": 118
+            },
+            {
+              "question": "Which direction does the MSSQL bridge sync?",
+              "gold": "sqlite to mssql",
+              "mode": "semantic",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 1.081,
+              "eval_count": 50
+            },
+            {
+              "question": "Where is the shared embedding server's UNIX socket?",
+              "gold": "embed.sock",
+              "mode": "semantic",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "~/.neural_memory/embed.sock",
+              "llm_latency_s": 1.171,
+              "eval_count": 79
+            }
+          ],
+          "hybrid": [
+            {
+              "question": "Where does Ada store the launch key?",
+              "gold": "blue ceramic owl",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "under the blue ceramic owl",
+              "llm_latency_s": 1.46,
+              "eval_count": 69
+            },
+            {
+              "question": "What is Bruno's backup server called?",
+              "gold": "pinecone-seven",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "pinecone-seven",
+              "llm_latency_s": 0.959,
+              "eval_count": 44
+            },
+            {
+              "question": "When is the Atlas migration window?",
+              "gold": "03:40",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "03:40\u202fUTC on Sunday",
+              "llm_latency_s": 1.64,
+              "eval_count": 61
+            },
+            {
+              "question": "What does Mira prefer for cold start speed?",
+              "gold": "fastembed",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "FastEmbed",
+              "llm_latency_s": 1.122,
+              "eval_count": 47
+            },
+            {
+              "question": "Which port does project Zephyr use?",
+              "gold": "7443",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "7443",
+              "llm_latency_s": 1.096,
+              "eval_count": 67
+            },
+            {
+              "question": "Which treats are bad for Kai's dog Lou?",
+              "gold": "chicken",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "chicken treats",
+              "llm_latency_s": 1.235,
+              "eval_count": 61
+            },
+            {
+              "question": "What incident caused the demo API key rotation?",
+              "gold": "orchid-19",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "incident ORCHID-19",
+              "llm_latency_s": 1.886,
+              "eval_count": 82
+            },
+            {
+              "question": "Where does the telemetry dashboard live?",
+              "gold": "cloudflared",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "behind the cloudflared tunnel",
+              "llm_latency_s": 1.165,
+              "eval_count": 68
+            },
+            {
+              "question": "What should stay opt-in?",
+              "gold": "raw turn dumps",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "raw turn dumps",
+              "llm_latency_s": 1.138,
+              "eval_count": 60
+            },
+            {
+              "question": "What does the dream engine insight phase use?",
+              "gold": "louvain",
+              "mode": "hybrid",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 1.143,
+              "eval_count": 55
+            },
+            {
+              "question": "What dedup is needed before neural ingestion?",
+              "gold": "content-hash",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "content-hash dedup",
+              "llm_latency_s": 1.16,
+              "eval_count": 59
+            },
+            {
+              "question": "What must remain production-safe if the C++ bridge is absent?",
+              "gold": "python fallback",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "Python fallback.",
+              "llm_latency_s": 1.298,
+              "eval_count": 66
+            },
+            {
+              "question": "When should HNSW activate automatically?",
+              "gold": "corpus is large",
+              "mode": "hybrid",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 7.104,
+              "eval_count": 62
+            },
+            {
+              "question": "What file does the weekly rollup write?",
+              "gold": "weekly.md",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "WEEKLY.md",
+              "llm_latency_s": 1.373,
+              "eval_count": 58
+            },
+            {
+              "question": "What is the primary neural memory database file named?",
+              "gold": "memory.db",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "memory.db",
+              "llm_latency_s": 1.213,
+              "eval_count": 60
+            },
+            {
+              "question": "When does Ola's on-call shift start?",
+              "gold": "tuesday",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "Every Tuesday at\u202f09:00\u202fCET.",
+              "llm_latency_s": 1.171,
+              "eval_count": 58
+            },
+            {
+              "question": "What is the fallback embedding backend?",
+              "gold": "sentence-transformers",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "sentence-transformers",
+              "llm_latency_s": 2.253,
+              "eval_count": 71
+            },
+            {
+              "question": "What is the default daily salience decay factor?",
+              "gold": "0.95",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "0.95",
+              "llm_latency_s": 1.398,
+              "eval_count": 102
+            },
+            {
+              "question": "Which direction does the MSSQL bridge sync?",
+              "gold": "sqlite to mssql",
+              "mode": "hybrid",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 1.159,
+              "eval_count": 62
+            },
+            {
+              "question": "Where is the shared embedding server's UNIX socket?",
+              "gold": "embed.sock",
+              "mode": "hybrid",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "~/.neural_memory/embed.sock",
+              "llm_latency_s": 1.207,
+              "eval_count": 73
+            }
+          ],
+          "advanced": [
+            {
+              "question": "Where does Ada store the launch key?",
+              "gold": "blue ceramic owl",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "under the blue ceramic owl",
+              "llm_latency_s": 1.044,
+              "eval_count": 55
+            },
+            {
+              "question": "What is Bruno's backup server called?",
+              "gold": "pinecone-seven",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "pinecone-seven",
+              "llm_latency_s": 1.0,
+              "eval_count": 46
+            },
+            {
+              "question": "When is the Atlas migration window?",
+              "gold": "03:40",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "03:40\u202fUTC on Sunday",
+              "llm_latency_s": 1.086,
+              "eval_count": 55
+            },
+            {
+              "question": "What does Mira prefer for cold start speed?",
+              "gold": "fastembed",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "FastEmbed",
+              "llm_latency_s": 1.219,
+              "eval_count": 39
+            },
+            {
+              "question": "Which port does project Zephyr use?",
+              "gold": "7443",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "7443",
+              "llm_latency_s": 1.03,
+              "eval_count": 47
+            },
+            {
+              "question": "Which treats are bad for Kai's dog Lou?",
+              "gold": "chicken",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "chicken treats",
+              "llm_latency_s": 0.935,
+              "eval_count": 43
+            },
+            {
+              "question": "What incident caused the demo API key rotation?",
+              "gold": "orchid-19",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": false,
+              "answer": "incident ORCHID\u201119",
+              "llm_latency_s": 1.37,
+              "eval_count": 73
+            },
+            {
+              "question": "Where does the telemetry dashboard live?",
+              "gold": "cloudflared",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "behind the cloudflared tunnel",
+              "llm_latency_s": 1.232,
+              "eval_count": 57
+            },
+            {
+              "question": "What should stay opt-in?",
+              "gold": "raw turn dumps",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "raw turn dumps",
+              "llm_latency_s": 1.325,
+              "eval_count": 61
+            },
+            {
+              "question": "What does the dream engine insight phase use?",
+              "gold": "louvain",
+              "mode": "advanced",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 1.089,
+              "eval_count": 56
+            },
+            {
+              "question": "What dedup is needed before neural ingestion?",
+              "gold": "content-hash",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "content-hash dedup",
+              "llm_latency_s": 1.336,
+              "eval_count": 76
+            },
+            {
+              "question": "What must remain production-safe if the C++ bridge is absent?",
+              "gold": "python fallback",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "Python fallback.",
+              "llm_latency_s": 1.179,
+              "eval_count": 73
+            },
+            {
+              "question": "When should HNSW activate automatically?",
+              "gold": "corpus is large",
+              "mode": "advanced",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 1.307,
+              "eval_count": 48
+            },
+            {
+              "question": "What file does the weekly rollup write?",
+              "gold": "weekly.md",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "WEEKLY.md",
+              "llm_latency_s": 1.136,
+              "eval_count": 58
+            },
+            {
+              "question": "What is the primary neural memory database file named?",
+              "gold": "memory.db",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "memory.db",
+              "llm_latency_s": 1.218,
+              "eval_count": 58
+            },
+            {
+              "question": "When does Ola's on-call shift start?",
+              "gold": "tuesday",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "Every Tuesday at\u202f09:00\u202fCET.",
+              "llm_latency_s": 1.447,
+              "eval_count": 64
+            },
+            {
+              "question": "What is the fallback embedding backend?",
+              "gold": "sentence-transformers",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "sentence-transformers",
+              "llm_latency_s": 1.261,
+              "eval_count": 63
+            },
+            {
+              "question": "What is the default daily salience decay factor?",
+              "gold": "0.95",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "0.95",
+              "llm_latency_s": 2.11,
+              "eval_count": 122
+            },
+            {
+              "question": "Which direction does the MSSQL bridge sync?",
+              "gold": "sqlite to mssql",
+              "mode": "advanced",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 1.149,
+              "eval_count": 52
+            },
+            {
+              "question": "Where is the shared embedding server's UNIX socket?",
+              "gold": "embed.sock",
+              "mode": "advanced",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "~/.neural_memory/embed.sock",
+              "llm_latency_s": 1.106,
+              "eval_count": 60
+            }
+          ],
+          "skynet": [
+            {
+              "question": "Where does Ada store the launch key?",
+              "gold": "blue ceramic owl",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "under the blue ceramic owl",
+              "llm_latency_s": 1.093,
+              "eval_count": 55
+            },
+            {
+              "question": "What is Bruno's backup server called?",
+              "gold": "pinecone-seven",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "pinecone-seven",
+              "llm_latency_s": 1.04,
+              "eval_count": 45
+            },
+            {
+              "question": "When is the Atlas migration window?",
+              "gold": "03:40",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "03:40\u202fUTC on Sunday",
+              "llm_latency_s": 1.249,
+              "eval_count": 66
+            },
+            {
+              "question": "What does Mira prefer for cold start speed?",
+              "gold": "fastembed",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "FastEmbed",
+              "llm_latency_s": 1.273,
+              "eval_count": 46
+            },
+            {
+              "question": "Which port does project Zephyr use?",
+              "gold": "7443",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "7443",
+              "llm_latency_s": 1.0,
+              "eval_count": 47
+            },
+            {
+              "question": "Which treats are bad for Kai's dog Lou?",
+              "gold": "chicken",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "chicken treats",
+              "llm_latency_s": 1.068,
+              "eval_count": 48
+            },
+            {
+              "question": "What incident caused the demo API key rotation?",
+              "gold": "orchid-19",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": false,
+              "answer": "ORCHID\u201119",
+              "llm_latency_s": 1.244,
+              "eval_count": 59
+            },
+            {
+              "question": "Where does the telemetry dashboard live?",
+              "gold": "cloudflared",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "behind the cloudflared tunnel",
+              "llm_latency_s": 1.035,
+              "eval_count": 38
+            },
+            {
+              "question": "What should stay opt-in?",
+              "gold": "raw turn dumps",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "raw turn dumps",
+              "llm_latency_s": 1.231,
+              "eval_count": 60
+            },
+            {
+              "question": "What does the dream engine insight phase use?",
+              "gold": "louvain",
+              "mode": "skynet",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 1.096,
+              "eval_count": 49
+            },
+            {
+              "question": "What dedup is needed before neural ingestion?",
+              "gold": "content-hash",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "content-hash dedup",
+              "llm_latency_s": 1.05,
+              "eval_count": 57
+            },
+            {
+              "question": "What must remain production-safe if the C++ bridge is absent?",
+              "gold": "python fallback",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "Python fallback.",
+              "llm_latency_s": 1.315,
+              "eval_count": 74
+            },
+            {
+              "question": "When should HNSW activate automatically?",
+              "gold": "corpus is large",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "Only when the corpus is large enough.",
+              "llm_latency_s": 1.249,
+              "eval_count": 75
+            },
+            {
+              "question": "What file does the weekly rollup write?",
+              "gold": "weekly.md",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "WEEKLY.md",
+              "llm_latency_s": 1.273,
+              "eval_count": 64
+            },
+            {
+              "question": "What is the primary neural memory database file named?",
+              "gold": "memory.db",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "memory.db",
+              "llm_latency_s": 1.098,
+              "eval_count": 61
+            },
+            {
+              "question": "When does Ola's on-call shift start?",
+              "gold": "tuesday",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "Every Tuesday at\u202f09:00\u202fCET.",
+              "llm_latency_s": 1.133,
+              "eval_count": 48
+            },
+            {
+              "question": "What is the fallback embedding backend?",
+              "gold": "sentence-transformers",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "sentence-transformers",
+              "llm_latency_s": 1.249,
+              "eval_count": 60
+            },
+            {
+              "question": "What is the default daily salience decay factor?",
+              "gold": "0.95",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "0.95",
+              "llm_latency_s": 3.022,
+              "eval_count": 108
+            },
+            {
+              "question": "Which direction does the MSSQL bridge sync?",
+              "gold": "sqlite to mssql",
+              "mode": "skynet",
+              "retrieval_hit": false,
+              "qa_correct": false,
+              "answer": "unknown",
+              "llm_latency_s": 1.895,
+              "eval_count": 45
+            },
+            {
+              "question": "Where is the shared embedding server's UNIX socket?",
+              "gold": "embed.sock",
+              "mode": "skynet",
+              "retrieval_hit": true,
+              "qa_correct": true,
+              "answer": "~/.neural_memory/embed.sock",
+              "llm_latency_s": 1.27,
+              "eval_count": 60
+            }
+          ]
+        }
+      },
+      "elapsed_s": 232.52,
+      "status": "ok"
+    }
+  },
+  "errors": {}
+}

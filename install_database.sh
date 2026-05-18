@@ -15,9 +15,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-NEURAL_DIR="$HOME/.neural_memory"
+MAZEMAKER_ENGINE_DIR="$HOME/.mazemaker/engine"
 ENV_FILE="$HOME/.hermes/.env"
-SYNC_STATE="$NEURAL_DIR/sync_state.json"
+SYNC_STATE="$MAZEMAKER_ENGINE_DIR/sync_state.json"
 
 # Colors
 RED='\033[0;31m'
@@ -64,9 +64,9 @@ setup_sqlite() {
     echo ""
     echo -e "${CYAN}--- SQLite Setup ---${NC}"
 
-    mkdir -p "$NEURAL_DIR"
+    mkdir -p "$MAZEMAKER_ENGINE_DIR"
 
-    local DB_PATH="$NEURAL_DIR/memory.db"
+    local DB_PATH="$MAZEMAKER_ENGINE_DIR/memory.db"
     python3 << PYEOF
 import sqlite3, os, sys
 
@@ -298,11 +298,11 @@ cmd_verify() {
 
     python3 << 'PYEOF'
 import sys, os
-sys.path.insert(0, os.path.expanduser("~/projects/neural-memory-adapter/python"))
+sys.path.insert(0, os.path.expanduser("~/projects/mazemaker-engine/python"))
 
 # SQLite check
 import sqlite3
-db = os.path.expanduser("~/.neural_memory/memory.db")
+db = os.path.expanduser("~/.mazemaker/engine/memory.db")
 if os.path.exists(db):
     conn = sqlite3.connect(db)
     tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
@@ -369,7 +369,7 @@ cmd_status() {
     echo -e "${CYAN}--- Database Status ---${NC}"
 
     # SQLite
-    local DB_PATH="$NEURAL_DIR/memory.db"
+    local DB_PATH="$MAZEMAKER_ENGINE_DIR/memory.db"
     if [ -f "$DB_PATH" ]; then
         python3 -c "
 import sqlite3, os
@@ -392,7 +392,7 @@ conn.close()
         python3 -c "
 try:
     import sys, os
-    sys.path.insert(0, os.path.expanduser('~/projects/neural-memory-adapter/python'))
+    sys.path.insert(0, os.path.expanduser('~/projects/mazemaker-engine/python'))
     from mssql_store import MSSQLStore
     s = MSSQLStore()
     st = s.stats()
@@ -480,7 +480,7 @@ case "$CMD" in
         echo "  Database Setup Complete!"
         echo -e "==============================================${NC}"
         echo ""
-        echo "  SQLite: ~/.neural_memory/memory.db"
+        echo "  SQLite: ~/.mazemaker/engine/memory.db"
         if [ "$MODE" = "--full" ] || [ "$MODE" = "full" ]; then
             echo "  MSSQL:  localhost/NeuralMemory"
         fi

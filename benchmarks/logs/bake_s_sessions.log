@@ -1,0 +1,112 @@
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+[bake] Source: mm_bench_raw.longmemeval_s.sessions
+[bake] Cache:  mm10m_bench.longmemeval_s_bgem3_1024.memories  chunk=256  limit=all
+[bake] Source has 23,882 (qid, sidx) pairs
+[bake] To embed this run: 23,882
+[bake] Initialising embed-server...
+[embed-server] CUDA: 15344 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 45299.36it/s]
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15344MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+  + 256  total    256/23,882  embed=40.01s copy=227ms  rate=5.9 sess/s  eta=67.1m
+  + 256  total    512/23,882  embed=38.71s copy=215ms  rate=6.2 sess/s  eta=62.8m
+  + 256  total    768/23,882  embed=38.44s copy=209ms  rate=6.3 sess/s  eta=60.8m
+  + 256  total  1,024/23,882  embed=39.51s copy=203ms  rate=6.4 sess/s  eta=59.9m
+  + 256  total  1,280/23,882  embed=41.44s copy=206ms  rate=6.3 sess/s  eta=59.6m
+  + 256  total  1,536/23,882  embed=39.61s copy=206ms  rate=6.3 sess/s  eta=58.8m
+  + 256  total  1,792/23,882  embed=40.40s copy=208ms  rate=6.3 sess/s  eta=58.1m
+  + 256  total  2,048/23,882  embed=38.95s copy=214ms  rate=6.4 sess/s  eta=57.2m
+  + 256  total  2,304/23,882  embed=37.71s copy=218ms  rate=6.4 sess/s  eta=56.2m
+  + 256  total  2,560/23,882  embed=37.95s copy=212ms  rate=6.4 sess/s  eta=55.3m
+  + 256  total  2,816/23,882  embed=36.31s copy=210ms  rate=6.5 sess/s  eta=54.2m
+  + 256  total  3,072/23,882  embed=38.32s copy=231ms  rate=6.5 sess/s  eta=53.4m
+  + 256  total  3,328/23,882  embed=36.92s copy=206ms  rate=6.5 sess/s  eta=52.5m
+  + 256  total  3,584/23,882  embed=36.97s copy=210ms  rate=6.5 sess/s  eta=51.7m
+  + 256  total  3,840/23,882  embed=36.05s copy=210ms  rate=6.6 sess/s  eta=50.8m
+  + 256  total  4,096/23,882  embed=36.74s copy=206ms  rate=6.6 sess/s  eta=50.0m
+  + 256  total  4,352/23,882  embed=36.41s copy=204ms  rate=6.6 sess/s  eta=49.2m
+  + 256  total  4,608/23,882  embed=35.96s copy=211ms  rate=6.6 sess/s  eta=48.4m
+  + 256  total  4,864/23,882  embed=38.49s copy=212ms  rate=6.6 sess/s  eta=47.7m
+  + 256  total  5,120/23,882  embed=34.73s copy=220ms  rate=6.7 sess/s  eta=46.9m
+  + 256  total  5,376/23,882  embed=36.62s copy=207ms  rate=6.7 sess/s  eta=46.1m
+  + 256  total  5,632/23,882  embed=36.38s copy=211ms  rate=6.7 sess/s  eta=45.4m
+  + 256  total  5,888/23,882  embed=38.53s copy=216ms  rate=6.7 sess/s  eta=44.8m
+  + 256  total  6,144/23,882  embed=34.64s copy=208ms  rate=6.7 sess/s  eta=44.0m
+  + 256  total  6,400/23,882  embed=35.86s copy=207ms  rate=6.7 sess/s  eta=43.3m
+  + 256  total  6,656/23,882  embed=36.24s copy=198ms  rate=6.7 sess/s  eta=42.6m
+  + 256  total  6,912/23,882  embed=36.67s copy=212ms  rate=6.8 sess/s  eta=41.9m
+  + 256  total  7,168/23,882  embed=36.29s copy=210ms  rate=6.8 sess/s  eta=41.2m
+  + 256  total  7,424/23,882  embed=38.44s copy=217ms  rate=6.8 sess/s  eta=40.6m
+  + 256  total  7,680/23,882  embed=36.17s copy=208ms  rate=6.8 sess/s  eta=39.9m
+  + 256  total  7,936/23,882  embed=35.49s copy=216ms  rate=6.8 sess/s  eta=39.2m
+  + 256  total  8,192/23,882  embed=37.97s copy=211ms  rate=6.8 sess/s  eta=38.6m
+  + 256  total  8,448/23,882  embed=36.41s copy=214ms  rate=6.8 sess/s  eta=37.9m
+  + 256  total  8,704/23,882  embed=37.96s copy=211ms  rate=6.8 sess/s  eta=37.3m
+  + 256  total  8,960/23,882  embed=37.11s copy=215ms  rate=6.8 sess/s  eta=36.7m
+  + 256  total  9,216/23,882  embed=37.29s copy=206ms  rate=6.8 sess/s  eta=36.0m
+  + 256  total  9,472/23,882  embed=36.13s copy=222ms  rate=6.8 sess/s  eta=35.4m
+  + 256  total  9,728/23,882  embed=35.97s copy=215ms  rate=6.8 sess/s  eta=34.7m
+  + 256  total  9,984/23,882  embed=36.26s copy=207ms  rate=6.8 sess/s  eta=34.1m
+  + 256  total 10,240/23,882  embed=36.58s copy=208ms  rate=6.8 sess/s  eta=33.4m
+  + 256  total 10,496/23,882  embed=37.66s copy=210ms  rate=6.8 sess/s  eta=32.8m
+  + 256  total 10,752/23,882  embed=35.42s copy=219ms  rate=6.8 sess/s  eta=32.1m
+  + 256  total 11,008/23,882  embed=37.01s copy=212ms  rate=6.8 sess/s  eta=31.5m
+  + 256  total 11,264/23,882  embed=36.31s copy=170ms  rate=6.8 sess/s  eta=30.8m
+  + 256  total 11,520/23,882  embed=35.32s copy=207ms  rate=6.8 sess/s  eta=30.2m
+  + 256  total 11,776/23,882  embed=34.87s copy=202ms  rate=6.8 sess/s  eta=29.5m
+  + 256  total 12,032/23,882  embed=36.93s copy=204ms  rate=6.8 sess/s  eta=28.9m
+  + 256  total 12,288/23,882  embed=33.77s copy=214ms  rate=6.9 sess/s  eta=28.2m
+  + 256  total 12,544/23,882  embed=36.78s copy=206ms  rate=6.9 sess/s  eta=27.6m
+  + 256  total 12,800/23,882  embed=38.80s copy=208ms  rate=6.8 sess/s  eta=27.0m
+  + 256  total 13,056/23,882  embed=35.83s copy=207ms  rate=6.9 sess/s  eta=26.3m
+  + 256  total 13,312/23,882  embed=39.22s copy=209ms  rate=6.8 sess/s  eta=25.7m
+  + 256  total 13,568/23,882  embed=34.52s copy=209ms  rate=6.9 sess/s  eta=25.1m
+  + 256  total 13,824/23,882  embed=35.90s copy=204ms  rate=6.9 sess/s  eta=24.4m
+  + 256  total 14,080/23,882  embed=35.86s copy=214ms  rate=6.9 sess/s  eta=23.8m
+  + 256  total 14,336/23,882  embed=38.41s copy=210ms  rate=6.9 sess/s  eta=23.2m
+  + 256  total 14,592/23,882  embed=35.53s copy=207ms  rate=6.9 sess/s  eta=22.6m
+  + 256  total 14,848/23,882  embed=37.43s copy=208ms  rate=6.9 sess/s  eta=21.9m
+  + 256  total 15,104/23,882  embed=36.09s copy=233ms  rate=6.9 sess/s  eta=21.3m
+  + 256  total 15,360/23,882  embed=36.19s copy=216ms  rate=6.9 sess/s  eta=20.7m
+  + 256  total 15,616/23,882  embed=36.83s copy=214ms  rate=6.9 sess/s  eta=20.1m
+  + 256  total 15,872/23,882  embed=33.53s copy=224ms  rate=6.9 sess/s  eta=19.4m
+  + 256  total 16,128/23,882  embed=35.62s copy=214ms  rate=6.9 sess/s  eta=18.8m
+  + 256  total 16,384/23,882  embed=38.32s copy=214ms  rate=6.9 sess/s  eta=18.2m
+  + 256  total 16,640/23,882  embed=37.92s copy=208ms  rate=6.9 sess/s  eta=17.6m
+  + 256  total 16,896/23,882  embed=36.24s copy=208ms  rate=6.9 sess/s  eta=16.9m
+  + 256  total 17,152/23,882  embed=37.33s copy=193ms  rate=6.9 sess/s  eta=16.3m
+  + 256  total 17,408/23,882  embed=36.81s copy=206ms  rate=6.9 sess/s  eta=15.7m
+  + 256  total 17,664/23,882  embed=36.10s copy=193ms  rate=6.9 sess/s  eta=15.1m
+  + 256  total 17,920/23,882  embed=37.09s copy=213ms  rate=6.9 sess/s  eta=14.4m
+  + 256  total 18,176/23,882  embed=35.54s copy=208ms  rate=6.9 sess/s  eta=13.8m
+  + 256  total 18,432/23,882  embed=36.57s copy=215ms  rate=6.9 sess/s  eta=13.2m
+  + 256  total 18,688/23,882  embed=34.98s copy=202ms  rate=6.9 sess/s  eta=12.6m
+  + 256  total 18,944/23,882  embed=38.24s copy=205ms  rate=6.9 sess/s  eta=11.9m
+  + 256  total 19,200/23,882  embed=35.57s copy=207ms  rate=6.9 sess/s  eta=11.3m
+  + 256  total 19,456/23,882  embed=35.22s copy=212ms  rate=6.9 sess/s  eta=10.7m
+  + 256  total 19,712/23,882  embed=35.68s copy=215ms  rate=6.9 sess/s  eta=10.1m
+  + 256  total 19,968/23,882  embed=36.87s copy=201ms  rate=6.9 sess/s  eta=9.5m
+  + 256  total 20,224/23,882  embed=38.44s copy=213ms  rate=6.9 sess/s  eta=8.8m
+  + 256  total 20,480/23,882  embed=37.00s copy=210ms  rate=6.9 sess/s  eta=8.2m
+  + 256  total 20,736/23,882  embed=36.13s copy=208ms  rate=6.9 sess/s  eta=7.6m
+  + 256  total 20,992/23,882  embed=35.90s copy=207ms  rate=6.9 sess/s  eta=7.0m
+  + 256  total 21,248/23,882  embed=35.43s copy=202ms  rate=6.9 sess/s  eta=6.4m
+  + 256  total 21,504/23,882  embed=38.34s copy=216ms  rate=6.9 sess/s  eta=5.7m
+  + 256  total 21,760/23,882  embed=36.24s copy=206ms  rate=6.9 sess/s  eta=5.1m
+  + 256  total 22,016/23,882  embed=35.21s copy=203ms  rate=6.9 sess/s  eta=4.5m
+  + 256  total 22,272/23,882  embed=37.18s copy=214ms  rate=6.9 sess/s  eta=3.9m
+  + 256  total 22,528/23,882  embed=37.37s copy=215ms  rate=6.9 sess/s  eta=3.3m
+  + 256  total 22,784/23,882  embed=35.06s copy=218ms  rate=6.9 sess/s  eta=2.7m
+  + 256  total 23,040/23,882  embed=36.77s copy=211ms  rate=6.9 sess/s  eta=2.0m
+  + 256  total 23,296/23,882  embed=35.47s copy=212ms  rate=6.9 sess/s  eta=1.4m
+  + 256  total 23,552/23,882  embed=35.46s copy=207ms  rate=6.9 sess/s  eta=0.8m
+  + 256  total 23,808/23,882  embed=37.10s copy=215ms  rate=6.9 sess/s  eta=0.2m
+  +  74  total 23,882/23,882  embed=10.83s copy=64ms  rate=6.9 sess/s  eta=0.0m
+
+[bake] DONE  23,882 embedded in 57.6m (6.9 sessions/s)  skipped=0
+[bake] Next: pg_dump -U mazemaker -d mm10m_bench --schema=longmemeval_s_bgem3_1024 -Fc -f benchmarks/snapshots/longmemeval_s_bgem3_1024.dump

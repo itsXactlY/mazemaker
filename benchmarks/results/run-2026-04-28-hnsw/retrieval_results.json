@@ -1,0 +1,208 @@
+{
+  "setup": {
+    "stored_count": 17168,
+    "insert_elapsed_s": 317.34,
+    "insert_rate_per_s": 54.1,
+    "db_stats": {
+      "memories": 2368,
+      "connections": 142818,
+      "revisions": 13532,
+      "embedding_dim": 1024,
+      "embedding_backend": "SentenceTransformerBackend",
+      "embed_fingerprint": "SentenceTransformerBackend::1024::",
+      "dim_locked": true,
+      "dim_mismatch_reason": null,
+      "quarantined_dim": 0,
+      "retrieval_mode": "semantic",
+      "lazy_graph": false,
+      "hnsw_enabled": "auto"
+    }
+  },
+  "modes": {
+    "semantic": {
+      "queries": {
+        "recall@1": {
+          "recall": 0.12,
+          "mrr": 0.12,
+          "hit_rate": 0.12,
+          "total_queries": 50
+        },
+        "recall@3": {
+          "recall": 0.16,
+          "mrr": 0.1133,
+          "hit_rate": 0.16,
+          "total_queries": 50
+        },
+        "recall@5": {
+          "recall": 0.18,
+          "mrr": 0.115,
+          "hit_rate": 0.18,
+          "total_queries": 50
+        },
+        "recall@10": {
+          "recall": 0.3,
+          "mrr": 0.1121,
+          "hit_rate": 0.3,
+          "total_queries": 50
+        }
+      },
+      "latency": {
+        "p50_ms": 46.42,
+        "p95_ms": 46.42,
+        "p99_ms": 46.42,
+        "mean_ms": 46.48
+      },
+      "throughput": {
+        "queries_per_second": 22.8,
+        "total_queries": 50,
+        "elapsed_s": 2.19
+      }
+    },
+    "hybrid": {
+      "queries": {
+        "recall@1": {
+          "recall": 0.44,
+          "mrr": 0.44,
+          "hit_rate": 0.44,
+          "total_queries": 50
+        },
+        "recall@3": {
+          "recall": 0.58,
+          "mrr": 0.5067,
+          "hit_rate": 0.58,
+          "total_queries": 50
+        },
+        "recall@5": {
+          "recall": 0.64,
+          "mrr": 0.4863,
+          "hit_rate": 0.64,
+          "total_queries": 50
+        },
+        "recall@10": {
+          "recall": 0.72,
+          "mrr": 0.4919,
+          "hit_rate": 0.72,
+          "total_queries": 50
+        }
+      },
+      "latency": {
+        "p50_ms": 1738.18,
+        "p95_ms": 1738.18,
+        "p99_ms": 1738.18,
+        "mean_ms": 1748.59
+      },
+      "throughput": {
+        "queries_per_second": 0.57,
+        "total_queries": 50,
+        "elapsed_s": 87.38
+      }
+    },
+    "advanced": {
+      "queries": {
+        "recall@1": {
+          "recall": 0.44,
+          "mrr": 0.44,
+          "hit_rate": 0.44,
+          "total_queries": 50
+        },
+        "recall@3": {
+          "recall": 0.58,
+          "mrr": 0.5033,
+          "hit_rate": 0.58,
+          "total_queries": 50
+        },
+        "recall@5": {
+          "recall": 0.66,
+          "mrr": 0.5103,
+          "hit_rate": 0.66,
+          "total_queries": 50
+        },
+        "recall@10": {
+          "recall": 0.72,
+          "mrr": 0.519,
+          "hit_rate": 0.72,
+          "total_queries": 50
+        }
+      },
+      "latency": {
+        "p50_ms": 1573.88,
+        "p95_ms": 1573.88,
+        "p99_ms": 1573.88,
+        "mean_ms": 1575.16
+      },
+      "throughput": {
+        "queries_per_second": 0.59,
+        "total_queries": 50,
+        "elapsed_s": 84.59
+      }
+    },
+    "skynet": {
+      "queries": {
+        "recall@1": {
+          "recall": 0.42,
+          "mrr": 0.42,
+          "hit_rate": 0.42,
+          "total_queries": 50
+        },
+        "recall@3": {
+          "recall": 0.58,
+          "mrr": 0.49,
+          "hit_rate": 0.58,
+          "total_queries": 50
+        },
+        "recall@5": {
+          "recall": 0.66,
+          "mrr": 0.507,
+          "hit_rate": 0.66,
+          "total_queries": 50
+        },
+        "recall@10": {
+          "recall": 0.72,
+          "mrr": 0.5148,
+          "hit_rate": 0.72,
+          "total_queries": 50
+        }
+      },
+      "latency": {
+        "p50_ms": 1224.76,
+        "p95_ms": 1224.76,
+        "p99_ms": 1224.76,
+        "mean_ms": 1224.83
+      },
+      "throughput": {
+        "queries_per_second": 0.8,
+        "total_queries": 50,
+        "elapsed_s": 62.84
+      }
+    }
+  },
+  "summary": {
+    "best_mode": "advanced",
+    "modes": {
+      "semantic": {
+        "recall@5": 0.18,
+        "mrr@5": 0.115,
+        "latency_p50_ms": 46.42,
+        "qps": 22.8
+      },
+      "hybrid": {
+        "recall@5": 0.64,
+        "mrr@5": 0.4863,
+        "latency_p50_ms": 1738.18,
+        "qps": 0.57
+      },
+      "advanced": {
+        "recall@5": 0.66,
+        "mrr@5": 0.5103,
+        "latency_p50_ms": 1573.88,
+        "qps": 0.59
+      },
+      "skynet": {
+        "recall@5": 0.66,
+        "mrr@5": 0.507,
+        "latency_p50_ms": 1224.76,
+        "qps": 0.8
+      }
+    }
+  }
+}

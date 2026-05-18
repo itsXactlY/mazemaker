@@ -24,7 +24,7 @@ Runs entirely offline — no API keys, no cloud.
 memory:
   provider: neural
   neural:
-    db_path: ~/.neural_memory/memory.db
+    db_path: ~/.mazemaker/engine/memory.db
     embedding_backend: fastembed  # fastembed|hash|tfidf|sentence-transformers|auto
 ```
 

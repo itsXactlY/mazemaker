@@ -47,7 +47,7 @@ def synthetic_records() -> list[dict[str, Any]]:
         ("The C++ bridge is optional; Python fallback must remain production-safe.", "What must remain production-safe if C++ is absent?", "Python fallback"),
         ("HNSW should activate automatically only when the corpus is large enough.", "When should HNSW activate automatically?", "corpus is large enough"),
         ("The weekly rollup should write a WEEKLY.md brief after Insight.", "What should the weekly rollup write?", "WEEKLY.md"),
-        ("The primary memory database is ~/.neural_memory/memory.db.", "What is the primary memory database?", "~/.neural_memory/memory.db"),
+        ("The primary memory database is ~/.mazemaker/engine/memory.db.", "What is the primary memory database?", "~/.mazemaker/engine/memory.db"),
     ]
     return [{"context": c, "query": q, "answer": a} for c, q, a in facts]
 

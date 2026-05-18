@@ -1,0 +1,82 @@
+[
+  {
+    "qid": "d7c942c3",
+    "question": "Is my mom using the same grocery list method as me?",
+    "answer": "Yes.",
+    "gold_sids": [
+      "answer_eecb10d9_1",
+      "answer_eecb10d9_2"
+    ],
+    "rank": null
+  },
+  {
+    "qid": "ce6d2d27",
+    "question": "What day of the week do I take a cocktail-making class?",
+    "answer": "Friday",
+    "gold_sids": [
+      "answer_73540165_2",
+      "answer_73540165_1"
+    ],
+    "rank": null
+  },
+  {
+    "qid": "c4ea545c",
+    "question": "Do I go to the gym more frequently than I did previously?",
+    "answer": "Yes",
+    "gold_sids": [
+      "answer_d3bf812b_2",
+      "answer_d3bf812b_1"
+    ],
+    "rank": null
+  },
+  {
+    "qid": "a2f3aa27",
+    "question": "How many followers do I have on Instagram now?",
+    "answer": "1300",
+    "gold_sids": [
+      "answer_5126c02d_2",
+      "answer_5126c02d_1"
+    ],
+    "rank": 8
+  },
+  {
+    "qid": "c7dc5443",
+    "question": "What is my current record in the recreational volleyball league?",
+    "answer": "5-2",
+    "gold_sids": [
+      "answer_0cdbca92_2",
+      "answer_0cdbca92_1"
+    ],
+    "rank": null
+  },
+  {
+    "qid": "3ba21379",
+    "question": "What type of vehicle model am I currently working on?",
+    "answer": "Ford F-150 pickup truck",
+    "gold_sids": [
+      "answer_cd345582_1",
+      "answer_cd345582_2"
+    ],
+    "rank": 6
+  },
+  {
+    "qid": "6aeb4375_abs",
+    "question": "How many Italian restaurants have I tried in my city?",
+    "answer": "The information provided is not enough. You mentioned trying Korean restaurants but not Italian restaurants.",
+    "gold_sids": [
+      "answer_3f9693b7_abs_1",
+      "answer_3f9693b7_abs_2"
+    ],
+    "rank": null
+  },
+  {
+    "qid": "2698e78f_abs",
+    "question": "How often do I see Dr. Johnson?",
+    "answer": "The information provided is not enough. You mentioned seeing Dr. Smith but not Dr. Johnson.",
+    "gold_sids": [
+      "answer_9282283d_abs_2",
+      "answer_9282283d_abs_1"
+    ],
+    "rank": null
+  }
+]

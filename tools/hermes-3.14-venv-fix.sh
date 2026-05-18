@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bring the hermes 3.14 venv up to the full neural-memory feature set.
+# Bring the hermes 3.14 venv up to the full mazemaker feature set.
 # Safe to re-run; pip skips already-installed packages.
 set -e
 

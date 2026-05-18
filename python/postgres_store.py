@@ -424,7 +424,7 @@ class PostgresStore:
             )
             return int(id_)
 
-    # -- bulk-ingest helpers (godbench / large-corpus loaders) --------------
+    # -- bulk-ingest helpers (inception_bench / large-corpus loaders) --------------
     #
     # Three ingest fast-paths cooperate:
     #   1. `drop_bulk_indexes()` removes the HNSW vector index, the GIN FTS

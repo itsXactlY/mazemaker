@@ -1,0 +1,24 @@
+[api-bake] DB=mm10m_bench schema=longmemeval_oracle_bgem3_1024 model=gpt-5-nano-2025-08-07 concurrency=16
+GPU recall ARMED (load_from_store): 24563 vectors on cuda
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+[api-bake] eligible after dedup: 943 sessions (already-done: 5)
+[api-bake] 943 sessions to process
+[api-bake] firing 943 extractions...
+[api-bake] extracted 5824 facts in 1159.7s (5.0 facts/s)
+[api-bake] embedding 5824 facts...
+[api-bake] writing to PG...
+[api-bake] wrote 5824 memories
+[api-bake] linked 5824 fact→source edges
+
+[api-bake] DONE  5824 memories in 1191.8s
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7fed6c195f30>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

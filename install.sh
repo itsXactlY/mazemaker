@@ -400,7 +400,7 @@ cmd_install() {
     # -------------------------------------------------------------------
     # Initialize database
     # -------------------------------------------------------------------
-    DB_PATH="${NEURAL_MEMORY_DB_PATH:-$HOME/.neural_memory/memory.db}"
+    DB_PATH="${NEURAL_MEMORY_DB_PATH:-$HOME/.mazemaker/engine/memory.db}"
     mkdir -p "$(dirname "$DB_PATH")"
 
     if [ ! -f "$DB_PATH" ]; then
@@ -494,7 +494,7 @@ cmd_update() {
     check_not_root
     print_banner
 
-    print_info "Updating neural-memory-adapter..."
+    print_info "Updating mazemaker-engine..."
 
     # Git pull
     if [ -d "$SCRIPT_DIR/.git" ]; then
@@ -665,7 +665,7 @@ cmd_uninstall() {
     check_not_root
     print_banner
 
-    print_info "Uninstalling neural-memory-adapter symlinks..."
+    print_info "Uninstalling mazemaker-engine symlinks..."
 
     local HERMES_AGENT
     HERMES_AGENT=$(detect_hermes_agent "") 2>/dev/null
@@ -702,7 +702,7 @@ cmd_uninstall() {
     echo ""
     echo "  Source files in $PYTHON_DIR are preserved."
     echo "  Backup files (*.bak.*) are preserved."
-    echo "  To fully remove: rm -rf ~/projects/neural-memory-adapter"
+    echo "  To fully remove: rm -rf ~/projects/mazemaker-engine"
     echo "  To remove from config: edit ~/.hermes/config.yaml"
     echo ""
 }

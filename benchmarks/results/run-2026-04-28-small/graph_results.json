@@ -1,0 +1,473 @@
+{
+  "db_stats": {
+    "memories": 707,
+    "connections": 16597,
+    "revisions": 1310,
+    "embedding_dim": 1024,
+    "embedding_backend": "SentenceTransformerBackend",
+    "embed_fingerprint": "SentenceTransformerBackend::1024::",
+    "dim_locked": true,
+    "dim_mismatch_reason": null,
+    "quarantined_dim": 0,
+    "retrieval_mode": "semantic",
+    "lazy_graph": false,
+    "hnsw_enabled": "auto"
+  },
+  "bfs": {
+    "depth_2": {
+      "total_visited": 456,
+      "nodes_per_layer": {
+        "0": 50,
+        "1": 352,
+        "2": 104
+      },
+      "avg_layer_time_ms": 104.44,
+      "total_time_ms": 208.88
+    },
+    "depth_3": {
+      "total_visited": 499,
+      "nodes_per_layer": {
+        "0": 50,
+        "1": 352,
+        "2": 104,
+        "3": 43
+      },
+      "avg_layer_time_ms": 79.6,
+      "total_time_ms": 238.79
+    },
+    "depth_5": {
+      "total_visited": 564,
+      "nodes_per_layer": {
+        "0": 50,
+        "1": 352,
+        "2": 104,
+        "3": 43,
+        "4": 37,
+        "5": 28
+      },
+      "avg_layer_time_ms": 47.89,
+      "total_time_ms": 239.46
+    }
+  },
+  "think": {
+    "depth_2": {
+      "total_activated": 364,
+      "time_ms": 141.83,
+      "ms_per_start_node": 14.18
+    },
+    "depth_3": {
+      "total_activated": 399,
+      "time_ms": 297.12,
+      "ms_per_start_node": 29.71
+    },
+    "depth_5": {
+      "total_activated": 416,
+      "time_ms": 318.49,
+      "ms_per_start_node": 31.85
+    }
+  },
+  "ppr": {
+    "alpha_0.7_iters_20": {
+      "total_activated": 50,
+      "time_ms": 2.22,
+      "ms_per_start_node": 0.44,
+      "top_results": [
+        {
+          "id": 522,
+          "label": "conversational:session_14",
+          "activation": 0.6713,
+          "engine": "bfs"
+        },
+        {
+          "id": 335,
+          "label": "conversational:session_15",
+          "activation": 0.6667,
+          "engine": "bfs"
+        },
+        {
+          "id": 558,
+          "label": "conversational:session_6",
+          "activation": 0.666,
+          "engine": "bfs"
+        },
+        {
+          "id": 549,
+          "label": "conversational:session_8",
+          "activation": 0.657,
+          "engine": "bfs"
+        },
+        {
+          "id": 196,
+          "label": "conversational:session_10",
+          "activation": 0.6566,
+          "engine": "bfs"
+        },
+        {
+          "id": 507,
+          "label": "conversational:session_9",
+          "activation": 0.6518,
+          "engine": "bfs"
+        },
+        {
+          "id": 514,
+          "label": "conversational:session_7",
+          "activation": 0.6485,
+          "engine": "bfs"
+        },
+        {
+          "id": 591,
+          "label": "conversational:session_16",
+          "activation": 0.5046,
+          "engine": "bfs"
+        },
+        {
+          "id": 691,
+          "label": "graph:bridge_benchmarks_models",
+          "activation": 0.4963,
+          "engine": "bfs"
+        },
+        {
+          "id": 407,
+          "label": "conversational:session_6",
+          "activation": 0.3358,
+          "engine": "bfs"
+        }
+      ]
+    },
+    "alpha_0.7_iters_50": {
+      "total_activated": 92,
+      "time_ms": 18.66,
+      "ms_per_start_node": 3.73,
+      "top_results": [
+        {
+          "id": 522,
+          "label": "conversational:session_14",
+          "activation": 0.6713,
+          "engine": "bfs"
+        },
+        {
+          "id": 335,
+          "label": "conversational:session_15",
+          "activation": 0.6667,
+          "engine": "bfs"
+        },
+        {
+          "id": 558,
+          "label": "conversational:session_6",
+          "activation": 0.666,
+          "engine": "bfs"
+        },
+        {
+          "id": 549,
+          "label": "conversational:session_8",
+          "activation": 0.657,
+          "engine": "bfs"
+        },
+        {
+          "id": 196,
+          "label": "conversational:session_10",
+          "activation": 0.6566,
+          "engine": "bfs"
+        },
+        {
+          "id": 507,
+          "label": "conversational:session_9",
+          "activation": 0.6518,
+          "engine": "bfs"
+        },
+        {
+          "id": 514,
+          "label": "conversational:session_7",
+          "activation": 0.6485,
+          "engine": "bfs"
+        },
+        {
+          "id": 591,
+          "label": "conversational:session_16",
+          "activation": 0.5046,
+          "engine": "bfs"
+        },
+        {
+          "id": 691,
+          "label": "graph:bridge_benchmarks_models",
+          "activation": 0.4963,
+          "engine": "bfs"
+        },
+        {
+          "id": 407,
+          "label": "conversational:session_6",
+          "activation": 0.3358,
+          "engine": "bfs"
+        }
+      ]
+    },
+    "alpha_0.85_iters_20": {
+      "total_activated": 50,
+      "time_ms": 1.89,
+      "ms_per_start_node": 0.38,
+      "top_results": [
+        {
+          "id": 522,
+          "label": "conversational:session_14",
+          "activation": 0.8151,
+          "engine": "bfs"
+        },
+        {
+          "id": 335,
+          "label": "conversational:session_15",
+          "activation": 0.8096,
+          "engine": "bfs"
+        },
+        {
+          "id": 558,
+          "label": "conversational:session_6",
+          "activation": 0.8087,
+          "engine": "bfs"
+        },
+        {
+          "id": 549,
+          "label": "conversational:session_8",
+          "activation": 0.7977,
+          "engine": "bfs"
+        },
+        {
+          "id": 196,
+          "label": "conversational:session_10",
+          "activation": 0.7973,
+          "engine": "bfs"
+        },
+        {
+          "id": 507,
+          "label": "conversational:session_9",
+          "activation": 0.7915,
+          "engine": "bfs"
+        },
+        {
+          "id": 514,
+          "label": "conversational:session_7",
+          "activation": 0.7875,
+          "engine": "bfs"
+        },
+        {
+          "id": 591,
+          "label": "conversational:session_16",
+          "activation": 0.6127,
+          "engine": "bfs"
+        },
+        {
+          "id": 691,
+          "label": "graph:bridge_benchmarks_models",
+          "activation": 0.6026,
+          "engine": "bfs"
+        },
+        {
+          "id": 407,
+          "label": "conversational:session_6",
+          "activation": 0.4952,
+          "engine": "bfs"
+        }
+      ]
+    },
+    "alpha_0.85_iters_50": {
+      "total_activated": 92,
+      "time_ms": 17.79,
+      "ms_per_start_node": 3.56,
+      "top_results": [
+        {
+          "id": 522,
+          "label": "conversational:session_14",
+          "activation": 0.8151,
+          "engine": "bfs"
+        },
+        {
+          "id": 335,
+          "label": "conversational:session_15",
+          "activation": 0.8096,
+          "engine": "bfs"
+        },
+        {
+          "id": 558,
+          "label": "conversational:session_6",
+          "activation": 0.8087,
+          "engine": "bfs"
+        },
+        {
+          "id": 549,
+          "label": "conversational:session_8",
+          "activation": 0.7977,
+          "engine": "bfs"
+        },
+        {
+          "id": 196,
+          "label": "conversational:session_10",
+          "activation": 0.7973,
+          "engine": "bfs"
+        },
+        {
+          "id": 507,
+          "label": "conversational:session_9",
+          "activation": 0.7915,
+          "engine": "bfs"
+        },
+        {
+          "id": 514,
+          "label": "conversational:session_7",
+          "activation": 0.7875,
+          "engine": "bfs"
+        },
+        {
+          "id": 591,
+          "label": "conversational:session_16",
+          "activation": 0.6127,
+          "engine": "bfs"
+        },
+        {
+          "id": 691,
+          "label": "graph:bridge_benchmarks_models",
+          "activation": 0.6026,
+          "engine": "bfs"
+        },
+        {
+          "id": 407,
+          "label": "conversational:session_6",
+          "activation": 0.4952,
+          "engine": "bfs"
+        }
+      ]
+    },
+    "alpha_0.95_iters_20": {
+      "total_activated": 50,
+      "time_ms": 1.87,
+      "ms_per_start_node": 0.37,
+      "top_results": [
+        {
+          "id": 522,
+          "label": "conversational:session_14",
+          "activation": 0.911,
+          "engine": "bfs"
+        },
+        {
+          "id": 335,
+          "label": "conversational:session_15",
+          "activation": 0.9049,
+          "engine": "bfs"
+        },
+        {
+          "id": 558,
+          "label": "conversational:session_6",
+          "activation": 0.9039,
+          "engine": "bfs"
+        },
+        {
+          "id": 549,
+          "label": "conversational:session_8",
+          "activation": 0.8916,
+          "engine": "bfs"
+        },
+        {
+          "id": 196,
+          "label": "conversational:session_10",
+          "activation": 0.8911,
+          "engine": "bfs"
+        },
+        {
+          "id": 507,
+          "label": "conversational:session_9",
+          "activation": 0.8846,
+          "engine": "bfs"
+        },
+        {
+          "id": 514,
+          "label": "conversational:session_7",
+          "activation": 0.8801,
+          "engine": "bfs"
+        },
+        {
+          "id": 591,
+          "label": "conversational:session_16",
+          "activation": 0.6848,
+          "engine": "bfs"
+        },
+        {
+          "id": 691,
+          "label": "graph:bridge_benchmarks_models",
+          "activation": 0.6735,
+          "engine": "bfs"
+        },
+        {
+          "id": 407,
+          "label": "conversational:session_6",
+          "activation": 0.6186,
+          "engine": "bfs"
+        }
+      ]
+    },
+    "alpha_0.95_iters_50": {
+      "total_activated": 92,
+      "time_ms": 17.75,
+      "ms_per_start_node": 3.55,
+      "top_results": [
+        {
+          "id": 522,
+          "label": "conversational:session_14",
+          "activation": 0.911,
+          "engine": "bfs"
+        },
+        {
+          "id": 335,
+          "label": "conversational:session_15",
+          "activation": 0.9049,
+          "engine": "bfs"
+        },
+        {
+          "id": 558,
+          "label": "conversational:session_6",
+          "activation": 0.9039,
+          "engine": "bfs"
+        },
+        {
+          "id": 549,
+          "label": "conversational:session_8",
+          "activation": 0.8916,
+          "engine": "bfs"
+        },
+        {
+          "id": 196,
+          "label": "conversational:session_10",
+          "activation": 0.8911,
+          "engine": "bfs"
+        },
+        {
+          "id": 507,
+          "label": "conversational:session_9",
+          "activation": 0.8846,
+          "engine": "bfs"
+        },
+        {
+          "id": 514,
+          "label": "conversational:session_7",
+          "activation": 0.8801,
+          "engine": "bfs"
+        },
+        {
+          "id": 591,
+          "label": "conversational:session_16",
+          "activation": 0.6848,
+          "engine": "bfs"
+        },
+        {
+          "id": 691,
+          "label": "graph:bridge_benchmarks_models",
+          "activation": 0.6735,
+          "engine": "bfs"
+        },
+        {
+          "id": 407,
+          "label": "conversational:session_6",
+          "activation": 0.6186,
+          "engine": "bfs"
+        }
+      ]
+    }
+  }
+}

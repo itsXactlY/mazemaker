@@ -1,0 +1,104 @@
+
+========================================================================
+  inception_bench — Unified Mazemaker Production Benchmark
+  Schema: longmemeval_oracle_bgem3_1024  Questions: 500  Dream: False
+========================================================================
+
+[load] Loading LongMemEval-S questions...
+  500 questions loaded (10,960 sessions in PG)
+  LongMemEval-S: 246,930 sessions
+  LongMemEval-M: 2,450,050 sessions (available)
+
+[engine] Building single PG-backed Mazemaker...
+[embed-server] CUDA: 15316 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 391/391 [00:00<00:00, 43263.06it/s]
+GPU recall ARMED (load_from_store): 35867 vectors on cuda
+/home/alca/projects/mazemaker/python/memory_client.py:3551: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /pytorch/aten/src/ATen/Context.cpp:760.)
+  self._gpu_ppr_adj = torch.sparse_coo_tensor(
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15316MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+  engine ready in 17.1s — schema: longmemeval_oracle_bgem3_1024
+
+[ingest] read-cache mode — bench targets cache schema 'longmemeval_oracle_bgem3_1024' directly
+  35,867 memories, 50,445 connections already in place
+
+[graph] Warming HNSW for 35,867 memories...
+  HNSW warm in 0.0s (auto-connect skipped — pass --graph or use --dream to materialise edges)
+
+[recall] Running 500 questions (baseline)...
+
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 391/391 [00:00<00:00, 44751.76it/s]
+
+Loading weights:   0%|          | 0/105 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 105/105 [00:00<00:00, 12926.38it/s]
+[1mBertForSequenceClassification LOAD REPORT[0m from: /home/alca/.mazemaker/engine/models/models--cross-encoder--ms-marco-MiniLM-L-6-v2/snapshots/c5ee24cb16019beea0893ab7796b1df96625c6b8
+Key                          | Status     |  | 
+-----------------------------+------------+--+-
+bert.embeddings.position_ids | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+  [  25/500 (  5.0%)]  R@1=0.2400  R@5=0.6400  MRR=0.4013  p50=1555ms  elapsed=31s
+  [  50/500 ( 10.0%)]  R@1=0.3800  R@5=0.6800  MRR=0.5034  p50=1561ms  elapsed=69s
+  [  75/500 ( 15.0%)]  R@1=0.3768  R@5=0.6232  MRR=0.4851  p50=1574ms  elapsed=109s
+  [ 100/500 ( 20.0%)]  R@1=0.3511  R@5=0.6064  MRR=0.4628  p50=1575ms  elapsed=149s
+  [ 125/500 ( 25.0%)]  R@1=0.3363  R@5=0.6106  MRR=0.4606  p50=1576ms  elapsed=188s
+  [ 150/500 ( 30.0%)]  R@1=0.3913  R@5=0.6522  MRR=0.5100  p50=1583ms  elapsed=227s
+  [ 175/500 ( 35.0%)]  R@1=0.4540  R@5=0.6994  MRR=0.5629  p50=1586ms  elapsed=266s
+  [ 200/500 ( 40.0%)]  R@1=0.4835  R@5=0.7198  MRR=0.5851  p50=1587ms  elapsed=306s
+  [ 225/500 ( 45.0%)]  R@1=0.4638  R@5=0.6715  MRR=0.5536  p50=1590ms  elapsed=348s
+  [ 250/500 ( 50.0%)]  R@1=0.4828  R@5=0.6767  MRR=0.5656  p50=1596ms  elapsed=386s
+  [ 275/500 ( 55.0%)]  R@1=0.5175  R@5=0.7004  MRR=0.5955  p50=1595ms  elapsed=424s
+  [ 300/500 ( 60.0%)]  R@1=0.5319  R@5=0.7057  MRR=0.6071  p50=1595ms  elapsed=465s
+  [ 325/500 ( 65.0%)]  R@1=0.5179  R@5=0.7003  MRR=0.5953  p50=1601ms  elapsed=508s
+  [ 350/500 ( 70.0%)]  R@1=0.5120  R@5=0.6958  MRR=0.5915  p50=1608ms  elapsed=551s
+  [ 375/500 ( 75.0%)]  R@1=0.4986  R@5=0.6866  MRR=0.5797  p50=1610ms  elapsed=592s
+  [ 400/500 ( 80.0%)]  R@1=0.4840  R@5=0.6702  MRR=0.5653  p50=1610ms  elapsed=630s
+  [ 425/500 ( 85.0%)]  R@1=0.4564  R@5=0.6584  MRR=0.5433  p50=1607ms  elapsed=668s
+  [ 450/500 ( 90.0%)]  R@1=0.4671  R@5=0.6643  MRR=0.5519  p50=1605ms  elapsed=706s
+  [ 475/500 ( 95.0%)]  R@1=0.4612  R@5=0.6652  MRR=0.5470  p50=1604ms  elapsed=747s
+  [ 500/500 (100.0%)]  R@1=0.4596  R@5=0.6660  MRR=0.5475  p50=1602ms  elapsed=788s
+
+========================================================================
+  BASELINE RECALL (pre-dream)
+========================================================================
+  metric                      value
+  --------------------------------
+  n_total                       500
+  n_gradeable                   470
+  recall@1                   0.4596
+  recall@5                   0.6660
+  recall@10                  0.7383
+  MRR                        0.5475
+  p50_ms                     1602.3
+  p95_ms                     1889.9
+
+  question_type                       n      R@1      R@5     R@10      MRR
+  --------------------------------------------------------------------
+  knowledge-update                   72   0.7222   0.9028   0.9167   0.7907
+  multi-session                     121   0.4050   0.6529   0.7686   0.5166
+  single-session-assistant           56   0.8750   0.9107   0.9107 inception_bench
+  single-session-preference          30   0.2000   0.2667   0.3333   0.2245
+  single-session-user                64   0.4062   0.6250   0.7344   0.5050
+  temporal-reasoning                127   0.2677   0.5512   0.6299   0.3856
+
+
+[output] /home/alca/projects/mazemaker/benchmarks/external/results/godbench_loop-iter14-afe-multirecall_20260517T133659Z.json
+
+[total] 804.7s  (13.4 min)
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7ff59eb38a90>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

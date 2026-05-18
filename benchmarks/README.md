@@ -7,7 +7,7 @@ The headline claim of Mazemaker is that it does things a generic vector store ca
 **External, public-dataset numbers** live one directory deeper in [`external/`](external/README.md):
 
 - **LongMemEval-S 500-question retrieval** (Wu et al., ICLR 2025) — `R@5 = 0.9787`, `MRR = 0.9114` with ColBERT@1.5 (`R@1 = 0.8574`, `+5.10 pp` over the hybrid baseline). Three of six question types reach perfect R@5. (LongMemEval-**S** = 50-200 sessions per question, the easier variant.)
-- **LongMemEval-oracle 500-question retrieval** — the hard sibling: one ~25k-memory haystack per question. `R@5 = 0.8043`, `R@10 = 0.8532`, `MRR = 0.6883`. ssu R@10 = `1.0000` (perfect). Full guide and reproduction recipe in [`GODBENCH_GUIDE.md`](GODBENCH_GUIDE.md). The same engine, ~$0.07 of OpenAI API spend on targeted Stage C rebakes ([`targeted_rebake/`](targeted_rebake/)).
+- **LongMemEval-oracle 500-question retrieval** — the hard sibling: one ~25k-memory haystack per question. `R@5 = 0.8043`, `R@10 = 0.8532`, `MRR = 0.6883`. ssu R@10 = `1.0000` (perfect). Full guide and reproduction recipe in [`inception_bench_GUIDE.md`](inception_bench_GUIDE.md). The same engine, ~$0.07 of OpenAI API spend on targeted Stage C rebakes ([`targeted_rebake/`](targeted_rebake/)).
 - **Comparison Bench** (ten small LLMs Hindsight evaluated on plain-text scoring) — `188/200 = 94.0%` with ColBERT@1.5, `0 errors deterministic`. `gemma3:270m` (270M params, runs on a Pi) scores `18/20 = 90%`.
 
 ---
@@ -182,7 +182,7 @@ The continuity-controls test above is the concept-mode follow-up that removes th
 
 ```bash
 # All v4 suites against the disjoint-vocab paraphrase dataset:
-python -m benchmarks.neural_memory_benchmark.runner \
+python -m benchmarks.mazemaker_benchmark.runner \
   --paraphrase \
   --suite baseline --suite diversity --suite lstm_knn \
   --suite conflict_quality --suite graph_reasoning \
@@ -191,13 +191,13 @@ python -m benchmarks.neural_memory_benchmark.runner \
   --output-dir benchmarks/results/my-run --seed 42
 
 # Single suite (fast, useful for iterating):
-python -m benchmarks.neural_memory_benchmark.runner --paraphrase --suite graph_reasoning
+python -m benchmarks.mazemaker_benchmark.runner --paraphrase --suite graph_reasoning
 
 # List available suites:
-python -m benchmarks.neural_memory_benchmark.runner --list
+python -m benchmarks.mazemaker_benchmark.runner --list
 
 # Re-run a suite against the legacy (lexical-leakage) dataset, drop --paraphrase
-python -m benchmarks.neural_memory_benchmark.runner --suite retrieval
+python -m benchmarks.mazemaker_benchmark.runner --suite retrieval
 ```
 
 A full sequential run takes ~12 minutes on a workstation (channel_ablation is 3.5 min, continuity_controls is 7 min, the rest are seconds-to-tens-of-seconds).
@@ -231,7 +231,7 @@ Plus the legacy v1 suites (`retrieval`, `dream`, `gpu`, `scalability`, `graph`, 
 - **Negative controls**: every "the system did something" claim is paired with a control that should fail — shuffled edges (graph), `detect_conflicts=False` (conflict), pre-dream zero (dream), recency-only (continuity).
 - **Activation assertions**: HNSW must actually activate (`nm._hnsw_index is not None` after probe) — sub-threshold tiers are flagged, not silently reported as overlap=1.0.
 - **Defaults from source**: `channel_ablation` reads `_channel_weights` from the live `Mazemaker` instance — a future change to defaults can't silently confound the ablation.
-- **Hot-path guard**: refuses to run against the production `~/.neural_memory/memory.db` unless `NEURAL_BENCH_ALLOW_HOTPATH=1` is set.
+- **Hot-path guard**: refuses to run against the production `~/.mazemaker/engine/memory.db` unless `NEURAL_BENCH_ALLOW_HOTPATH=1` is set.
 
 ---
 
@@ -263,7 +263,7 @@ benchmarks/
 │   └── codex-v5-prompt.md / -verdict-*.md
 ├── results/                           ← run outputs (gitignored)
 │   └── run-2026-04-28-codex-judge/    ← the run codex graded
-└── neural_memory_benchmark/
+└── mazemaker_benchmark/
     ├── benchmark.py                   ← orchestrator + suite dispatch
     ├── runner.py                      ← CLI entrypoint
     ├── config.py                      ← suite knobs + paths

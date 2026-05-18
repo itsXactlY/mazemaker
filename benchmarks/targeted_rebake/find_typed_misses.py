@@ -57,7 +57,7 @@ def main() -> int:
     _set_default_env()
 
     from memory_client import Mazemaker
-    from mazemaker_godbench import _preference_query, _rrf_fuse, rank_of_gold
+    from mazemaker_inception_bench import _preference_query, _rrf_fuse, rank_of_gold
 
     nm = Mazemaker(
         db_path="/dev/null",

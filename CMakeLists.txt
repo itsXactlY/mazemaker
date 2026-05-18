@@ -3,7 +3,7 @@
 # Sandbox:    cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-march=x86-64"
 # C++26:      cmake .. -DCMAKE_BUILD_TYPE=Release -DUSE_CXX26=ON
 cmake_minimum_required(VERSION 3.20)
-project(neural-memory-adapter VERSION 1.1.0 LANGUAGES CXX)
+project(mazemaker-engine VERSION 1.1.0 LANGUAGES CXX)
 
 option(USE_CXX26 "Try C++26 (auto-fallback to C++23 if unsupported)" ON)
 option(USE_NATIVE_ARCH "Compile with -march=native (4-5x speedup on AVX2/AVX-512 hosts; off=portable)" OFF)

@@ -1,0 +1,59 @@
+[dream-on-cache] DB=mm10m_bench schema=longmemeval_s_bgem3_1024
+[dream-on-cache] max_cycles=7 max_memories=4000 max_isolated=2000
+[dream-on-cache] MM_INSIGHT_MIN_CLUSTER=4 MM_REM_SIM_HIGH=0.99
+[dream-on-cache] Building Mazemaker on longmemeval_s_bgem3_1024...
+[embed-server] CUDA: 15343 MB free
+[embed-server] Loading /home/alca/.mazemaker/engine/models/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181 on cuda...
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 44425.65it/s]
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+GPU recall cache absent — auto-building from /dev/null
+GPU recall auto-build skipped (cache-build path): no such table: memories
+MM_POSTGRES_PASSWORD not set — add it to ~/.hermes/.env or the MM_POSTGRES_DSN env var
+/home/alca/projects/mazemaker/python/memory_client.py:3541: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /pytorch/aten/src/ATen/Context.cpp:760.)
+  self._gpu_ppr_adj = torch.sparse_coo_tensor(
+PG prune_memories_by_label_prefix failed: update or delete on table "memories" violates foreign key constraint "connections_target_id_fkey" on table "connections"
+DETAIL:  Key (id)=(333859) is still referenced from table "connections".
+[embed-server] Ready: BAAI/bge-m3 (1024d) on cuda
+[embed-server] Listening at /home/alca/.mazemaker/engine/embed.sock
+[embed] Started shared server, using client mode
+[embed] Auto-selected: sentence-transformers CUDA (1024d, 15340MB free)
+Embedding backend: SentenceTransformerBackend (1024d)
+  cycle  1/7  NREM: proc=4000 +44088/-185530/p0  SUP: 0  REM: bridges=9001/rej=8702  INS: communities=11780 insights=3313 derived=50  AFE: written=0  DAE: written=333858  488.7s
+PG prune_memories_by_label_prefix failed: update or delete on table "memories" violates foreign key constraint "connections_target_id_fkey" on table "connections"
+DETAIL:  Key (id)=(333859) is still referenced from table "connections".
+  cycle  2/7  NREM: proc=4000 +44980/-197578/p0  SUP: 0  REM: bridges=8817/rej=8787  INS: communities=12087 insights=4915 derived=50  AFE: written=0  DAE: written=0  89.5s
+PG prune_memories_by_label_prefix failed: update or delete on table "memories" violates foreign key constraint "connections_target_id_fkey" on table "connections"
+DETAIL:  Key (id)=(333859) is still referenced from table "connections".
+  cycle  3/7  NREM: proc=4000 +44202/-209236/p0  SUP: 0  REM: bridges=8845/rej=8787  INS: communities=12441 insights=6668 derived=50  AFE: written=0  DAE: written=0  83.7s
+PG prune_memories_by_label_prefix failed: update or delete on table "memories" violates foreign key constraint "connections_target_id_fkey" on table "connections"
+DETAIL:  Key (id)=(333859) is still referenced from table "connections".
+  cycle  4/7  NREM: proc=4000 +45034/-220800/p0  SUP: 0  REM: bridges=8777/rej=8824  INS: communities=12727 insights=8390 derived=50  AFE: written=0  DAE: written=0  82.9s
+PG prune_memories_by_label_prefix failed: update or delete on table "memories" violates foreign key constraint "connections_target_id_fkey" on table "connections"
+DETAIL:  Key (id)=(333859) is still referenced from table "connections".
+  cycle  5/7  NREM: proc=4000 +44110/-232200/p0  SUP: 0  REM: bridges=8613/rej=8903  INS: communities=13031 insights=10210 derived=50  AFE: written=0  DAE: written=0  91.1s
+PG prune_memories_by_label_prefix failed: update or delete on table "memories" violates foreign key constraint "connections_target_id_fkey" on table "connections"
+DETAIL:  Key (id)=(333859) is still referenced from table "connections".
+  cycle  6/7  NREM: proc=4000 +43457/-243345/p0  SUP: 0  REM: bridges=8520/rej=8945  INS: communities=13288 insights=12108 derived=50  AFE: written=0  DAE: written=334108  587.0s
+PG prune_memories_by_label_prefix failed: update or delete on table "memories" violates foreign key constraint "connections_target_id_fkey" on table "connections"
+DETAIL:  Key (id)=(333859) is still referenced from table "connections".
+  cycle  7/7  NREM: proc=4000 +44286/-254385/p0  SUP: 0  REM: bridges=8542/rej=8873  INS: communities=13544 insights=14085 derived=50  AFE: written=0  DAE: written=0  160.7s
+
+[dream-on-cache] DONE  7 cycles in 26.4m
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7f363761f060>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7f363761f060>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

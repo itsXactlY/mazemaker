@@ -1,0 +1,123 @@
+{
+  "sessions": [
+    {
+      "session_id": 0,
+      "elapsed_s": 0.29,
+      "total_actions": 10,
+      "actions_per_second": 34.7,
+      "timings": {
+        "remember": {
+          "count": 4,
+          "mean_ms": 38.03,
+          "p50_ms": 38.07,
+          "p95_ms": 39.01,
+          "p99_ms": 39.01
+        },
+        "recall": {
+          "count": 4,
+          "mean_ms": 19.8,
+          "p50_ms": 20.31,
+          "p95_ms": 28.1,
+          "p99_ms": 28.1
+        },
+        "think": {
+          "count": 2,
+          "mean_ms": 28.53,
+          "p50_ms": 28.53,
+          "p95_ms": 29.22,
+          "p99_ms": 29.22
+        }
+      }
+    },
+    {
+      "session_id": 1,
+      "elapsed_s": 0.17,
+      "total_actions": 10,
+      "actions_per_second": 59.0,
+      "timings": {
+        "remember": {
+          "count": 2,
+          "mean_ms": 18.83,
+          "p50_ms": 18.83,
+          "p95_ms": 37.58,
+          "p99_ms": 37.58
+        },
+        "recall": {
+          "count": 5,
+          "mean_ms": 15.21,
+          "p50_ms": 13.64,
+          "p95_ms": 26.32,
+          "p99_ms": 26.32
+        },
+        "think": {
+          "count": 1,
+          "mean_ms": 51.08,
+          "p50_ms": 51.08,
+          "p95_ms": 51.08,
+          "p99_ms": 51.08
+        },
+        "graph": {
+          "count": 2,
+          "mean_ms": 2.21,
+          "p50_ms": 2.21,
+          "p95_ms": 2.24,
+          "p99_ms": 2.24
+        }
+      }
+    },
+    {
+      "session_id": 2,
+      "elapsed_s": 0.3,
+      "total_actions": 10,
+      "actions_per_second": 33.1,
+      "timings": {
+        "remember": {
+          "count": 2,
+          "mean_ms": 38.27,
+          "p50_ms": 38.27,
+          "p95_ms": 39.24,
+          "p99_ms": 39.24
+        },
+        "recall": {
+          "count": 5,
+          "mean_ms": 18.98,
+          "p50_ms": 13.81,
+          "p95_ms": 29.54,
+          "p99_ms": 29.54
+        },
+        "think": {
+          "count": 3,
+          "mean_ms": 43.64,
+          "p50_ms": 52.76,
+          "p95_ms": 67.09,
+          "p99_ms": 67.09
+        }
+      }
+    }
+  ],
+  "summary": {
+    "num_sessions": 3,
+    "total_actions": 30,
+    "avg_actions_per_second": 42.3,
+    "min_aps": 33.1,
+    "max_aps": 59.0,
+    "action_aggregates": {
+      "remember": {
+        "avg_mean_ms": 31.71,
+        "avg_p95_ms": 38.61
+      },
+      "recall": {
+        "avg_mean_ms": 18.0,
+        "avg_p95_ms": 27.99
+      },
+      "think": {
+        "avg_mean_ms": 41.08,
+        "avg_p95_ms": 49.13
+      },
+      "graph": {
+        "avg_mean_ms": 2.21,
+        "avg_p95_ms": 0.75
+      }
+    }
+  }
+}

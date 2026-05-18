@@ -1,0 +1,34 @@
+GPU recall ARMED (load_from_store): 11563 vectors on cuda
+/home/alca/projects/mazemaker/python/memory_client.py:3551: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /pytorch/aten/src/ATen/Context.cpp:760.)
+  self._gpu_ppr_adj = torch.sparse_coo_tensor(
+[dream-on-cache] DB=mm10m_bench schema=longmemeval_oracle_bgem3_1024
+[dream-on-cache] max_cycles=4 max_memories=4000 max_isolated=2000
+[dream-on-cache] MM_INSIGHT_MIN_CLUSTER=4 MM_REM_SIM_HIGH=0.99
+[dream-on-cache] Building Mazemaker on longmemeval_oracle_bgem3_1024...
+[embed] Connected to shared server (1024d)
+[embed] Auto-selected: shared server (1024d)
+Embedding backend: SentenceTransformerBackend (1024d)
+  cycle  1/4  NREM: proc=4000 +69565/-26132/p530  SUP: 0  REM: bridges=14427/rej=3479  INS: communities=1365 insights=6274 derived=50  AFE: written=7762  DAE: written=19227  90.2s
+  cycle  2/4  NREM: proc=4000 +26915/-48843/p697  SUP: 0  REM: bridges=14507/rej=3159  INS: communities=1312 insights=8381 derived=50  AFE: written=2376  DAE: written=0  47.7s
+  cycle  3/4  NREM: proc=4000 +24588/-68299/p680  SUP: 0  REM: bridges=14427/rej=3064  INS: communities=1368 insights=11182 derived=50  AFE: written=969  DAE: written=0  94.1s
+  cycle  4/4  NREM: proc=4000 +24290/-85480/p593  SUP: 0  REM: bridges=12817/rej=3947  INS: communities=1475 insights=13770 derived=50  AFE: written=932  DAE: written=0  108.1s
+
+[dream-on-cache] DONE  4 cycles in 5.7m
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7fc2622dceb0>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown
+Exception ignored while calling deallocator <function ConnectionPool.__del__ at 0x7fc2622dceb0>:
+Traceback (most recent call last):
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/pool.py", line 126, in __del__
+    gather(*workers, timeout=5.0, timeout_hint=hint)
+  File "/home/alca/.local/lib/python3.14/site-packages/psycopg_pool/_acompat.py", line 152, in gather
+    t.join(timeout)
+  File "/usr/lib/python3.14/threading.py", line 1133, in join
+    self._os_thread_handle.join(timeout)
+PythonFinalizationError: cannot join thread at interpreter shutdown

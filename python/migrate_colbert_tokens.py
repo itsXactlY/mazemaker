@@ -158,16 +158,34 @@ def main() -> int:
             enc_ms = (time.perf_counter() - t_enc) * 1000.0
             t_w = time.perf_counter()
             batch_written = 0
+            pairs: list[tuple[int, bytes]] = []
             for mid, arr in zip(ids, arrs):
                 if arr is None:
                     continue
-                if not args.dry_run:
+                pairs.append((mid, pack_tokens(arr)))
+            if not args.dry_run and pairs:
+                if hasattr(store, "set_colbert_tokens_many"):
                     try:
-                        store.set_colbert_tokens(mid, pack_tokens(arr))
+                        store.set_colbert_tokens_many(pairs)
+                        batch_written = len(pairs)
                     except Exception:
-                        logger.warning("write failed for id=%d", mid, exc_info=True)
-                        continue
-                batch_written += 1
+                        logger.warning("bulk write failed; falling back to per-row",
+                                       exc_info=True)
+                        for mid, blob in pairs:
+                            try:
+                                store.set_colbert_tokens(mid, blob)
+                                batch_written += 1
+                            except Exception:
+                                logger.warning("write failed for id=%d", mid, exc_info=True)
+                else:
+                    for mid, blob in pairs:
+                        try:
+                            store.set_colbert_tokens(mid, blob)
+                            batch_written += 1
+                        except Exception:
+                            logger.warning("write failed for id=%d", mid, exc_info=True)
+            else:
+                batch_written = len(pairs)
             write_ms = (time.perf_counter() - t_w) * 1000.0
             written += batch_written
             processed += len(batch)

@@ -9,23 +9,61 @@ Usage:
     results = engine.recall("query text", k=5)
 """
 
+import json
 import os
-import pickle
 import time
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 
-_CACHE_DIR = Path.home() / ".mazemaker" / "engine" / "gpu_cache"
+# Per-DB isolation: the production GpuRecallEngine cache lives in
+# ~/.mazemaker/engine/gpu_cache/ and is hardcoded for the operator's main
+# DB. When a tool / harness opens a *different* DB (per-conv benchmarks,
+# ephemeral test stores, etc), the embeddings cached here do NOT match
+# the IDs in the open DB — recall_batch returns IDs from the production
+# corpus, which leak into REM bridge candidates as -1 (or stray IDs from
+# another DB) and produce silently-broken connection_history rows.
+# Override with MAZEMAKER_GPU_CACHE_DIR to point at an isolated cache
+# (or an empty dir to force fallback to per-query SQLite recall).
+_CACHE_DIR = Path(os.environ.get(
+    "MAZEMAKER_GPU_CACHE_DIR",
+    str(Path.home() / ".mazemaker" / "engine" / "gpu_cache"),
+))
 _EMBEDDINGS_PATH = _CACHE_DIR / "embeddings.npy"
-_METADATA_PATH = _CACHE_DIR / "metadata.pkl"
+# Metadata moved from pickle → JSON. pickle.load on operator-writable
+# files in ~/.mazemaker/engine/gpu_cache/ is an RCE primitive; the dict
+# is just {ids: int[], labels: str[], contents: str[]}, all JSON-trivial.
+_METADATA_PATH = _CACHE_DIR / "metadata.json"
+
+
+def _derive_per_db_cache_dir(db_path) -> Path:
+    """Derive a stable, DB-fingerprinted cache subdir from db_path.
+
+    Production has historically used a single global cache for ~/.neural_memory/memory.db.
+    Per-DB cache eliminates cross-DB contamination when tools/harnesses
+    open a DB different from the production one (per-conv benchmarks,
+    customer pods, multi-tenant test fixtures, etc.).
+
+    Returns the global default when db_path is None, falsy, or matches the
+    historical production DB — preserves backwards compatibility.
+    """
+    import hashlib
+    if not db_path:
+        return _CACHE_DIR
+    s = str(Path(db_path).resolve())
+    # Preserve the production global cache for the canonical operator DB.
+    if s == str(Path.home() / ".mazemaker" / "memory.db") or \
+       s == str(Path.home() / ".neural_memory" / "memory.db"):
+        return _CACHE_DIR
+    digest = hashlib.sha256(s.encode()).hexdigest()[:12]
+    return _CACHE_DIR.parent / "gpu_cache_per_db" / digest
 
 
 class GpuRecallEngine:
     """GPU-accelerated cosine similarity search over mazemaker embeddings."""
 
-    def __init__(self):
+    def __init__(self, db_path=None):
         self._device = None
         self._emb_tensor = None  # (N, dim) float32 on GPU
         # Cached row-normalised view of _emb_tensor. Built lazily the first
@@ -37,6 +75,17 @@ class GpuRecallEngine:
         self._contents = []
         self._dim = 1024
         self._loaded = False
+        # Per-DB cache isolation — picks the global cache for the production
+        # DB, an isolated sha256-derived subdir for any other DB. Use the
+        # property `cache_dir` to read; downstream code (build_gpu_cache)
+        # should use this rather than the module-level _CACHE_DIR.
+        self._cache_dir: Path = _derive_per_db_cache_dir(db_path)
+        self._emb_path: Path = self._cache_dir / "embeddings.npy"
+        self._meta_path: Path = self._cache_dir / "metadata.json"
+
+    @property
+    def cache_dir(self) -> Path:
+        return self._cache_dir
 
     def load(self, embed_fn=None, embed_batch_fn=None) -> bool:
         """Load embeddings onto GPU.
@@ -60,15 +109,21 @@ class GpuRecallEngine:
         else:
             self._device = torch.device("cpu")
 
-        # Load cached embeddings
-        if not _EMBEDDINGS_PATH.exists():
+        # Load cached embeddings — per-DB cache (falls back to global for
+        # the production DB).
+        if not self._emb_path.exists():
             return False
 
-        emb_array = np.load(str(_EMBEDDINGS_PATH))
+        emb_array = np.load(str(self._emb_path))
         self._dim = emb_array.shape[1]
 
-        with open(str(_METADATA_PATH), "rb") as f:
-            meta = pickle.load(f)
+        # If metadata.json is missing (e.g. a legacy cache still holds
+        # metadata.pkl) refuse to load. Callers rebuild the cache via
+        # build_gpu_cache.build(); pickle is never loaded.
+        if not self._meta_path.exists():
+            return False
+        with open(str(self._meta_path), "r", encoding="utf-8") as f:
+            meta = json.load(f)
 
         self._ids = meta["ids"]
         self._labels = meta["labels"]
@@ -84,6 +139,66 @@ class GpuRecallEngine:
         self._embed_fn = embed_fn
         self._embed_batch_fn = embed_batch_fn
 
+        self._loaded = True
+        return True
+
+    def load_from_store(self, store, embed_fn=None, embed_batch_fn=None) -> bool:
+        """Populate the GPU tensor directly from a Mazemaker store.
+
+        Use this when the on-disk gpu_cache is absent or untrusted —
+        the canonical example is the PostgreSQL backend, which keeps
+        embeddings in a pgvector column rather than in a SQLite blob,
+        so build_gpu_cache.py (a SQLite-only tool) can't help. Without
+        this path, MM_DB_BACKEND=postgres always left self._gpu = None
+        and NREM/REM's GPU-fast think_ids / recall_batch silently
+        degraded to per-call CPU/numpy.
+
+        Both SQLiteStore and PostgresStore expose get_all() with the
+        embedding column already decoded to list[float], so the loader
+        is fully backend-agnostic.
+
+        Returns True on success, False if the store is empty or torch
+        is unavailable.
+        """
+        try:
+            import torch
+        except ImportError:
+            return False
+
+        if torch.cuda.is_available():
+            self._device = torch.device("cuda")
+        else:
+            self._device = torch.device("cpu")
+
+        rows = store.get_all()
+        if not rows:
+            return False
+
+        ids: list[int] = []
+        labels: list[str] = []
+        contents: list[str] = []
+        vecs: list[list[float]] = []
+        for r in rows:
+            emb = r.get("embedding")
+            if not emb:
+                continue
+            ids.append(int(r["id"]))
+            labels.append(r.get("label") or "")
+            contents.append(r.get("content") or "")
+            vecs.append(emb)
+
+        if not ids:
+            return False
+
+        arr = np.asarray(vecs, dtype=np.float32)
+        self._dim = int(arr.shape[1])
+        self._emb_tensor = torch.tensor(arr, device=self._device, dtype=torch.float32)
+        self._emb_tensor_normed = None
+        self._ids = ids
+        self._labels = labels
+        self._contents = contents
+        self._embed_fn = embed_fn
+        self._embed_batch_fn = embed_batch_fn
         self._loaded = True
         return True
 

@@ -10,7 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import pickle
+import json
 import sqlite3
 import time
 from pathlib import Path
@@ -36,12 +36,44 @@ def build(db_path: Path, out_dir: Path) -> None:
         return
 
     sample = len(rows[0]["embedding"])
-    if sample % 4 == 0:
-        dtype, dim = np.float32, sample // 4
-    elif sample % 2 == 0:
-        dtype, dim = np.float16, sample // 2
+    # The previous "% 4 == 0 → float32 else % 2 == 0 → float16" form
+    # was ambiguous: a 1024d float16 blob is 2048 bytes, which is
+    # divisible by 4 too, so it would be silently interpreted as
+    # 512d float32 — every cosine similarity from the resulting tensor
+    # would be garbage. Prefer the dim pinned in db_meta (the engine
+    # records it at first write); fall back to assuming float32 (which
+    # matches sentence-transformers + fastembed defaults) only when the
+    # meta row is absent.
+    pinned_dim = None
+    try:
+        row = conn.execute(
+            "SELECT value FROM db_meta WHERE key = 'embed_dim'"
+        ).fetchone()
+        if row and row["value"]:
+            pinned_dim = int(row["value"])
+    except Exception:
+        pass
+
+    if pinned_dim:
+        bytes_per_elem = sample // pinned_dim
+        if bytes_per_elem == 4:
+            dtype, dim = np.float32, pinned_dim
+        elif bytes_per_elem == 2:
+            dtype, dim = np.float16, pinned_dim
+        else:
+            raise SystemExit(
+                f"unexpected bytes-per-element={bytes_per_elem} for pinned dim={pinned_dim} "
+                f"(blob {sample} bytes); refusing to guess dtype"
+            )
     else:
-        raise SystemExit(f"can't infer dtype from blob length {sample}")
+        # No pinned dim — default to float32. The engine's embed
+        # backends (fastembed, sentence-transformers) all emit float32.
+        if sample % 4 == 0:
+            dtype, dim = np.float32, sample // 4
+        else:
+            raise SystemExit(
+                f"no embed_dim in db_meta and blob length {sample} not divisible by 4"
+            )
 
     print(f"  rows = {len(rows)}, dim = {dim}, dtype = {np.dtype(dtype).name}")
 
@@ -58,9 +90,11 @@ def build(db_path: Path, out_dir: Path) -> None:
 
     t0 = time.time()
     np.save(str(out_dir / "embeddings.npy"), emb)
-    with open(str(out_dir / "metadata.pkl"), "wb") as f:
-        pickle.dump({"ids": ids, "labels": labels, "contents": contents}, f)
-    print(f"  wrote {emb.nbytes/1e6:.1f} MB embeddings.npy + metadata.pkl in {time.time()-t0:.2f}s")
+    # JSON, not pickle: gpu_cache lives in operator-writable ~/.mazemaker,
+    # and pickle.load on an attacker-controlled file is code execution.
+    with open(str(out_dir / "metadata.json"), "w", encoding="utf-8") as f:
+        json.dump({"ids": ids, "labels": labels, "contents": contents}, f)
+    print(f"  wrote {emb.nbytes/1e6:.1f} MB embeddings.npy + metadata.json in {time.time()-t0:.2f}s")
     print(f"  → {out_dir}/")
 
 

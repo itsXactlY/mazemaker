@@ -20,21 +20,21 @@ this module ships scaffolding only:
   * The license gate (``has_feature("dae")``) gates module init —
     community / free / payg builds short-circuit cleanly here so
     the rest of the engine never sees a half-loaded DAE state.
-  * The schema migration is committed but only applied on tier
-    upgrade — i.e. when ``has_feature("dae")`` first returns True
-    and the table is missing.
-  * The compute path (``compute_dae_embedding``) is implemented but
-    not invoked — the dream engine NREM phase will call it once
-    the bench validates a lift.
-  * No recall channel is registered.  ``memory_client.NeuralMemory``
-    is unaware DAE exists.  Recall stays on hybrid + ColBERT until
-    the bench delta is measurable.
+  * The schema is bootstrapped per-backend: SQLiteStore.ensure_dae_schema()
+    runs the legacy CREATE TABLE; PostgresStore._ensure_schema() creates
+    `memory_dae_embeddings` on first connect.
+  * The compute path is wired into the dream cycle as `_phase_dae()` —
+    runs every MM_DAE_RECOMPUTE_EVERY cycles (default 5) AFTER NREM /
+    REM / Insight / AFE so the neighbour graph it averages over is
+    the freshly-consolidated one.
+  * The recall path is wired in `Mazemaker._dae_score_candidates` and
+    dispatches via `store.fetch_dae_vectors()` — both SQLiteStore and
+    PostgresStore expose the method, so DAE works on either backend.
 
-Honesty: shipping the module without the channel wiring lets us
-populate DAE embeddings in the field (Pro users opt-in) so the
-research run has real data to score, without misleading anyone that
-recall is using DAE today.  When the bench lands and the channel
-turns on, that change will be one PR and one feature-flag check.
+Until 2026-05-14 the compute path was SQLite-only and the recall path
+silently disabled on PG via `engine_config.py`. Every bench number prior
+to that date ran without the DAE channel — see
+[[bug-dae-disabled-on-pg]] for the full root-cause writeup.
 """
 
 from __future__ import annotations
@@ -131,10 +131,11 @@ def compute_dae_embedding(
 ) -> Optional[DaeEmbedding]:
     """Mix self-vector + PPR-weighted neighbour mean.
 
-    Pure function — no I/O, no side effects.  The dream engine will
-    call this from the NREM phase once the bench validates a recall
-    lift.  Until then, this exists so the unit test for the
-    arithmetic can pass independently of the dream loop.
+    Vectorised with numpy. The previous Python-loop form computed
+    `for i in range(dim): neighbour_mean[i] += vec[i] * w` for every
+    seed × every neighbour, on a 1024-dim vector, which dominated
+    dae_bulk_compute on 100k+ corpora (CPU pegged for minutes). The
+    numpy matmul drops the per-seed math from ~5 ms to ~0.05 ms.
 
     Returns None if the feature is gated off — the caller must
     handle that case rather than silently writing zero vectors.
@@ -146,54 +147,50 @@ def compute_dae_embedding(
             f"neighbour_vecs ({len(neighbour_vecs)}) and "
             f"neighbour_weights ({len(neighbour_weights)}) length mismatch"
         )
+    now = time.time()
     if not neighbour_vecs:
         return DaeEmbedding(
             memory_id=memory_id,
-            vector=tuple(self_vec),
+            vector=tuple(float(x) for x in self_vec),
             self_weight=1.0,
             neighbour_k=0,
             schema_version=DAE_SCHEMA_VERSION,
-            computed_at=time.time(),
+            computed_at=now,
         )
 
-    dim = len(self_vec)
-    weight_sum = sum(neighbour_weights)
+    import numpy as _np
+    weight_sum = float(sum(neighbour_weights))
     if weight_sum <= 0:
         # Defensive: zero-weight neighbours collapse to self.
         return DaeEmbedding(
             memory_id=memory_id,
-            vector=tuple(self_vec),
+            vector=tuple(float(x) for x in self_vec),
             self_weight=1.0,
             neighbour_k=0,
             schema_version=DAE_SCHEMA_VERSION,
-            computed_at=time.time(),
+            computed_at=now,
         )
 
-    norm_weights = [w / weight_sum for w in neighbour_weights]
-    neighbour_mean = [0.0] * dim
-    for vec, w in zip(neighbour_vecs, norm_weights):
-        if len(vec) != dim:
-            raise ValueError(
-                f"neighbour vector dim mismatch: {len(vec)} vs {dim}"
-            )
-        for i in range(dim):
-            neighbour_mean[i] += vec[i] * w
-
-    mixed = [
-        self_weight * self_vec[i] + (1.0 - self_weight) * neighbour_mean[i]
-        for i in range(dim)
-    ]
-    norm = sum(x * x for x in mixed) ** 0.5
+    self_arr = _np.asarray(self_vec, dtype=_np.float32)
+    neigh = _np.asarray(neighbour_vecs, dtype=_np.float32)  # (K, D)
+    if neigh.shape[1] != self_arr.shape[0]:
+        raise ValueError(
+            f"neighbour vector dim mismatch: {neigh.shape[1]} vs {self_arr.shape[0]}"
+        )
+    w = _np.asarray(neighbour_weights, dtype=_np.float32) / weight_sum  # (K,)
+    neighbour_mean = neigh.T @ w  # (D,)
+    mixed = self_weight * self_arr + (1.0 - self_weight) * neighbour_mean
+    norm = float(_np.linalg.norm(mixed))
     if norm > 0:
-        mixed = [x / norm for x in mixed]
+        mixed = mixed / norm
 
     return DaeEmbedding(
         memory_id=memory_id,
-        vector=tuple(mixed),
+        vector=tuple(float(x) for x in mixed),
         self_weight=self_weight,
         neighbour_k=len(neighbour_vecs),
         schema_version=DAE_SCHEMA_VERSION,
-        computed_at=time.time(),
+        computed_at=now,
     )
 
 
@@ -204,11 +201,13 @@ def dae_bulk_compute(
 ) -> dict:
     """Compute and persist DAE embeddings for every memory in ``nm``.
 
-    Designed for the bench harness — the LongMemEval-S harness spins up
-    an ephemeral per-question SQLite (50-500 memories, sub-second),
-    ingests, calls this, then runs ``recall()``.  Not intended as a
-    production-corpus backfill path; that is deferred until the bench
-    validates a recall lift.
+    Backend-agnostic: dispatches through store-level methods
+    (`ensure_dae_schema`, `get_all`, `get_connections`,
+    `upsert_dae_vectors`) so it runs identically against SQLiteStore
+    and PostgresStore. Previously SQLite-only — the inline
+    `conn.execute("... ? ...")` calls and `INSERT OR REPLACE` SQL
+    crashed under PG, which is why DAE compute was never wired into
+    production dream cycles.
 
     Returns a stats dict:
       {ok: bool, written: int, skipped: int, errors: int,
@@ -228,49 +227,29 @@ def dae_bulk_compute(
         return {"ok": False, "reason": "no_store", "written": 0,
                 "skipped": 0, "errors": 0}
 
-    # Surface conn for the schema migration and the executemany write.
-    # Both SQLiteStore and PostgresStore expose `_cursor` / `conn`; we
-    # use the lowest-common-denominator: `conn` on SQLite, `_cursor`
-    # context manager on Postgres.  Bench harness uses SQLite, so we
-    # rely on `conn` here.  Postgres path is added if/when prod backfill
-    # lands.
-    conn = getattr(store, "conn", None)
-    if conn is None:
-        return {"ok": False, "reason": "no_sqlite_conn", "written": 0,
+    # Schema bootstrap — store decides how (SQLite calls the legacy
+    # ensure_schema(conn) helper; PG creates the table inside
+    # _ensure_schema on first connect). Both return True on success.
+    if not getattr(store, "ensure_dae_schema", lambda: False)():
+        return {"ok": False, "reason": "no_dae_schema", "written": 0,
                 "skipped": 0, "errors": 0}
-    ensure_schema(conn)
-
-    # Pull every (id, embedding) — bench corpus is small (≤500), full
-    # scan is fine.  On a production-corpus backfill this would page.
-    import sqlite3
-    cur = conn.cursor()
-    cur.execute("SELECT id, embedding FROM memories ORDER BY id ASC")
-    rows = cur.fetchall()
 
     import struct
-    def _decode(blob) -> "list[float] | None":
-        if blob is None:
-            return None
-        try:
-            n = len(blob) // 4
-            return list(struct.unpack(f"{n}f", blob))
-        except Exception:
-            return None
 
+    # Pull every (id, embedding) via the backend-agnostic get_all().
+    # On large production corpora this materialises the whole vector
+    # set in memory; bench-scale (≤500 rows) is the common case. A
+    # paged variant lives in the TODO list for ≥1M-row backfills.
     vectors: "dict[int, list[float]]" = {}
-    for mid, emb_blob in rows:
-        vec = _decode(emb_blob)
-        if vec:
-            vectors[int(mid)] = vec
+    for m in store.get_all():
+        emb = m.get("embedding")
+        if emb:
+            vectors[int(m["id"])] = list(emb)
     if not vectors:
         return {"ok": True, "written": 0, "skipped": 0, "errors": 0,
                 "schema_version": DAE_SCHEMA_VERSION,
                 "self_weight": self_weight, "neighbour_k": neighbour_k}
 
-    # Neighbour selection: prefer PPR-top-k via the GPU helper when the
-    # corpus is large enough to warrant it; otherwise fall back to the
-    # in-DB connection table (cheap on tiny bench corpora).  Either way
-    # we end up with a list of (mid, neighbour_ids, neighbour_weights).
     def _neighbours_via_ppr(seed_id: int) -> "tuple[list[int], list[float]]":
         try:
             ids = nm._ppr_top_ids_gpu(int(seed_id), k=neighbour_k)
@@ -286,18 +265,44 @@ def dae_bulk_compute(
         return list(ids), [1.0] * len(ids)
 
     def _neighbours_via_graph(seed_id: int) -> "tuple[list[int], list[float]]":
-        try:
-            r = conn.execute(
-                "SELECT target_id, weight FROM connections "
-                "WHERE source_id = ? AND weight > 0 "
-                "ORDER BY weight DESC LIMIT ?",
-                (int(seed_id), int(neighbour_k)),
-            ).fetchall()
-        except sqlite3.OperationalError:
-            return [], []
-        return [int(r0) for r0, _ in r], [float(r1) for _, r1 in r]
+        """Backend-agnostic top-k outgoing edges by weight.
 
-    use_ppr = hasattr(nm, "_ppr_top_ids_gpu")
+        store.get_connections returns dicts with at least `target` /
+        `weight` keys on both SQLiteStore and PostgresStore. We filter
+        for positive-weight, sort descending, and take the top-k.
+        """
+        try:
+            edges = store.get_connections(int(seed_id)) or []
+        except Exception:
+            return [], []
+        scored: "list[tuple[int, float]]" = []
+        for e in edges:
+            try:
+                src = int(e.get("source") if "source" in e else e.get("source_id"))
+                tgt = int(e.get("target") if "target" in e else e.get("target_id"))
+                w = float(e.get("weight") or 0.0)
+            except Exception:
+                continue
+            if w <= 0:
+                continue
+            other = tgt if src == int(seed_id) else src
+            if other == int(seed_id):
+                continue
+            scored.append((other, w))
+        scored.sort(key=lambda kv: -kv[1])
+        scored = scored[: int(neighbour_k)]
+        return [n for n, _ in scored], [w for _, w in scored]
+
+    # Neighbour source — default to direct graph edges, which on a
+    # sparse corpus (avg degree ~3) are already cheap and capture the
+    # signal DAE needs. Per-seed GPU PPR costs ~150 ms/call (full 20-
+    # iter sparse_mm on the entire 89k-node adjacency), which on a
+    # 100k seeds × 167ms = 4.6 h dominated Stage 1 wall-clock. PPR
+    # adds value when the corpus is densely connected; opt in via
+    # MAZEMAKER_DAE_NEIGHBOURS=ppr.
+    import os as _os
+    _neigh_mode = (_os.environ.get("MAZEMAKER_DAE_NEIGHBOURS") or "graph").strip().lower()
+    use_ppr = (_neigh_mode == "ppr") and hasattr(nm, "_ppr_top_ids_gpu")
     written = 0
     skipped = 0
     errors = 0
@@ -326,7 +331,10 @@ def dae_bulk_compute(
             skipped += 1
             continue
         try:
-            blob = struct.pack(f"{len(emb.vector)}f", *emb.vector)
+            # numpy.tobytes() is ~10x faster than struct.pack(*list) on
+            # 1024-d floats — same wire format (little-endian float32).
+            import numpy as _np
+            blob = _np.asarray(emb.vector, dtype=_np.float32).tobytes()
         except Exception:
             errors += 1
             continue
@@ -337,14 +345,12 @@ def dae_bulk_compute(
         written += 1
 
     if insert_rows:
-        cur.executemany(
-            "INSERT OR REPLACE INTO memory_dae_embeddings "
-            "(memory_id, vector, self_weight, neighbour_k, "
-            " schema_version, computed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            insert_rows,
-        )
-        conn.commit()
+        try:
+            store.upsert_dae_vectors(insert_rows)
+        except Exception as exc:
+            logger.warning("DAE upsert failed: %s", exc)
+            errors += len(insert_rows)
+            written = 0
 
     return {
         "ok": True,

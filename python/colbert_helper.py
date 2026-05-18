@@ -60,10 +60,28 @@ DEFAULT_TOP_K = 32
 DEFAULT_DIM = 1024  # BGE-M3
 MODEL_NAME = os.environ.get("EMBED_MODEL", "BAAI/bge-m3")
 
-_MODEL_DIR_CANDIDATES = [
-    Path.home() / ".mazemaker" / "engine" / "models",
-    Path.home() / ".cache" / "huggingface" / "hub",
-]
+def _candidate_model_dirs() -> list[Path]:
+    """Search path for the BGE-M3 snapshot.
+
+    Operators can prepend additional dirs via MM_MODEL_DIRS (colon-
+    separated). Without this, a custom EMBED_MODEL deployed to an
+    unusual cache dir was invisible — colbert_helper would refuse to
+    load and the rerank channel silently disabled itself.
+    """
+    extras: list[Path] = []
+    raw = os.environ.get("MM_MODEL_DIRS", "")
+    if raw:
+        for p in raw.split(":"):
+            p = p.strip()
+            if p:
+                extras.append(Path(os.path.expanduser(p)))
+    return extras + [
+        Path.home() / ".mazemaker" / "engine" / "models",
+        Path.home() / ".cache" / "huggingface" / "hub",
+    ]
+
+
+_MODEL_DIR_CANDIDATES = _candidate_model_dirs()
 
 
 def _resolve_snapshot(model_name: str) -> Optional[str]:
@@ -125,7 +143,12 @@ def _load_once() -> bool:
                 f"colbert: BGE-M3 snapshot not found locally for '{MODEL_NAME}'. "
                 "Ensure the embed-server's model dir is populated."
             )
-            logger.warning(_state["fail_reason"])
+            # Pass fail_reason as an argument, not as the format string.
+            # The previous logger.warning(_state["fail_reason"]) treated
+            # the message as a printf-style template — if the underlying
+            # exception text contained a stray %s it would crash the
+            # logger or produce a garbled second message.
+            logger.warning("%s", _state["fail_reason"])
             return False
 
         try:

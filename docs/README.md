@@ -33,10 +33,11 @@ Nine docs, organized by what you're trying to accomplish.
 
 ### "I want to run it in production"
 
-1. [`configuration.md`](configuration.md) — every knob, every env var
-2. [`dream-engine.md`](dream-engine.md) — standalone daemon for big corpora
-3. [`production-lessons.md`](production-lessons.md) — what bites at scale
-4. [`mcp-tools.md`](mcp-tools.md) — the integration shapes
+1. [`podman-ops.md`](podman-ops.md) — start / stop / check / update TL;DR card
+2. [`configuration.md`](configuration.md) — every knob, every env var
+3. [`dream-engine.md`](dream-engine.md) — standalone daemon for big corpora
+4. [`production-lessons.md`](production-lessons.md) — what bites at scale
+5. [`mcp-tools.md`](mcp-tools.md) — the integration shapes
 
 ### "I want to contribute or audit"
 
@@ -57,6 +58,7 @@ Nine docs, organized by what you're trying to accomplish.
 | [`benchmarks.md`](benchmarks.md)             | Inception Bench · LongMemEval-oracle · LongMemEval-S · Comparison Bench · audit story · reproduction recipe | long   |
 | [`inception-bench.md`](inception-bench.md)   | Why external rubrics were broken · the methodology · the 12 scenarios · what we deliberately don't do | medium |
 | [`mcp-tools.md`](mcp-tools.md)               | Nine tools, input/output JSON, integration shapes, quick-starts        | medium |
+| [`podman-ops.md`](podman-ops.md)             | TL;DR podman card — start / stop / check status / update / logs / common failures | short |
 | [`testing.md`](testing.md)                   | Smoke test · full suite · clean VM verification · file structure       | short  |
 | [`production-lessons.md`](production-lessons.md) | Operator rules · benchmark-driven defaults · bench-noise discipline · external-audit handling · patched-bug index | medium |
 | [`changelog-beta.md`](changelog-beta.md)     | Official Beta release notes · the threshold · six layers · engineering deliverables · 1.6 GB bundle | long   |

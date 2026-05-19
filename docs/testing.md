@@ -194,8 +194,8 @@ mazemaker/
 │
 ├── benchmarks/                   Inception Bench + audit
 │   ├── README.md                 Headline numbers + reproduction recipe
-│   ├── mazemaker_memory_bench.py The Inception Bench
-│   ├── mazemaker_godbench.py     Full-corpus oracle harness
+│   ├── mazemaker_memory_bench.py     Pure-memory bench (12 deterministic scenarios)
+│   ├── mazemaker_inception_bench.py  Inception Bench — full-corpus LongMemEval harness
 │   ├── audit/                    Eight rounds of GPT-5.5 audit (verbatim)
 │   ├── mazemaker_benchmark/      Internal capability suites
 │   └── external/

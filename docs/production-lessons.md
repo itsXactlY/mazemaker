@@ -133,7 +133,7 @@ result:
 
 ## Bench-noise discipline
 
-- **godbench R@5 has ±0.5 pp run-to-run noise at n=500.** Don't claim
+- **Inception Bench R@5 has ±0.5 pp run-to-run noise at n=500.** Don't claim
   sub-0.5pp wins from a single run.
 - **Per-question-type splits at n=30** have **3.3 pp per-question
   granularity**. A 1-question variance dominates anything below 6.7 pp.
@@ -141,7 +141,7 @@ result:
   multi-iteration replication. iter34/35/37/38 all hit ssp R@5 = 0.3667 —
   that's a real signal because it appeared four times.
 - **External judge attribution is mandatory.** The same 442
-  mm_10m_eval answers read **0.36 (nano), 0.49 (Opus), 0.53 (Haiku),
+  Inception Bench answers read **0.36 (nano), 0.49 (Opus), 0.53 (Haiku),
   or 0.64 (gpt-5.4-mini)** depending on judge. If you see a
   memory-benchmark number without judge attribution, treat it as
   decoration.
@@ -162,7 +162,7 @@ in the chain. If the ablation doesn't move the score in the predicted
 direction, the chain is wrong.
 
 **The 2026-05-14 incident.** A long, confident external analysis
-attributed the v5→v6 mm_10m_eval -0.125 "regression" to T1-08 (FTS
+attributed the v5→v6 Inception Bench -0.125 "regression" to T1-08 (FTS
 fallback bomb), T1-06 (stale embeddings), T2-11 (naive temporal
 matching), and "DAE generates worse queries." Every single claim was
 refuted by 12 minutes of ablation:
@@ -177,7 +177,7 @@ refuted by 12 minutes of ablation:
    ~22pp vs gpt-5.4-mini on identical inputs.
 
 The same rule applies to security audits. On a 2026-05-14 audit of
-`benchmarks/neural_memory_benchmark/`, both CRITICAL findings (ACE via
+`benchmarks/mazemaker_benchmark/`, both CRITICAL findings (ACE via
 `sys.path` manipulation, path traversal via `cache_path`) were
 verified-and-refuted in 5 minutes. Both depended on threat models that
 don't apply to a single-user CLI engine.
@@ -205,7 +205,7 @@ Full diagnoses live in MCP memory under `bug:<short-tag>`.
 | `bug:update-tracking-prompt-r4-contradiction` | Runner prompt R4 forbids seq, Phase 2 mandates it | Drop R4 "never seq" line; sharpen Phase 2 to filter by topic before picking largest-seq | 2026-05-14 |
 | `bug:update-tracking-recall-miss-mode-b`     | ~2/3 UT failures = latest-value memory not in top-K | Engine-side work: k bump, expanded angle generation, stronger angle planner | open       |
 | `bug:topic-cluster-bundle-turn-miss`         | Topic-cluster rubrics score 5 facts from 1 dense turn; engine surfaces 7 thematic neighbors instead | Information-density rerank channel proposed; Insight `[CLUSTER:…]` memories blocked on dream pipeline revival | open |
-| `bug:dream-insight-zero-clusters-on-bench`   | All 10 mm_10m_eval PG schemas: REM bridges=0, Insight insights=0 | REM threshold too tight for AFE-length facts; needs threshold tuning + AFE-aware sampling | open  |
+| `bug:dream-insight-zero-clusters-on-bench`   | All 10 Inception Bench PG schemas: REM bridges=0, Insight insights=0 | REM threshold too tight for AFE-length facts; needs threshold tuning + AFE-aware sampling | open  |
 
 ---
 

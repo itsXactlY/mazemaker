@@ -10,6 +10,21 @@ for r in top_k]` plus substring + unit-aware match against gold. That's it.
 > depending on which judge we picked. The only honest path forward was
 > to ship our own scorer alongside our own engine. We did.
 
+> **Two files, one methodology.**
+> *Inception Benchmarking* is the **discipline** of building your own
+> deterministic scorer instead of inheriting an LLM-judged rubric. Two
+> harnesses embody it:
+>
+> - **`benchmarks/mazemaker_memory_bench.py`** — the **pure-memory
+>   bench** described in this document. 12 deterministic scenarios. No
+>   LLM at any step. The headline 100 k needle @1 = 1.000 comes from here.
+> - **`benchmarks/mazemaker_inception_bench.py`** — the **full-corpus
+>   LongMemEval harness** (`--variant oracle` / `--variant s`). The
+>   100-iteration loop ran on this. See
+>   [`benchmarks.md`](benchmarks.md#headline-numbers) for those numbers
+>   and [`changelog-beta.md`](changelog-beta.md#the-threshold) for the
+>   threshold-crossing narrative.
+
 ---
 
 ## Table of contents
@@ -30,10 +45,10 @@ for r in top_k]` plus substring + unit-aware match against gold. That's it.
 
 Published memory benchmarks tend to be measurement instruments built
 around LLM-judged rubrics. When we audited them at scale we found that
-**roughly half of the update-tracking items on mm_10m_eval conv-3 were
+**roughly half of the update-tracking items on Inception Bench conv-3 were
 defective by construction** (the gold value had been superseded in the
 same corpus by a later seq, but the rubric pointed at the older one)
-and that **the same 442 mm_10m_eval answers scored anywhere from 0.36
+and that **the same 442 Inception Bench answers scored anywhere from 0.36
 to 0.64 depending on which LLM we asked to judge them**. We could not
 build engineering loops on top of that — every "regression" might just
 be a judge drift; every "improvement" might just be rubric noise. So we
@@ -75,7 +90,7 @@ silently drop to zero. Hindsight's published BEAM-10M conv-1 = 64.1%
 is **artificially deflated** because of this. Cross-confirmed
 2026-05-11, no developer response.
 
-### mm_10m_eval update_tracking — ~50% rubric defects on conv-3
+### Inception Bench update_tracking — ~50% rubric defects on conv-3
 
 Forensic audit of 6 conv-3 UT questions (2026-05-14):
 
@@ -112,7 +127,7 @@ unwinnable.
 
 ## The judge calibration spread
 
-Same 442 mm_10m_eval answers, three judges, 58 rubric items
+Same 442 Inception Bench answers, three judges, 58 rubric items
 (v11 conv-3, 2026-05-14):
 
 | Judge              | Tier            | overall | IE (n=42) | UT (n=12) | ABST (n=4) |
@@ -132,7 +147,7 @@ Same 442 mm_10m_eval answers, three judges, 58 rubric items
 - haiku vs opus: **0.931** ( 4 disagree) — near-calibrated
 - all-3 agree:   0.810 (11 split-decisions)
 
-**Publishing a single mm_10m_eval number without judge attribution is
+**Publishing a single Inception Bench number without judge attribution is
 meaningless.** The same engine can read 0.36 or 0.53 depending on the
 judge. Haiku/Opus form a natural calibration pair; nano is the
 cheap-but-skewed operational judge.

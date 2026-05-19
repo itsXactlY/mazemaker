@@ -216,7 +216,7 @@ CPU fallback automatic for non-CUDA installs.
 
 ### Bench infrastructure
 
-- **`mazemaker_godbench.py --variant oracle`** — full-corpus 500q
+- **`mazemaker_inception_bench.py --variant oracle`** — full-corpus 500q
   oracle benchmark. The harness that produced the iter97 numbers.
 - **`mazemaker_memory_bench.py`** — the Inception Bench. 12
   deterministic scenarios, no LLM in the scoring loop.

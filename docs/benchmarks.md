@@ -28,11 +28,12 @@ Mazemaker number externally, or if you're trying to reproduce one.
 
 ## The three result tiers
 
-| Tier                          | Harness                                          | Use for                       |
-|-------------------------------|--------------------------------------------------|-------------------------------|
-| **Inception Bench**           | `benchmarks/mazemaker_memory_bench.py`           | Headline capability claims    |
-| **LongMemEval-oracle 500q**   | `benchmarks/mazemaker_godbench.py --variant oracle` | Full-corpus retrieval results |
-| **LongMemEval-S 500q (v8 audit)** | `benchmarks/external/longmemeval_s.py`        | Per-question ephemeral; the public Wu et al. number |
+| Tier                                  | Harness                                                  | Use for                                                  |
+|---------------------------------------|----------------------------------------------------------|----------------------------------------------------------|
+| **Pure-memory bench** (12 scenarios)  | `benchmarks/mazemaker_memory_bench.py`                   | Deterministic capability headlines (e.g. 100 k needle @1 = 1.000) |
+| **Inception Bench — oracle harness**  | `benchmarks/mazemaker_inception_bench.py --variant oracle` | Full-corpus retrieval results (the 100-iteration loop)   |
+| **Inception Bench — S harness**       | `benchmarks/mazemaker_inception_bench.py --variant s`    | Stress-test against all 334 k sessions in one schema     |
+| **LongMemEval-S 500q (v8 audit)**     | `benchmarks/external/longmemeval_s.py`                   | Per-question ephemeral; the public Wu et al. number      |
 
 > **Don't compare across tiers without reading
 > [the harness mismatch invariant](#harness-mismatch-invariant) first.**
@@ -239,19 +240,20 @@ A full run takes ~12 min on a workstation.
 
 ## Harness mismatch invariant
 
-`mazemaker_godbench.py` and `longmemeval_s.py` measure different things.
+`mazemaker_inception_bench.py` and `longmemeval_s.py` measure different things.
 Do **not** compare numbers across them without this caveat.
 
 | Harness                                    | Corpus shape                                         | R@5 typical |
 |--------------------------------------------|------------------------------------------------------|-------------|
-| `mazemaker_godbench.py --variant oracle`   | One ~25 k-memory haystack per question (full corpus) | 0.74–0.84   |
-| `mazemaker_godbench.py --variant s`        | All 334,158 sessions in one schema                   | ~0.1        |
+| `mazemaker_inception_bench.py --variant oracle`   | One ~25 k-memory haystack per question (full corpus) | 0.74–0.84   |
+| `mazemaker_inception_bench.py --variant s`        | All 334,158 sessions in one schema                   | ~0.1        |
 | `benchmarks/external/longmemeval_s.py`     | Per-question ephemeral 50–200 sessions               | 0.96+       |
 
-- **godbench oracle** = production-shaped, brutal. The full corpus
-  competes for every recall slot.
-- **godbench --variant s** = "if Mazemaker were the operator's long-term
-  memory, could it pick the right session out of EVERYTHING?"
+- **Inception Bench oracle** = production-shaped, brutal. The full
+  corpus competes for every recall slot.
+- **Inception Bench `--variant s`** = "if Mazemaker were the
+  operator's long-term memory, could it pick the right session out of
+  EVERYTHING?"
 - **longmemeval_s.py** = what the LongMemEval paper actually scores; what
   every published competitor is measured against.
 
@@ -264,7 +266,7 @@ engine bugs to explain a difference that's harness-by-design.
 
 > **Read before citing any number.**
 
-- **godbench R@5 has ±0.5 pp run-to-run noise** at n=500. iter26 R@5 =
+- **Inception Bench R@5 has ±0.5 pp run-to-run noise** at n=500. iter26 R@5 =
   0.7319 and iter39 (identical code path) R@5 = 0.7277 — within noise.
 - **Per-question-type splits at n=30** have **3.3 pp per-question
   granularity** — a 1-question variance dominates anything below 6.7 pp.
@@ -272,7 +274,7 @@ engine bugs to explain a difference that's harness-by-design.
   multi-iteration replication. iter34/35/37/38 all hit ssp R@5 = 0.3667
   — that's a real signal because it appeared four times. A single 0.7319
   outlier shouldn't anchor "best" claims.
-- **External judge attribution is mandatory.** The same 442 mm_10m_eval
+- **External judge attribution is mandatory.** The same 442 Inception Bench
   answers read **0.36 (nano), 0.49 (Opus), 0.53 (Haiku), or 0.64
   (gpt-5.4-mini)** depending on judge. If you see a memory-benchmark
   number without judge attribution, treat it as decoration.
@@ -319,7 +321,7 @@ export MAZEMAKER_TEMPORAL_WEIGHT=0.7
 export MAZEMAKER_SALIENCE_WEIGHT=0.5
 export MAZEMAKER_PPR_WEIGHT=0.55
 
-python benchmarks/mazemaker_godbench.py \
+python benchmarks/mazemaker_inception_bench.py \
   --variant oracle \
   --questions 500 \
   --recall-mode skynet \

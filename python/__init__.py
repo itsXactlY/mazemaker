@@ -349,6 +349,40 @@ MAZEMAKER_ABLATE_SCHEMA = {
     },
 }
 
+MAZEMAKER_DREAM_STATS_SCHEMA = {
+    "name": "mazemaker_dream_stats",
+    "description": (
+        "Aggregate dream-engine stats — total sessions, strengthened "
+        "edges, weakened edges, bridges found, insights crystallised. "
+        "Optional `phase` arg filters the response to one of the 7 "
+        "phases when the backend returns a phase-keyed structure."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "phase": {
+                "type": "string",
+                "enum": ["nrem", "supersedes", "rem", "insight",
+                         "afe", "synthesis", "dae", "all"],
+                "description": "Optional phase filter (default 'all').",
+            },
+        },
+    },
+}
+
+MAZEMAKER_QUOTA_SCHEMA = {
+    "name": "mazemaker_quota",
+    "description": (
+        "Live quota state for the running pod's license — tier, "
+        "remaining-calls-today, remaining-this-month, grace-until "
+        "timestamp.  When the pod's meter is wired (Lite/Pro pods), "
+        "also returns a per-tool `by_tool` breakdown of today's call "
+        "counts so customers can see which tool is eating their "
+        "quota."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
 MAZEMAKER_HEALTH_SCHEMA = {
     "name": "mazemaker_health",
     "description": (
@@ -523,6 +557,8 @@ ALL_TOOL_SCHEMAS = [
     MAZEMAKER_CLASSIFY_INTENT_SCHEMA,
     MAZEMAKER_DREAM_CONFIG_SCHEMA,
     MAZEMAKER_DREAM_CONTROL_SCHEMA,
+    MAZEMAKER_DREAM_STATS_SCHEMA,
+    MAZEMAKER_QUOTA_SCHEMA,
     MAZEMAKER_AFE_FACTS_SCHEMA,
     MAZEMAKER_SYNTH_LINEAGE_SCHEMA,
     MAZEMAKER_DIAGNOSE_SCHEMA,
@@ -1413,7 +1449,28 @@ memory?") call `neural_graph` to summarise.
             return self._handle_health(args)
         elif tool_name == "mazemaker_supersedes_log":
             return self._handle_supersedes_log(args)
+        elif tool_name == "mazemaker_dream_stats":
+            return self._handle_dream_stats(args)
+        elif tool_name == "mazemaker_quota":
+            return self._handle_quota(args)
         return tool_error(f"Unknown tool: {tool_name}")
+
+    def _handle_dream_stats(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            phase = args.get("phase")
+            return json.dumps(self._memory.dream_stats(phase=phase))
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _handle_quota(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            return json.dumps(self._memory.quota())
+        except Exception as exc:
+            return tool_error(str(exc))
 
     def _handle_afe_facts(self, args: dict) -> str:
         if self._memory is None:

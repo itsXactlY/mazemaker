@@ -4682,8 +4682,13 @@ class Mazemaker:
             for r in rows
         ]
 
-    def dream_stats(self) -> dict:
+    def dream_stats(self, phase: Optional[str] = None) -> dict:
         """Aggregate dream-engine stats from the backend.
+
+        When *phase* is provided (one of the 7 phase names), the output
+        is filtered to that phase's sub-dictionary if the backend's
+        get_dream_stats returns a nested per-phase structure; otherwise
+        the aggregate is returned with an added `requested_phase` note.
 
         Read-only; bypasses the _get_dream_engine guard so dream_stats
         keeps working when MM_DREAM_DISABLED is set (external dream_worker
@@ -4698,13 +4703,44 @@ class Mazemaker:
         the external dream_worker keeps appending to Postgres.
         """
         if self._dream_engine_singleton is not None:
-            return self._dream_engine_singleton._backend.get_dream_stats()
-        backend_choice = (os.environ.get("MM_DB_BACKEND") or "").strip().lower()
-        if backend_choice == "postgres" and has_feature("postgres"):
-            from dream_postgres_store import DreamPostgresStore  # type: ignore[import]
-            return DreamPostgresStore().get_dream_stats()
-        from dream_engine import SQLiteDreamBackend  # type: ignore[import]
-        return SQLiteDreamBackend(str(self._db_path)).get_dream_stats()
+            stats = self._dream_engine_singleton._backend.get_dream_stats()
+        else:
+            backend_choice = (os.environ.get("MM_DB_BACKEND") or "").strip().lower()
+            if backend_choice == "postgres" and has_feature("postgres"):
+                from dream_postgres_store import DreamPostgresStore  # type: ignore[import]
+                stats = DreamPostgresStore().get_dream_stats()
+            else:
+                from dream_engine import SQLiteDreamBackend  # type: ignore[import]
+                stats = SQLiteDreamBackend(str(self._db_path)).get_dream_stats()
+        if not phase or phase == "all":
+            return stats
+        valid_phases = {"nrem", "supersedes", "rem", "insight",
+                        "afe", "synthesis", "dae"}
+        if phase not in valid_phases:
+            return {**stats, "requested_phase": phase,
+                    "note": f"phase must be one of {sorted(valid_phases)} or 'all'"}
+        if phase in stats and isinstance(stats[phase], dict):
+            return {"phase": phase, **stats[phase]}
+        return {"phase": phase, "stats": stats,
+                "note": "backend stats not phase-keyed; returning aggregate"}
+
+    def quota(self) -> dict:
+        """Live quota state from the embedded License + meter."""
+        from license import get_license  # type: ignore[import]
+        lic = get_license()
+        out: dict = {
+            "tier": lic.tier,
+            "is_community": lic.is_community,
+            "exp": lic.exp,
+            "grace_until": lic.grace_until,
+        }
+        meter = getattr(self, "_meter", None) or globals().get("_meter")
+        if meter is not None:
+            try:
+                out["by_tool"] = dict(meter.calls_today_by_tool())  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        return out
 
     def graph(self) -> dict:
         stats = self.store.get_stats()

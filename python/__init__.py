@@ -1279,7 +1279,26 @@ memory?") call `neural_graph` to summarise.
             label = args.get("label") or ""
             if not isinstance(label, str):
                 label = str(label)
-            mem_id = self._memory.remember(content, label=label)
+            # Optional precomputed embedding override (base64 of fp32 LE
+            # vector). Used by wonderland to embed plaintext BEFORE
+            # encrypting content at-rest, so semantic recall still works
+            # on encrypted memories.
+            embedding_override = None
+            emb_b64 = args.get("embedding_b64")
+            if isinstance(emb_b64, str) and emb_b64:
+                import base64 as _b64, struct as _struct
+                try:
+                    raw = _b64.b64decode(emb_b64)
+                    if len(raw) % 4 != 0:
+                        return tool_error("embedding_b64 must be fp32 LE bytes (len %% 4 == 0)")
+                    n = len(raw) // 4
+                    embedding_override = list(_struct.unpack(f"<{n}f", raw))
+                except Exception as exc:
+                    return tool_error(f"embedding_b64 decode failed: {exc}")
+            if embedding_override is not None:
+                mem_id = self._memory.remember(content, label=label, embedding=embedding_override)
+            else:
+                mem_id = self._memory.remember(content, label=label)
             # Touch dream engine (reset idle timer)
             if hasattr(self, '_dream') and self._dream:
                 self._dream.touch()

@@ -447,7 +447,8 @@ class Memory:
         return ids
     
     def remember(self, text: str, label: str = "", auto_chunk: bool = True,
-                 auto_connect: bool = True, detect_conflicts: bool = True) -> int | list[int]:
+                 auto_connect: bool = True, detect_conflicts: bool = True,
+                 embedding: "list[float] | None" = None) -> int | list[int]:
         """Store a memory. SQLite primary, optional Postgres mirror. Returns memory ID.
 
         Refuses empty-after-strip text. Without this guard, chunk_text('')
@@ -456,17 +457,29 @@ class Memory:
         then try to similarity-match against (HashBackend embeds an empty
         string to a high-similarity zero vector, dragging unrelated rows
         into the connection graph).
+
+        Optional `embedding` override: when provided, the inner
+        Mazemaker.remember() uses it instead of embedding `text`. Used
+        by wonderland's encrypt-on-write path — the operator-visible
+        plaintext is embedded BEFORE encryption, so semantic recall
+        still works on the resulting at-rest ciphertext. Auto-chunking
+        is disabled when an embedding is supplied (the override is a
+        single vector for the whole text).
         """
         if not text or not text.strip():
             return -1
-        if auto_chunk and len(text) > self._default_chunk_size * 2:
+        # If a precomputed embedding is supplied, don't auto-chunk —
+        # the embedding represents the whole text as one row.
+        if embedding is None and auto_chunk and len(text) > self._default_chunk_size * 2:
             return self.remember_chunked(text, label)
 
-        embedding = self._embedder.embed(text)
+        if embedding is None:
+            embedding = self._embedder.embed(text)
 
         # SQLite always (source of truth)
         mem_id = self._sqlite_memory.remember(text, label, auto_connect=auto_connect,
-                                              detect_conflicts=detect_conflicts)
+                                              detect_conflicts=detect_conflicts,
+                                              embedding=embedding)
         # Postgres mirror — preserve SQLite-assigned id so cross-backend
         # lookups (think, recall_multihop) hit the same row both sides.
         # Read the canonical SQLite row in case conflict-fusion rewrote it.

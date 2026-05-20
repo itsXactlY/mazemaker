@@ -1980,8 +1980,22 @@ class Mazemaker:
 
     # -- write path -----------------------------------------------------------
 
-    def remember(self, text: str, label: str = "", detect_conflicts: bool = True, auto_connect: bool = True, detect_supersedes: bool = True) -> int:
-        embedding = self.embedder.embed(text)
+    def remember(self, text: str, label: str = "", detect_conflicts: bool = True, auto_connect: bool = True, detect_supersedes: bool = True, embedding: "list[float] | None" = None) -> int:
+        # Optional `embedding` override — caller supplies a precomputed vector,
+        # we skip self.embedder.embed(text). Use case: wonderland encrypts
+        # content at-rest, but needs the embedding to represent the PLAINTEXT
+        # so semantic recall still works. Wonderland calls embedder on the
+        # plaintext, then encrypts content, then passes both ciphertext + the
+        # plaintext-embedding here. The fused/superseded-rewrite paths below
+        # still call self.embedder.embed() because they operate on plaintext
+        # the engine has in hand.
+        if embedding is None:
+            embedding = self.embedder.embed(text)
+        else:
+            # Trust-but-verify the caller. Dim mismatch corrupts every
+            # subsequent recall on this row, so reject early.
+            if not isinstance(embedding, list) or not embedding:
+                raise RuntimeError("embedding override must be a non-empty list of floats")
         # Hard guard: refuse to write a vector whose dim disagrees with the
         # DB's pinned dim. The alternative (writing it anyway) corrupts every
         # subsequent recall against this row.

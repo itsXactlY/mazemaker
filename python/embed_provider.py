@@ -1249,6 +1249,83 @@ class FastEmbedBackend:
         return [r.tolist() if hasattr(r, 'tolist') else list(r) for r in results]
 
 
+class HttpEmbeddingBackend:
+    """Delegates to the embedding-worker sidecar via HTTP POST /embed.
+
+    Reason this exists: the v2 pod has a dedicated embedding-worker
+    container that holds the model in GPU memory. Before this backend
+    landed, the engine's `embedding_backend="http"` directive fell
+    through to FastEmbed, which silently loaded a *different* model
+    (intfloat/multilingual-e5-large) in-process. That broke any flow
+    that relied on the engine and the worker speaking the same vector
+    space (notably wonderland's encrypt-on-write pre-embedding).
+
+    With this backend wired in, ONE embedding surface — the worker —
+    serves both wonderland's pre-embed AND the engine's recall queries.
+
+    Service contract (matches embedding-worker/main.py):
+        POST {base_url}/embed   {"texts": [str]}
+            → 200 {"vectors": [[float]], "model": "BAAI/bge-m3", "dim": 1024}
+
+    URL is read from MM_EMBEDDING_WORKER_URL (default
+    http://localhost:8766). Dim is probed via a 1-token embed at init
+    so callers can rely on `.dim` without a deferred network hit.
+    """
+
+    def __init__(self, base_url: str | None = None, timeout: float | None = None):
+        self.base_url = (base_url or os.environ.get(
+            "MM_EMBEDDING_WORKER_URL", "http://localhost:8766")).rstrip("/")
+        self.timeout = float(timeout if timeout is not None
+                             else os.environ.get("MM_EMBED_TIMEOUT", "10"))
+        try:
+            import httpx  # type: ignore[import]
+        except ImportError as exc:
+            raise RuntimeError(
+                "HttpEmbeddingBackend requires httpx (`pip install httpx`)"
+            ) from exc
+        self._httpx = httpx
+        self._client = httpx.Client(timeout=self.timeout)
+        # Probe dim + model with one cheap embed at init so callers can
+        # rely on `.dim`. We also surface model name so logs explain
+        # WHICH model is now serving the engine.
+        try:
+            r = self._client.post(f"{self.base_url}/embed",
+                                  json={"texts": ["probe"]})
+            r.raise_for_status()
+            j = r.json()
+            self.model_name = j.get("model", "unknown")
+            vec = (j.get("vectors") or [None])[0] or []
+            self.dim = j.get("dim") or len(vec)
+            if not self.dim:
+                raise RuntimeError(
+                    "HttpEmbeddingBackend: embedding-worker returned empty "
+                    "vector at init probe"
+                )
+        except Exception as exc:
+            raise RuntimeError(
+                f"HttpEmbeddingBackend: cannot reach worker at "
+                f"{self.base_url}/embed — {exc}"
+            ) from exc
+        print(f"[embed] HttpEmbeddingBackend → {self.base_url} "
+              f"({self.model_name}, {self.dim}d)")
+
+    def embed(self, text: str) -> list[float]:
+        r = self._client.post(f"{self.base_url}/embed",
+                              json={"texts": [text]})
+        r.raise_for_status()
+        vec = (r.json().get("vectors") or [None])[0] or []
+        return [float(x) for x in vec]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        r = self._client.post(f"{self.base_url}/embed",
+                              json={"texts": list(texts)})
+        r.raise_for_status()
+        vecs = r.json().get("vectors") or []
+        return [[float(x) for x in v] for v in vecs]
+
+
 class HashBackend:
     """Simple hash-based embedding (zero dependencies)"""
     def __init__(self, dim: int = DIMENSION):
@@ -1323,6 +1400,12 @@ class EmbeddingProvider:
             self.backend = TfidfSvdBackend()
         elif backend == "hash":
             self.backend = HashBackend()
+        elif backend == "http":
+            # Delegate to the embedding-worker sidecar. The v2 pod
+            # mounts a single canonical model (BAAI/bge-m3 today) into
+            # the worker; the engine talks to it over HTTP so wonderland
+            # + engine + dream-worker all live in ONE vector space.
+            self.backend = HttpEmbeddingBackend()
         else:
             # Try as fastembed first, fall back to hash
             try:

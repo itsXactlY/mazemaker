@@ -42,6 +42,18 @@ MAZEMAKER_REMEMBER_SCHEMA = {
                     "future writes update or fuse with the existing memory."
                 ),
             },
+            "embedding_b64": {
+                "type": "string",
+                "description": (
+                    "Internal use — precomputed embedding (base64 of fp32 LE "
+                    "vector) used when the caller has already embedded the "
+                    "plaintext and the `content` field carries a different "
+                    "representation (e.g. AES-encrypted at-rest). When "
+                    "present, the engine skips its own embed() call. Models "
+                    "should NOT set this; it is wired by wonderland's "
+                    "encrypt-on-write path."
+                ),
+            },
         },
         "required": ["content"],
     },

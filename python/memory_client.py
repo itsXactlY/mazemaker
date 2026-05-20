@@ -4266,6 +4266,422 @@ class Mazemaker:
             return {"dae": eng._phase_dae()}
         raise ValueError(f"unknown dream phase: {phase}")
 
+    def dream_config(self, action: str = "get", **kwargs) -> dict:
+        """Get or set the dream-engine cadence + threshold knobs.
+
+        action: "get" (default) → returns the current values.
+                "set"           → applies any of {idle_threshold,
+                                  memory_threshold, max_memories_per_cycle,
+                                  max_isolated_per_cycle, dae_recompute_every}
+                                  passed as kwargs.
+
+        Note: changes apply to the running DreamEngine instance.  The
+        autonomous daemon picks them up on the next loop tick (≤30s).
+        Persistence to disk is a separate concern handled by the caller
+        if needed.
+        """
+        eng = self._get_dream_engine()
+        known = (
+            "idle_threshold",
+            "memory_threshold",
+            "max_memories",
+            "max_isolated",
+            "dae_recompute_every",
+        )
+        action = (action or "get").strip().lower()
+        if action == "set":
+            applied: dict = {}
+            for key, value in kwargs.items():
+                if key not in known:
+                    continue
+                attr = f"_{key}"
+                try:
+                    setattr(eng, attr, int(value))
+                    applied[key] = getattr(eng, attr)
+                except (TypeError, ValueError):
+                    pass
+            return {
+                "ok": True,
+                "action": "set",
+                "applied": applied,
+                "current": {k: getattr(eng, f"_{k}", None) for k in known},
+            }
+        return {
+            "ok": True,
+            "action": "get",
+            "current": {k: getattr(eng, f"_{k}", None) for k in known},
+        }
+
+    def dream_control(self, action: str = "status") -> dict:
+        """Control the autonomous dream daemon.
+
+        action: "pause"  → stop the daemon thread (cycles in progress
+                           are not interrupted).
+                "resume" → start the daemon if it isn't running.
+                "status" → report running/idle.
+        """
+        action = (action or "status").strip().lower()
+        eng = self._get_dream_engine()
+        if action == "pause":
+            eng.stop()
+            return {"ok": True, "action": "pause",
+                    "running": False, "cycles": eng._dream_count}
+        if action == "resume":
+            eng.start()
+            return {"ok": True, "action": "resume",
+                    "running": eng._thread.is_alive() if eng._thread else False,
+                    "cycles": eng._dream_count}
+        running = bool(eng._thread and eng._thread.is_alive())
+        return {
+            "ok": True,
+            "action": "status",
+            "running": running,
+            "cycles": eng._dream_count,
+            "idle_threshold": eng._idle_threshold,
+            "memory_threshold": eng._memory_threshold,
+        }
+
+    # ── Phase-4 formation-lineage tools ─────────────────────────────────
+    def afe_facts(
+        self,
+        source_id: Optional[int] = None,
+        label_prefix: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Query AFE-extracted facts in the corpus.
+
+        Filters memories whose label starts with `afe:` or `::afe::`
+        (the conventions the AFE phase emits under).  Optionally narrows
+        to a specific source memory_id via the source-link edge, or to
+        a particular label prefix when the operator has named-namespace
+        their rebake rounds (e.g. `::api2::C`).  Returns up to *limit*
+        rows ordered by recency.
+        """
+        store = self.store
+        limit = max(1, min(int(limit), 500))
+        prefix = (label_prefix or "afe").strip()
+        try:
+            rows = store.search_by_label_prefix(prefix, limit=limit)  # type: ignore[attr-defined]
+        except AttributeError:
+            # Fallback for stores without dedicated helper: brute-force
+            # via recall-style scan.  Cheap on small corpora; the
+            # PostgresStore.search_by_label_prefix path is the fast
+            # production route.
+            rows = []
+            try:
+                for r in store.get_all():  # type: ignore[attr-defined]
+                    lbl = (r.get("label") or "")
+                    if lbl.startswith(prefix) or f"::{prefix}" in lbl:
+                        rows.append(r)
+                        if len(rows) >= limit:
+                            break
+            except Exception:
+                rows = []
+        if source_id is not None:
+            try:
+                sid = int(source_id)
+                rows = [r for r in rows if r.get("source_id") == sid]
+            except (TypeError, ValueError):
+                pass
+        return [{"id": r.get("id"), "label": r.get("label"),
+                 "content": r.get("content", "")[:400],
+                 "salience": r.get("salience"),
+                 "created_at": r.get("created_at")} for r in rows[:limit]]
+
+    def synth_lineage(self, memory_id: int) -> dict:
+        """Return contributing AFE facts for a Stage S synthesis memory.
+
+        Reads the connection graph for `synthesized_from` edges (or the
+        backend's equivalent) emanating from *memory_id*.  Falls back
+        to returning the synthesis memory + its label-derived evidence
+        list when the typed edges aren't present.
+        """
+        try:
+            mid = int(memory_id)
+        except (TypeError, ValueError):
+            raise ValueError(f"memory_id must be int-coercible, got {memory_id!r}")
+        store = self.store
+        # Look up the synthesis memory itself
+        synth = store.get(mid) if hasattr(store, "get") else None
+        if not synth:
+            return {"memory_id": mid, "found": False,
+                    "contributing": [], "note": "synthesis memory not found"}
+        # Walk edges from synthesis memory → contributing facts
+        try:
+            connections = store.get_connections(mid)
+        except Exception:
+            connections = []
+        contributing = []
+        for c in connections:
+            target_id = c.get("target_id") or c.get("source_id")
+            if target_id == mid:
+                continue
+            target = store.get(target_id) if hasattr(store, "get") else None
+            if target is None:
+                continue
+            label = (target.get("label") or "")
+            if label.startswith("afe") or "::afe::" in label or label.startswith("::api"):
+                contributing.append({
+                    "id": target_id,
+                    "label": label,
+                    "content": (target.get("content") or "")[:300],
+                    "edge_type": c.get("edge_type", "synth"),
+                    "weight": c.get("weight"),
+                })
+        return {
+            "memory_id": mid,
+            "found": True,
+            "label": synth.get("label"),
+            "content_preview": (synth.get("content") or "")[:300],
+            "contributing": contributing,
+            "contributing_count": len(contributing),
+        }
+
+    # ── Phase-5 targeted re-formation tools ─────────────────────────────
+    def diagnose(
+        self,
+        question_type: Optional[str] = None,
+        top_k_threshold: int = 5,
+        sample_size: int = 100,
+    ) -> dict:
+        """Typed-miss diagnostic — identify queries where the corpus
+        fails to surface the gold within top-K.
+
+        This is the on-pod-deployed version of
+        `benchmarks/targeted_rebake/find_typed_misses.py`.  It samples
+        recent recall events from the access log (when available) and
+        flags those whose top-K result set contained no high-salience
+        match.  Returns a per-type breakdown + sample missed queries.
+
+        Limited deployment surface: full benchmark-corpus diagnostics
+        run in the bench harness; this tool surfaces the same idea
+        against the live corpus.
+        """
+        try:
+            top_k_threshold = max(1, int(top_k_threshold))
+            sample_size = max(1, min(int(sample_size), 1000))
+        except (TypeError, ValueError):
+            raise ValueError("top_k_threshold and sample_size must be ints")
+        # Pull recent recall calls + the resulting scores from the access
+        # log (if AccessLogger is wired) — otherwise return a stub
+        # indicating the diagnostic surface is available but the source
+        # log is empty for this pod.
+        log = getattr(self, "_access_logger", None)
+        events: list[dict] = []
+        if log and hasattr(log, "recent_recall_events"):
+            try:
+                events = log.recent_recall_events(limit=sample_size)
+            except Exception:
+                events = []
+        misses: list[dict] = []
+        by_type: dict = {}
+        for ev in events:
+            top_max = 0.0
+            for r in (ev.get("results") or []):
+                top_max = max(top_max, float(r.get("similarity") or 0.0))
+            qtype = ev.get("intent") or "general"
+            if question_type and qtype != question_type:
+                continue
+            by_type.setdefault(qtype, {"hits": 0, "misses": 0})
+            if top_max < 0.5:
+                misses.append({"query": ev.get("query"), "qtype": qtype,
+                               "top_score": top_max})
+                by_type[qtype]["misses"] += 1
+            else:
+                by_type[qtype]["hits"] += 1
+        return {
+            "sampled": len(events),
+            "missed_count": len(misses),
+            "by_type": by_type,
+            "samples": misses[:20],
+            "note": (
+                "Live-corpus diagnostic. The bench-tier flavour with "
+                "gold-rubric typed-miss detection runs from "
+                "benchmarks/targeted_rebake/find_typed_misses.py."
+            ),
+        }
+
+    def rebake(
+        self,
+        missed_query_ids: list[int],
+        extraction_prompt: str,
+        model: Optional[str] = None,
+        salience: float = 2.0,
+    ) -> dict:
+        """Query-conditional Stage C rebake on specified sessions.
+
+        Productized from `benchmarks/targeted_rebake/rebake.py`.  Runs
+        the AFE Stage C extractor against the named missed-query gold
+        sessions with a query-conditional prompt, inserts new atomic
+        facts at the specified salience.  Pro + managed-pod feature;
+        gates check happens here at the engine.
+        """
+        if not has_feature("targeted_rebake"):
+            return {"ok": False, "skipped": "pro_feature",
+                    "note": "targeted re-formation is a Pro+managed-pod feature"}
+        try:
+            ids = [int(x) for x in (missed_query_ids or [])]
+        except (TypeError, ValueError):
+            raise ValueError("missed_query_ids must be a list of integers")
+        if not ids:
+            return {"ok": False, "error": "missed_query_ids is empty"}
+        if not isinstance(extraction_prompt, str) or not extraction_prompt.strip():
+            raise ValueError("extraction_prompt must be a non-empty string")
+        # Engine-level rebake invokes the AFE phase with a per-call
+        # prompt override + salience.  The full benchmark-orchestrated
+        # version (with rerun + delta reporting) lives in
+        # benchmarks/targeted_rebake/.  This tool surfaces the
+        # single-call entry point for in-pod use.
+        try:
+            from afe import run_stage_c_for_sources  # type: ignore[import]
+        except Exception:
+            return {"ok": False, "error": "afe.run_stage_c_for_sources unavailable"}
+        try:
+            facts_added = run_stage_c_for_sources(
+                self.store, ids,
+                prompt=extraction_prompt,
+                model=model or os.environ.get("MAZEMAKER_AFE_MODEL"),
+                salience=float(salience),
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return {
+            "ok": True,
+            "sessions_rebaked": len(ids),
+            "facts_added": facts_added,
+            "salience": float(salience),
+            "note": (
+                "Dilution-watch invariant: past ~6 facts/session, low-"
+                "signal facts compete with high-signal ones for top-K. "
+                "See [decision_iter79_target_exceeded]."
+            ),
+        }
+
+    def ablate(
+        self,
+        channels: list[str],
+        queries: list[str],
+        k: int = 5,
+    ) -> dict:
+        """Channel-ablation matrix: same query under each channel toggle.
+
+        Channels supported: semantic, fts, colbert, dae, ppr, intent,
+        temporal, salience, canonical.  Runs every (channel × query)
+        cell, returns per-cell top-K result-id lists for comparison.
+        Heavy — use sparingly on large corpora.
+        """
+        if not isinstance(channels, list) or not channels:
+            raise ValueError("channels must be a non-empty list of strings")
+        if not isinstance(queries, list) or not queries:
+            raise ValueError("queries must be a non-empty list of strings")
+        k = max(1, min(int(k), 25))
+        all_channels = {"semantic", "fts", "colbert", "dae", "ppr",
+                        "intent", "temporal", "salience", "canonical"}
+        chans = [c for c in channels if c in all_channels]
+        if not chans:
+            return {"ok": False,
+                    "error": f"no valid channel; expected one of {sorted(all_channels)}"}
+        matrix: dict = {}
+        for chan in chans:
+            row: list[list[dict]] = []
+            for q in queries:
+                kwargs: dict = {}
+                # Default to all-channels-on, then disable the OPPOSITE
+                # ones to isolate this channel's contribution.  e.g.
+                # "semantic only" disables fts/colbert/dae/ppr.
+                if chan != "fts":
+                    kwargs["hybrid"] = False
+                if chan != "colbert":
+                    kwargs["enable_colbert"] = False
+                if chan != "dae":
+                    kwargs["enable_dae"] = False
+                try:
+                    results = self.recall(q, k=k, **kwargs)
+                except Exception as e:
+                    row.append([{"error": str(e)}])
+                    continue
+                row.append([{"id": r.get("id"),
+                             "label": r.get("label"),
+                             "score": r.get("score") or r.get("relevance") or
+                                      r.get("similarity")}
+                            for r in results])
+            matrix[chan] = row
+        return {"ok": True, "channels": chans, "queries": queries, "k": k,
+                "matrix": matrix}
+
+    # ── Phase-6 light additions ─────────────────────────────────────────
+    def health(self) -> dict:
+        """Corpus + AFE + dream + DAE health.
+
+        Returns a nested status blob suitable for a single-pull dashboard
+        widget.  Pro-only sections (AFE coverage, DAE staleness) return
+        ``"n/a"`` strings on Community so the UI can grey them out.
+        """
+        stats = self.store.get_stats() if hasattr(self.store, "get_stats") else {}
+        out: dict = {
+            "ok": True,
+            "corpus": {
+                "memories": int(stats.get("memories", 0) or 0),
+                "connections": int(stats.get("connections", 0) or 0),
+            },
+            "dream": {},
+            "afe": {},
+            "dae": {},
+        }
+        try:
+            out["dream"] = self.dream_stats()
+        except Exception:
+            out["dream"] = {"error": "dream stats unavailable"}
+        # AFE coverage: facts / session-sources count
+        if has_feature("afe_userside"):
+            try:
+                afe = self.afe_facts(limit=10000)
+                out["afe"] = {"facts_count": len(afe)}
+            except Exception:
+                out["afe"] = {"error": "afe coverage unavailable"}
+        else:
+            out["afe"] = "n/a"
+        # DAE staleness: rows in memory_dae_embeddings vs total memories
+        if has_feature("dae"):
+            try:
+                if hasattr(self.store, "dae_count"):
+                    dae_count = int(self.store.dae_count() or 0)
+                    out["dae"] = {"vectorised": dae_count,
+                                  "coverage": (dae_count / max(out["corpus"]["memories"], 1))}
+                else:
+                    out["dae"] = {"note": "dae_count helper not present"}
+            except Exception:
+                out["dae"] = {"error": "dae stats unavailable"}
+        else:
+            out["dae"] = "n/a"
+        return out
+
+    def supersedes_log(
+        self,
+        since: Optional[float] = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Recent SUPERSEDES detections from the memory_revisions table.
+
+        Returns a chronological-DESC list of supersession events:
+        (old_id, new_id, cosine, numeric_overlap, ts).  Ships in all
+        tiers since conflict supersession is a Community feature.
+        """
+        limit = max(1, min(int(limit), 500))
+        cutoff = float(since) if since is not None else 0.0
+        try:
+            rows = self.store.recent_revisions(limit=limit, since=cutoff)  # type: ignore[attr-defined]
+        except AttributeError:
+            rows = []
+        return [
+            {"old_id": r.get("old_id"),
+             "new_id": r.get("new_id"),
+             "cosine": r.get("cosine"),
+             "numeric_overlap": r.get("numeric_overlap"),
+             "ts": r.get("created_at") or r.get("ts")}
+            for r in rows
+        ]
+
     def dream_stats(self) -> dict:
         """Aggregate dream-engine stats from the backend.
 

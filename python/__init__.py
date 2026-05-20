@@ -251,6 +251,183 @@ MAZEMAKER_RECALL_ADVANCED_SCHEMA = {
     },
 }
 
+MAZEMAKER_AFE_FACTS_SCHEMA = {
+    "name": "mazemaker_afe_facts",
+    "description": (
+        "Query AFE-extracted atomic facts in the corpus.  Filters by "
+        "label prefix ('afe', 'afe:auto', '::api2::C' for rebake "
+        "namespaces) and/or by source memory_id when the operator "
+        "wants to inspect a single session's facts.  Pro feature."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "source_id": {"type": "integer"},
+            "label_prefix": {"type": "string"},
+            "limit": {"type": "integer"},
+        },
+    },
+}
+
+MAZEMAKER_SYNTH_LINEAGE_SCHEMA = {
+    "name": "mazemaker_synth_lineage",
+    "description": (
+        "Given a Stage S synthesis memory_id, return the contributing "
+        "AFE atomic facts (the cluster that fed the LLM-distilled "
+        "rephrasing) + edge weights.  Pro feature."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"memory_id": {"type": "integer"}},
+        "required": ["memory_id"],
+    },
+}
+
+MAZEMAKER_DIAGNOSE_SCHEMA = {
+    "name": "mazemaker_diagnose",
+    "description": (
+        "Typed-miss diagnostic — identify queries where the live "
+        "corpus failed to surface a high-similarity match within "
+        "top-K.  Returns per-question-type misses + samples.  Use "
+        "when the operator wants to know 'where does my pod struggle'.  "
+        "Pro feature."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "question_type": {
+                "type": "string",
+                "enum": ["preference", "temporal", "factual",
+                         "general", "ssa", "ssu", "ms", "tr", "ku"],
+            },
+            "top_k_threshold": {"type": "integer"},
+            "sample_size": {"type": "integer"},
+        },
+    },
+}
+
+MAZEMAKER_REBAKE_SCHEMA = {
+    "name": "mazemaker_rebake",
+    "description": (
+        "Query-conditional Stage C rebake on specified gold sessions.  "
+        "Productized version of benchmarks/targeted_rebake/rebake.py: "
+        "runs the AFE Stage C extractor with a per-call prompt against "
+        "the specified missed-query sessions, inserts new atomic facts "
+        "at the specified salience.  Pro + managed-pod only."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "missed_query_ids": {
+                "type": "array", "items": {"type": "integer"},
+            },
+            "extraction_prompt": {"type": "string"},
+            "model": {"type": "string"},
+            "salience": {"type": "number"},
+        },
+        "required": ["missed_query_ids", "extraction_prompt"],
+    },
+}
+
+MAZEMAKER_ABLATE_SCHEMA = {
+    "name": "mazemaker_ablate",
+    "description": (
+        "Channel-ablation matrix: run each query under each channel-"
+        "isolated configuration so the operator can see which channel "
+        "is load-bearing on the live corpus.  Channels: semantic, fts, "
+        "colbert, dae, ppr, intent, temporal, salience, canonical.  "
+        "Pro feature."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "channels": {"type": "array", "items": {"type": "string"}},
+            "queries": {"type": "array", "items": {"type": "string"}},
+            "k": {"type": "integer"},
+        },
+        "required": ["channels", "queries"],
+    },
+}
+
+MAZEMAKER_HEALTH_SCHEMA = {
+    "name": "mazemaker_health",
+    "description": (
+        "Corpus + AFE + dream + DAE single-pull health.  Returns a "
+        "nested status blob: memory + connection counts, last-dream-"
+        "cycle stats, AFE fact coverage, DAE vector freshness.  Pro-"
+        "only sections return 'n/a' on Community.  All tiers."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
+MAZEMAKER_SUPERSEDES_LOG_SCHEMA = {
+    "name": "mazemaker_supersedes_log",
+    "description": (
+        "Recent SUPERSEDES detections from the memory_revisions table "
+        "in chronological-DESC order: (old_id, new_id, cosine, "
+        "numeric_overlap, ts).  All tiers — conflict supersession is "
+        "a Community feature per the public tier matrix."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "since": {"type": "number",
+                      "description": "Unix-timestamp cutoff (optional)."},
+            "limit": {"type": "integer"},
+        },
+    },
+}
+
+MAZEMAKER_DREAM_CONFIG_SCHEMA = {
+    "name": "mazemaker_dream_config",
+    "description": (
+        "GET or SET the dream-engine cadence + threshold knobs.  Default "
+        "action 'get' returns the current values for idle_threshold "
+        "(seconds since last activity before a cycle triggers), "
+        "memory_threshold (new-memories count that triggers a cycle), "
+        "max_memories (NREM batch size), max_isolated (REM batch size), "
+        "and dae_recompute_every (NREM cycles between DAE recomputes). "
+        "Action 'set' applies any of those as keyword overrides on the "
+        "running DreamEngine; takes effect on the next loop tick."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["get", "set"],
+                "description": "get (default) or set.",
+            },
+            "idle_threshold": {"type": "integer"},
+            "memory_threshold": {"type": "integer"},
+            "max_memories": {"type": "integer"},
+            "max_isolated": {"type": "integer"},
+            "dae_recompute_every": {"type": "integer"},
+        },
+    },
+}
+
+MAZEMAKER_DREAM_CONTROL_SCHEMA = {
+    "name": "mazemaker_dream_control",
+    "description": (
+        "Control the autonomous dream daemon: pause (stop the loop), "
+        "resume (start it again), or status (report running/idle + "
+        "cycle count).  Cycles already in progress are not interrupted "
+        "by pause.  Pro feature in the operator's intended tier model; "
+        "engine-side check is delegated to the daemon's existing gates."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["pause", "resume", "status"],
+                "description": "pause / resume / status (default 'status').",
+            },
+        },
+    },
+}
+
 MAZEMAKER_CLASSIFY_INTENT_SCHEMA = {
     "name": "mazemaker_classify_intent",
     "description": (
@@ -344,6 +521,15 @@ ALL_TOOL_SCHEMAS = [
     MAZEMAKER_RECALL_MULTI_SCHEMA,
     MAZEMAKER_RECALL_ADVANCED_SCHEMA,
     MAZEMAKER_CLASSIFY_INTENT_SCHEMA,
+    MAZEMAKER_DREAM_CONFIG_SCHEMA,
+    MAZEMAKER_DREAM_CONTROL_SCHEMA,
+    MAZEMAKER_AFE_FACTS_SCHEMA,
+    MAZEMAKER_SYNTH_LINEAGE_SCHEMA,
+    MAZEMAKER_DIAGNOSE_SCHEMA,
+    MAZEMAKER_REBAKE_SCHEMA,
+    MAZEMAKER_ABLATE_SCHEMA,
+    MAZEMAKER_HEALTH_SCHEMA,
+    MAZEMAKER_SUPERSEDES_LOG_SCHEMA,
     MAZEMAKER_THINK_SCHEMA,
     MAZEMAKER_GRAPH_SCHEMA,
     *_DREAM_PHASE_SCHEMAS,
@@ -1209,7 +1395,131 @@ memory?") call `neural_graph` to summarise.
             return self._handle_graph(args)
         elif tool_name in DREAM_PHASE_TOOL_ALIAS:
             return self._handle_dream_phase(DREAM_PHASE_TOOL_ALIAS[tool_name])
+        elif tool_name == "mazemaker_dream_config":
+            return self._handle_dream_config(args)
+        elif tool_name == "mazemaker_dream_control":
+            return self._handle_dream_control(args)
+        elif tool_name == "mazemaker_afe_facts":
+            return self._handle_afe_facts(args)
+        elif tool_name == "mazemaker_synth_lineage":
+            return self._handle_synth_lineage(args)
+        elif tool_name == "mazemaker_diagnose":
+            return self._handle_diagnose(args)
+        elif tool_name == "mazemaker_rebake":
+            return self._handle_rebake(args)
+        elif tool_name == "mazemaker_ablate":
+            return self._handle_ablate(args)
+        elif tool_name == "mazemaker_health":
+            return self._handle_health(args)
+        elif tool_name == "mazemaker_supersedes_log":
+            return self._handle_supersedes_log(args)
         return tool_error(f"Unknown tool: {tool_name}")
+
+    def _handle_afe_facts(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            sid = args.get("source_id")
+            lp = args.get("label_prefix")
+            lim = self._coerce_int(args.get("limit"), 50)
+            facts = self._memory.afe_facts(source_id=sid, label_prefix=lp, limit=lim)
+            return json.dumps({"facts": facts, "count": len(facts)})
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _handle_synth_lineage(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            mid = self._coerce_int(args.get("memory_id"), -1)
+            if mid < 0:
+                return tool_error("memory_id must be a non-negative integer")
+            return json.dumps(self._memory.synth_lineage(mid))
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _handle_diagnose(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            qt = args.get("question_type")
+            kt = self._coerce_int(args.get("top_k_threshold"), 5)
+            ss = self._coerce_int(args.get("sample_size"), 100)
+            return json.dumps(self._memory.diagnose(
+                question_type=qt, top_k_threshold=kt, sample_size=ss,
+            ))
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _handle_rebake(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            ids = args.get("missed_query_ids") or []
+            prompt = args.get("extraction_prompt") or ""
+            model = args.get("model")
+            sal = float(args.get("salience", 2.0))
+            return json.dumps(self._memory.rebake(
+                missed_query_ids=ids, extraction_prompt=prompt,
+                model=model, salience=sal,
+            ))
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _handle_ablate(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            chans = args.get("channels") or []
+            qs = args.get("queries") or []
+            k = self._coerce_int(args.get("k"), 5)
+            return json.dumps(self._memory.ablate(channels=chans, queries=qs, k=k))
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _handle_health(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            return json.dumps(self._memory.health())
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _handle_supersedes_log(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            since = args.get("since")
+            limit = self._coerce_int(args.get("limit"), 50)
+            log = self._memory.supersedes_log(
+                since=float(since) if since is not None else None,
+                limit=limit,
+            )
+            return json.dumps({"events": log, "count": len(log)})
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _handle_dream_config(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            action = str(args.get("action", "get"))
+            knobs = {k: args[k] for k in (
+                "idle_threshold", "memory_threshold", "max_memories",
+                "max_isolated", "dae_recompute_every",
+            ) if k in args}
+            return json.dumps(self._memory.dream_config(action=action, **knobs))
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _handle_dream_control(self, args: dict) -> str:
+        if self._memory is None:
+            return tool_error("Neural memory provider not initialized")
+        try:
+            action = str(args.get("action", "status"))
+            return json.dumps(self._memory.dream_control(action=action))
+        except Exception as exc:
+            return tool_error(str(exc))
 
     def _handle_dream_phase(self, phase: str) -> str:
         """Per-phase dream trigger.  Dispatches to Memory.dream(phase=<X>).

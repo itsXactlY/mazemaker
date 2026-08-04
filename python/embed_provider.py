@@ -130,17 +130,26 @@ class SharedEmbedServer:
         
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         
-        device = 'cpu'
-        if self.device:
-            device = self.device
-        elif torch.cuda.is_available():
-            free = torch.cuda.mem_get_info(0)[0] / 1024**2
-            if free > 500:
+        # Device resolution — GPU-FIRST. Capacity is decided by the waiter
+        # further down, NEVER here.
+        #
+        # The old form gated CUDA behind `free > 500` at load time, so a
+        # transient VRAM squeeze (a co-resident LLM, or an OOM-kill whose
+        # allocation the driver hasn't reclaimed yet) silently pinned the
+        # process to CPU for its entire lifetime — config is read once at
+        # startup, so it never recovered. Worse: the strict
+        # `_wait_for_gpu_memory` guard below lives INSIDE the
+        # `device == 'cuda'` branch, so the silent fallback bypassed the
+        # very policy that exists to prevent it. Resolve on AVAILABILITY
+        # here; let the waiter rule on CAPACITY. 2026-08-05.
+        device = (self.device or '').strip().lower()
+        if device in ('', 'auto'):
+            if torch.cuda.is_available():
                 device = 'cuda'
-                print(f"[embed-server] CUDA: {free:.0f} MB free")
-        
-        if device == 'cpu' and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            device = 'mps'
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device = 'mps'
+            else:
+                device = 'cpu'
         
         # Use snapshot path directly (works offline, avoids HF hub issues)
         safe_name = self.model_name.replace('/', '--')
@@ -167,18 +176,36 @@ class SharedEmbedServer:
             print(f"[embed-server] ERROR: No cached model found at {cache_base}", file=sys.stderr)
             raise FileNotFoundError(f"No cached model: {self.model_name}")
         
-        print(f"[embed-server] Loading {model_path} on {device}...")
-        
-        # If target is CUDA, wait for sufficient GPU memory (no silent fallback)
+        # CUDA target: WAIT for capacity. Do not crash-loop, do not degrade
+        # silently. 30s was too short for the real contention case on this
+        # class of host — a co-resident LLM holds the card for minutes, and
+        # a 30s cap turned "wait your turn" into either a hard failure or
+        # (worse) the silent CPU pin above. 300s means the worker blocks
+        # until the GPU frees instead of hammering systemd's restart timer.
+        # EMBED_GPU_WAIT_S overrides.
         if device == 'cuda':
-            # Cap the waiter at 30s: 120s was too long — if the GPU is full
-            # for that long, it's not coming back during this session, and
-            # the user is paying multi-minute startup latency before the
-            # first prompt. EMBED_GPU_WAIT_S overrides for ops who want a
-            # longer hold.
-            gpu_wait_s = float(os.environ.get("EMBED_GPU_WAIT_S", "30"))
-            self._wait_for_gpu_memory(min_free_mb=2000, timeout=gpu_wait_s, poll_interval=2)
-        
+            gpu_wait_s = float(os.environ.get("EMBED_GPU_WAIT_S", "300"))
+            try:
+                self._wait_for_gpu_memory(min_free_mb=2000, timeout=gpu_wait_s, poll_interval=5)
+            except RuntimeError:
+                # MAZEMAKER_DEVICE_STRICT mirrors the embedding-worker knob
+                # (backends.py) so ONE env var governs both selectors.
+                # Default strict=1: never run CPU on a GPU box behind the
+                # operator's back — fail loud and let the supervisor retry.
+                if os.environ.get("MAZEMAKER_DEVICE_STRICT", "1") != "0":
+                    print("[embed-server] FATAL: GPU was the target and never freed up. "
+                          "STRICT mode — refusing to degrade to CPU. "
+                          "Set MAZEMAKER_DEVICE_STRICT=0 to allow a CPU fallback.",
+                          file=sys.stderr)
+                    raise
+                print("[embed-server] WARNING: *** DEGRADED TO CPU *** — GPU was the "
+                      f"target but never had {2000} MB free within {gpu_wait_s:.0f}s. "
+                      "Embedding throughput will be a fraction of GPU speed.",
+                      file=sys.stderr)
+                device = 'cpu'
+
+        print(f"[embed-server] Loading {model_path} on {device}...")
+
         self.model = SentenceTransformer(model_path, device=device)
         # Cap at 2048 tokens: 4× less memory per sequence than the
         # default 8192, keeps semantic signal for memory matching.
@@ -709,18 +736,18 @@ class SentenceTransformerBackend:
 
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         
-        device = 'cpu'
-        if self.FORCED_DEVICE:
-            device = self.FORCED_DEVICE
-        elif torch.cuda.is_available():
-            try:
-                free = torch.cuda.mem_get_info(0)[0] / 1024**2
-                if free > 500:
-                    device = 'cuda'
-            except:
-                pass
-        if device == 'cpu' and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            device = 'mps'
+        # Same GPU-FIRST resolution as SharedEmbedServer._load_model: pick on
+        # AVAILABILITY, let the waiter below rule on CAPACITY. The old
+        # `free > 500` gate here pinned the direct-load path to CPU for the
+        # process lifetime on any transient VRAM squeeze. 2026-08-05.
+        device = (self.FORCED_DEVICE or '').strip().lower()
+        if device in ('', 'auto'):
+            if torch.cuda.is_available():
+                device = 'cuda'
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device = 'mps'
+            else:
+                device = 'cpu'
         
         # Use snapshot path directly (works offline)
         safe_name = self.MODEL_NAME.replace('/', '--')
@@ -742,13 +769,29 @@ class SentenceTransformerBackend:
         if model_path is None:
             raise FileNotFoundError(f"No cached model: {self.MODEL_NAME}")
         
-        # GPU-FIRST: if CUDA was chosen, wait for memory (no silent fallback).
-        # Capped at EMBED_GPU_WAIT_S (default 30s) — see SharedEmbedServer
-        # comment above for rationale.
+        # CUDA target: WAIT for capacity — same policy as
+        # SharedEmbedServer._load_model (see the comment there).
+        #
+        # BUG FIXED 2026-08-05: this used to call `_wait_for_gpu(self, ...)`,
+        # but the module-level `_wait_for_gpu` takes no `self` — the stray
+        # positional bound to `min_free_mb` and collided with the keyword,
+        # so every CUDA direct-load raised
+        # `TypeError: _wait_for_gpu() got multiple values for argument
+        # 'min_free_mb'` instead of waiting. The guard never ran once.
         if device == 'cuda':
-            gpu_wait_s = float(os.environ.get("EMBED_GPU_WAIT_S", "30"))
-            _wait_for_gpu(self, min_free_mb=2000, timeout=gpu_wait_s, poll_interval=2)
-        
+            gpu_wait_s = float(os.environ.get("EMBED_GPU_WAIT_S", "300"))
+            try:
+                _wait_for_gpu(min_free_mb=2000, timeout=gpu_wait_s, poll_interval=5)
+            except RuntimeError:
+                if os.environ.get("MAZEMAKER_DEVICE_STRICT", "1") != "0":
+                    print("[embed] FATAL: GPU was the target and never freed up. "
+                          "STRICT mode — refusing to degrade to CPU.", file=sys.stderr)
+                    raise
+                print("[embed] WARNING: *** DEGRADED TO CPU *** — GPU was the target "
+                      f"but never had 2000 MB free within {gpu_wait_s:.0f}s.",
+                      file=sys.stderr)
+                device = 'cpu'
+
         print(f"[embed] Loading {model_path} directly on {device}...")
         self.model = SentenceTransformer(model_path, device=device)
         self.model.max_seq_length = 2048

@@ -1646,27 +1646,80 @@ class Mazemaker:
                         # that exposes store.get_all(). Logged at WARNING level
                         # so it's visible even when INFO is filtered.
                         if not built_from_cache and self._gpu is None:
-                            try:
-                                if eng.load_from_store(
-                                    self.store,
-                                    embed_fn=self.embedder.embed,
-                                    embed_batch_fn=getattr(self.embedder, "embed_batch", None),
-                                ):
-                                    self._gpu = eng
+                            # THIRD device-selection site (2026-08-05). The other
+                            # two live in embed_provider (engine) and backends.py
+                            # (embedding worker); both were made VRAM-aware. This
+                            # one swallowed a CUDA OOM into a WARNING and ran
+                            # recall on numpy for the rest of the process life —
+                            # measured cost on a 214k corpus: 57.8 s per recall
+                            # instead of ~2 s, with nothing but one log line to
+                            # say why.
+                            #
+                            # A SHORT bounded retry, deliberately not the 300 s
+                            # the embed paths use: this runs inside the first
+                            # recall, and the wonderland gateway caps a
+                            # mazemaker_recall call — blocking for minutes here
+                            # would turn a busy GPU into a 502 instead of a slow
+                            # answer. Ride out a transient spike, then decide
+                            # LOUDLY.
+                            _gpu_wait_s = float(os.environ.get("MM_GPU_RECALL_WAIT_S", "30"))
+                            _min_free_mb = float(os.environ.get("MAZEMAKER_GPU_MIN_FREE_MB", "1024"))
+                            _strict = os.environ.get("MAZEMAKER_DEVICE_STRICT", "1") != "0"
+                            _deadline = time.time() + _gpu_wait_s
+                            _armed = False
+                            _last_exc = None
+                            while True:
+                                try:
+                                    if eng.load_from_store(
+                                        self.store,
+                                        embed_fn=self.embedder.embed,
+                                        embed_batch_fn=getattr(self.embedder, "embed_batch", None),
+                                    ):
+                                        self._gpu = eng
+                                        _armed = True
+                                        _glog.warning(
+                                            "GPU recall ARMED (load_from_store): %d vectors on %s",
+                                            eng._emb_tensor.shape[0] if eng._emb_tensor is not None else 0,
+                                            eng._device,
+                                        )
+                                    else:
+                                        _glog.warning(
+                                            "GPU recall: load_from_store returned False — recall will run on CPU/numpy"
+                                        )
+                                    break
+                                except BaseException as exc_lfs:
+                                    _last_exc = exc_lfs
+                                    _oom = "out of memory" in str(exc_lfs).lower()
+                                    if not _oom or time.time() >= _deadline:
+                                        break
+                                    _free = "?"
+                                    try:
+                                        import torch as _t
+                                        _free = "%.0f" % (_t.cuda.mem_get_info(0)[0] / 1024**2)
+                                        _t.cuda.empty_cache()
+                                    except BaseException:
+                                        pass
                                     _glog.warning(
-                                        "GPU recall ARMED (load_from_store): %d vectors on %s",
-                                        eng._emb_tensor.shape[0] if eng._emb_tensor is not None else 0,
-                                        eng._device,
+                                        "GPU recall: CUDA OOM arming the tensor (%s MB free, need ~%.0f MB) — "
+                                        "waiting for the card, %ds left",
+                                        _free, _min_free_mb, int(max(0, _deadline - time.time())),
+                                    )
+                                    time.sleep(5)
+
+                            if not _armed and _last_exc is not None:
+                                if _strict:
+                                    _glog.error(
+                                        "GPU recall could NOT be armed (%s). MAZEMAKER_DEVICE_STRICT is on: "
+                                        "recall would silently run on numpy at a fraction of GPU speed. "
+                                        "Free the card or set MAZEMAKER_DEVICE_STRICT=0 to accept the fallback.",
+                                        _last_exc,
                                     )
                                 else:
                                     _glog.warning(
-                                        "GPU recall: load_from_store returned False — recall will run on CPU/numpy"
+                                        "GPU recall load_from_store failed: %s — *** RECALL NOW RUNS ON CPU/NUMPY *** "
+                                        "for the lifetime of this process (expect seconds, not milliseconds).",
+                                        _last_exc,
                                     )
-                            except BaseException as exc_lfs:
-                                _glog.warning(
-                                    "GPU recall load_from_store failed: %s — CPU/numpy fallback",
-                                    exc_lfs,
-                                )
                 except BaseException as exc:
                     _glog.warning(
                         "GPU recall init skipped (recall will run on CPU/numpy): %s", exc

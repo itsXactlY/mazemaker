@@ -550,6 +550,47 @@ class SQLiteStore:
             })
         return results
 
+    def count_all(self) -> int:
+        """Row count (with embedding). Used by the GPU arm / HNSW builders for
+        preallocation — ported from the Pro line (2026-08-07)."""
+        with self._lock:
+            return int(self.conn.execute(
+                "SELECT COUNT(*) FROM memories WHERE embedding IS NOT NULL"
+            ).fetchone()[0])
+
+    def iter_for_gpu_arm(self, chunk_size: int = 4096):
+        """Yield (ids, labels, contents, payload, dim, endian) chunks without
+        materialising Python floats — ported from the Pro line (2026-08-07).
+
+        SQLite blobs are native little-endian float32 (struct.pack "f"), so
+        the arm decodes them on-device WITHOUT the pgvector byte-swap; the
+        trailing \"le\" marker tells gpu_recall which decode to use. Ragged
+        corpora (mixed dims) raise loudly instead of arming a corrupt tensor.
+        """
+        dim = 0
+        last = 0
+        while True:
+            with self._lock:
+                rows = self.conn.execute(
+                    "SELECT id, label, content, embedding FROM memories "
+                    "WHERE id > ? AND embedding IS NOT NULL ORDER BY id LIMIT ?",
+                    (last, chunk_size),
+                ).fetchall()
+            if not rows:
+                break
+            ids = [int(r["id"]) for r in rows]
+            labels = [r["label"] or "" for r in rows]
+            contents = [r["content"] or "" for r in rows]
+            payload = b"".join(bytes(r["embedding"]) for r in rows)
+            d = len(bytes(rows[0]["embedding"])) // 4
+            if dim and d != dim:
+                raise ValueError(
+                    f"ragged embeddings: chunk dim {d} != {dim} — refusing "
+                    "to arm a misaligned tensor")
+            dim = d or dim
+            last = ids[-1]
+            yield (ids, labels, contents, payload, dim, "le")
+
     def get(self, id_: int, include_embedding: bool = True) -> Optional[dict]:
         row = self.conn.execute(
             "SELECT id, label, content, embedding, salience, created_at, last_accessed, access_count FROM memories WHERE id = ?",
@@ -1981,6 +2022,13 @@ class Mazemaker:
             import numpy as np
         except Exception:
             return False
+        # Preferred: streaming build from blob bytes — no Python-float
+        # materialisation (the 7+ GB get_all() explosion at 215k that kept
+        # the worker at a 12.9 GB steady state before 94cdc80; ported to the
+        # free line 2026-08-07 so the community build gets the fix too).
+        _iter = getattr(self.store, "iter_for_gpu_arm", None)
+        if callable(_iter):
+            return self._ensure_hnsw_streaming(_iter, hnswlib, np)
         mems = self.store.get_all()
         if not mems:
             return False
@@ -2031,6 +2079,61 @@ class Mazemaker:
         self._hnsw_capacity = capacity
         self._hnsw_dirty = False
         # Refresh drift-detection baseline after a full rebuild.
+        self._hnsw_max_known_id = max(ids) if ids else 0
+        return True
+
+    def _ensure_hnsw_streaming(self, _iter, hnswlib, np) -> bool:
+        """Build HNSW from the store's streaming iterator — embeddings stay as
+        blob bytes until np.frombuffer puts them straight into a preallocated
+        float32 array (the 7+ GB Python-float list never exists). Ported from
+        the Pro line (2026-08-07, fix 1c99921)."""
+        _count = getattr(self.store, "count_all", None)
+        n_total = int(_count()) if callable(_count) else 0
+        if n_total:
+            if str(self._hnsw_enabled).lower() == "auto" and n_total < 1000:
+                return False
+        if n_total == 0:
+            for chunk in _iter():
+                n_total += len(chunk[0])
+            _iter = getattr(self.store, "iter_for_gpu_arm", None)
+            if not callable(_iter):
+                return False
+        if n_total == 0:
+            return False
+        arr = np.empty((n_total, self.dim), dtype=np.float32)
+        ids: list[int] = []
+        filled = 0
+        for chunk in _iter():
+            c_ids, _lbls, _ctnts, payload, dim = chunk[:5]
+            endian = chunk[5] if len(chunk) > 5 else "be"
+            if dim != self.dim:
+                logger.error(
+                    "HNSW build: chunk dim %d != engine dim %d — refusing to "
+                    "build a misaligned index", dim, self.dim)
+                return False
+            if endian == "le":
+                arr[filled:filled + len(c_ids)] = np.frombuffer(
+                    payload, dtype=np.float32).reshape(-1, dim)
+            else:
+                arr[filled:filled + len(c_ids)] = np.frombuffer(
+                    payload, dtype=">f4").astype(np.float32).reshape(-1, dim)
+            ids.extend(int(i) for i in c_ids)
+            filled += len(c_ids)
+        if filled != n_total or len(ids) != filled:
+            logger.error(
+                "HNSW build: expected %d rows, filled %d, ids %d — refusing "
+                "misaligned index", n_total, filled, len(ids))
+            return False
+        capacity = max(filled * 2, filled + 1024)
+        index = hnswlib.Index(space="cosine", dim=self.dim)
+        index.init_index(max_elements=capacity, ef_construction=200, M=16)
+        index.add_items(arr, np.asarray(ids, dtype=np.int64))
+        index.set_ef(64)
+        self._hnsw_index = index
+        self._hnsw_ids = ids
+        self._hnsw_known = set(ids)
+        self._hnsw_capacity = capacity
+        self._hnsw_dirty = False
         self._hnsw_max_known_id = max(ids) if ids else 0
         return True
 

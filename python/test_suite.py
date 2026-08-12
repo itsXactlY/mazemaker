@@ -311,6 +311,18 @@ def test_22():
     model_dir = Path.home() / ".mazemaker" / "engine" / "models" / "models--BAAI--bge-m3"
     if not model_dir.exists():
         raise SkipTest("BAAI/bge-m3 not cached — hash backend cannot create semantic connections")
+    try:
+        import sentence_transformers  # noqa: F401
+        import torch  # noqa: F401
+    except ImportError as exc:
+        # Audited 2026-08-12: the model-cache check above isn't sufficient —
+        # embedding_backend="auto" also needs sentence-transformers/torch
+        # IMPORTABLE, not just the model files present on disk. Without this,
+        # a missing torch install falls through to a non-semantic backend and
+        # this test failed with a real assertion error that looked like a
+        # product bug rather than a missing dependency.
+        raise SkipTest(f"sentence-transformers/torch not importable ({exc}) — "
+                        f"embedding_backend='auto' cannot reach a semantic backend")
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f: db = f.name
     try:
         m = Mazemaker(db_path=db, embedding_backend="auto")

@@ -182,6 +182,14 @@ class SQLiteStore:
         # "database is locked", which the architect dashboard renders
         # as a generic Internal-error tile.
         self.conn.execute("PRAGMA busy_timeout=30000")
+        # touch() (below) uses this in its access-count/salience update but
+        # nothing ever set it, so every touch() raised AttributeError,
+        # silently swallowed by its one caller (NeuralMemory.recall()'s
+        # post-processing) — salience never decayed and access_count/
+        # last_accessed never updated, on every recall, forever. Backported
+        # from mazemaker-pro/python/memory_client.py, which hit and fixed
+        # this same bug (test_suite "sqlite: touch updates access").
+        self._salience_decay_k = 0.03
         self.conn.executescript(SCHEMA)
         self._ensure_schema_extensions()
         self._fts_available = self._ensure_fts()

@@ -7,6 +7,7 @@ hybrid retrieval, typed temporal graph edges, and PPR thinking.
 from __future__ import annotations
 
 import ctypes
+import fnmatch
 import logging
 import math
 import os
@@ -782,9 +783,83 @@ class SQLiteStore:
         (no derived-cluster TTL pruning on PG).
         """
         with self._lock:
+            self._purge_dependents(
+                "label LIKE ? AND created_at < ?",
+                (prefix + "%", float(older_than_ts)))
             cur = self.conn.execute(
                 "DELETE FROM memories WHERE label LIKE ? AND created_at < ?",
                 (prefix + "%", float(older_than_ts)),
+            )
+            n = int(cur.rowcount or 0)
+            self.conn.commit()
+        return n
+
+    def _purge_dependents(self, where_sql: str, params: tuple) -> None:
+        """Clear rows that point at the memories a delete is about to remove.
+
+        The schema declares foreign keys, but SQLite only enforces them with
+        PRAGMA foreign_keys=ON, which this store never sets. A bare DELETE on
+        `memories` therefore leaves edges, revisions and dream bookkeeping
+        pointing at ids that no longer exist — and graph traversal then walks
+        into them. Dream and DAE tables exist only once those schemas have been
+        applied. The caller holds self._lock and commits.
+        """
+        tables = {r[0] for r in self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+        doomed = f"(SELECT id FROM memories WHERE {where_sql})"
+        if "dream_insights" in tables:
+            self.conn.execute(
+                f"DELETE FROM dream_insights WHERE source_memory_id IN {doomed}", params)
+        if "connection_history" in tables:
+            self.conn.execute(
+                f"DELETE FROM connection_history WHERE source_id IN {doomed} "
+                f"OR target_id IN {doomed}", params + params)
+        if "memory_dae_embeddings" in tables:
+            self.conn.execute(
+                f"DELETE FROM memory_dae_embeddings WHERE memory_id IN {doomed}", params)
+        self.conn.execute(
+            f"DELETE FROM connections WHERE source_id IN {doomed} "
+            f"OR target_id IN {doomed}", params + params)
+        self.conn.execute(
+            f"DELETE FROM memory_revisions WHERE memory_id IN {doomed}", params)
+
+    def list_by_label_prefix(self, prefix: str, offset: int = 0, limit: int = 50) -> list[dict]:
+        """Ids and labels whose label starts with `prefix` or carries `::prefix`."""
+        p = (prefix or "").strip()
+        if not p:
+            return []
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT id, label FROM memories "
+                "WHERE label LIKE ? OR label LIKE ? "
+                "ORDER BY id DESC LIMIT ? OFFSET ?",
+                (p + "%", "%::" + p + "%", int(limit), int(offset)),
+            ).fetchall()
+        return [{"id": r["id"], "label": r["label"]} for r in rows]
+
+    def count_by_label_prefix(self, prefix: str) -> int:
+        """Uncapped count over the same match set as list_by_label_prefix."""
+        p = (prefix or "").strip()
+        if not p:
+            return 0
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT count(*) FROM memories WHERE label LIKE ? OR label LIKE ?",
+                (p + "%", "%::" + p + "%"),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def delete_memories_by_labels(self, labels: "list[str]") -> int:
+        """Delete memories whose label is exactly one of `labels`."""
+        labels = [l for l in (labels or []) if isinstance(l, str) and l.strip()]
+        if not labels:
+            return 0
+        placeholders = ",".join("?" for _ in labels)
+        with self._lock:
+            self._purge_dependents("label IN (%s)" % placeholders, tuple(labels))
+            cur = self.conn.execute(
+                "DELETE FROM memories WHERE label IN (%s)" % placeholders,
+                labels,
             )
             n = int(cur.rowcount or 0)
             self.conn.commit()
@@ -3408,10 +3483,38 @@ class Mazemaker:
         ranked = sorted(seen_ids.values(), key=lambda r: -r.get('score', 0.0))
         return ranked[:k]
 
+    # Labels a person deliberately wrote down, as opposed to auto-saved turns.
+    _CURATED_RE = re.compile(
+        r"^(bug|decision|invariant|ops|fact|feedback|signal|status|user|reference):"
+    )
+
+    @staticmethod
+    def _scope_matches(label: "str | None", scope: "str | None") -> bool:
+        """Does `label` fall inside a recall scope?
+
+        None, "all" and "*" match everything; "curated" matches the curated
+        namespaces; "auto" matches auto-saved turns; anything else is an
+        fnmatch glob over the label, e.g. "decision:*".
+        """
+        if not scope or scope in ("all", "*"):
+            return True
+        lbl = label or ""
+        if scope == "curated":
+            return bool(Mazemaker._CURATED_RE.search(lbl))
+        if scope == "auto":
+            return lbl.startswith("auto:")
+        return fnmatch.fnmatchcase(lbl, scope)
+
     def recall(
         self,
         query: str,
         k: int = 5,
+        # scope: which label namespaces may be returned — see _scope_matches.
+        scope: "str | None" = None,
+        # mode: per-call retrieval mode ("semantic", "hybrid", "advanced",
+        # "skynet", "lean", "trim"); None uses the constructor's mode. Only
+        # consulted when `hybrid` is not given explicitly.
+        mode: Optional[str] = None,
         temporal_weight: float = 0.2,
         query_vec: Optional[list[float]] = None,
         touch: bool = True,
@@ -3488,10 +3591,15 @@ class Mazemaker:
         # set.
         if not include_echoes:
             limit = limit * 2
+        # A scope throws away everything outside its namespaces after fusion,
+        # so fetch a wider pool for it to filter; otherwise a narrow scope
+        # returns fewer than k hits on a corpus dominated by other labels.
+        if scope and scope not in ("all", "*"):
+            limit = limit * 4
         if hybrid is None:
             # `lean`/`trim` are cost-conscious skynet variants that zero
             # dead-weight channels per benchmark findings — still hybrid.
-            hybrid = self._retrieval_mode in {"hybrid", "advanced", "skynet", "lean", "trim"}
+            hybrid = (mode or self._retrieval_mode) in {"hybrid", "advanced", "skynet", "lean", "trim"}
 
         if hybrid:
             channels = self._parallel_retrieve(query, query_vec, limit, now)
@@ -3624,6 +3732,14 @@ class Mazemaker:
                 fact_ids.append(mid)
             mems = {mid: mems[mid] for mid in fact_ids}
             fused = {mid: fused[mid] for mid in fact_ids if mid in fused}
+            if not fused:
+                return []
+
+        if scope and scope not in ("all", "*"):
+            keep = [mid for mid, mem in mems.items()
+                    if self._scope_matches(mem.get("label"), scope)]
+            mems = {mid: mems[mid] for mid in keep}
+            fused = {mid: fused[mid] for mid in keep if mid in fused}
             if not fused:
                 return []
 
@@ -4539,6 +4655,26 @@ class Mazemaker:
             "action": "get",
             "current": {k: getattr(eng, f"_{k}", None) for k in known},
         }
+
+    def _store_label_method(self, name: str):
+        fn = getattr(self.store, name, None)
+        if fn is None:
+            raise NotImplementedError(
+                f"{type(self.store).__name__} has no {name}() — label-namespace "
+                "tools need a store that implements it")
+        return fn
+
+    def count_by_label_prefix(self, prefix: str) -> int:
+        return self._store_label_method("count_by_label_prefix")(prefix)
+
+    def list_by_label_prefix(self, prefix: str, offset: int = 0, limit: int = 50) -> list:
+        return self._store_label_method("list_by_label_prefix")(
+            prefix, offset=offset, limit=limit)
+
+    def delete_memories_by_labels(self, labels: list, confirm: bool = False) -> int:
+        if not confirm:
+            raise ValueError("delete_memories_by_labels: confirm=true required")
+        return self._store_label_method("delete_memories_by_labels")(labels)
 
     def connections_import_by_label(self, rows: list) -> dict:
         """Federation: import peer-side graph edges identified by labels.

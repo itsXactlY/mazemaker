@@ -575,6 +575,67 @@ _DREAM_PHASE_SCHEMAS = [
 ]
 
 
+# Label-namespace tools. The pod's Hermes bridge relies on these to keep its
+# session archive in step, so the community engine serves them as Pro does —
+# they are plain label queries, not a paid feature.
+MAZEMAKER_COUNT_BY_LABEL_PREFIX_SCHEMA = {
+    "name": "mazemaker_count_by_label_prefix",
+    "description": (
+        "Uncapped count of memories whose label starts with `prefix` (or carries "
+        "the `::prefix` infix). Use to reconcile a label namespace exactly — e.g. "
+        "how many skill: entries exist, past the 200-row browse cap."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "prefix": {"type": "string", "description": "Label prefix, e.g. 'skill:'"},
+        },
+        "required": ["prefix"],
+    },
+}
+
+MAZEMAKER_LIST_BY_LABEL_PREFIX_SCHEMA = {
+    "name": "mazemaker_list_by_label_prefix",
+    "description": (
+        "Paginated id+label enumeration for a label prefix (same match set as "
+        "count_by_label_prefix). offset/limit lets you walk the FULL namespace — "
+        "e.g. list every skill: entry in batches past the 200-row browse cap."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "prefix": {"type": "string", "description": "Label prefix, e.g. 'skill:'"},
+            "offset": {"type": "integer", "description": "Rows to skip (default 0)"},
+            "limit": {"type": "integer", "description": "Page size (default 50)"},
+        },
+        "required": ["prefix"],
+    },
+}
+
+MAZEMAKER_DELETE_BY_LABELS_SCHEMA = {
+    "name": "mazemaker_delete_by_labels",
+    "description": (
+        "Precisely delete memories by exact label (edges and dream state that "
+        "point at them are cleared first). DANGEROUS — requires `confirm: true`. "
+        "Use for cleanup of stale/renamed entries in a label namespace."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "labels": {
+                "type": "array", "items": {"type": "string"},
+                "description": "Exact labels to delete.",
+            },
+            "confirm": {
+                "type": "boolean",
+                "description": "Must be true to actually delete.",
+            },
+        },
+        "required": ["labels", "confirm"],
+    },
+}
+
+
 ALL_TOOL_SCHEMAS = [
     MAZEMAKER_REMEMBER_SCHEMA,
     MAZEMAKER_RECALL_SCHEMA,
@@ -595,6 +656,9 @@ ALL_TOOL_SCHEMAS = [
     MAZEMAKER_CONNECTIONS_IMPORT_SCHEMA,
     MAZEMAKER_THINK_SCHEMA,
     MAZEMAKER_GRAPH_SCHEMA,
+    MAZEMAKER_COUNT_BY_LABEL_PREFIX_SCHEMA,
+    MAZEMAKER_LIST_BY_LABEL_PREFIX_SCHEMA,
+    MAZEMAKER_DELETE_BY_LABELS_SCHEMA,
     *_DREAM_PHASE_SCHEMAS,
 ]
 

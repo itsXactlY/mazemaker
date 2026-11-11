@@ -4,11 +4,11 @@
 #
 # Architecture:
 #   python/           — SINGLE SOURCE OF TRUTH (all .py files live here)
-#   hermes-plugin/    — Hermes-specific metadata only (plugin.yaml, neural_skin.yaml)
+#   agent-plugin/     — plugin metadata for the host agent (plugin.yaml)
 #   Deploy targets    — SYMLINKS back to python/ (not copies)
 #
 # Usage:
-#   bash install.sh install [OPTIONS] [/path/to/hermes-agent]
+#   bash install.sh install [OPTIONS] [/path/to/agent-checkout]
 #   bash install.sh update
 #   bash install.sh test
 #   bash install.sh verify
@@ -24,7 +24,7 @@ set -e
 # -------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PYTHON_DIR="$SCRIPT_DIR/python"
-PLUGIN_SRC="$SCRIPT_DIR/hermes-plugin"
+PLUGIN_SRC="$SCRIPT_DIR/agent-plugin"
 
 # Colors
 GREEN='\033[0;32m'
@@ -45,7 +45,7 @@ print_info() { echo -e "${CYAN}→${NC} $1"; }
 check_not_root() {
     if [ "$(id -u)" -eq 0 ]; then
         echo -e "${RED}DO NOT RUN AS ROOT.${NC}"
-        echo "This installer writes to ~/.hermes/ and uses the user's venv."
+        echo "This installer writes into the host agent's home and uses its venv."
         echo "Run as your normal user."
         exit 1
     fi
@@ -64,40 +64,40 @@ print_banner() {
 }
 
 # -------------------------------------------------------------------
-# Detect hermes-agent
+# Detect the plugin host agent
 # -------------------------------------------------------------------
-detect_hermes_agent() {
+detect_host_agent() {
     local ARG="$1"
-    local HERMES_AGENT=""
+    local HOST_AGENT=""
 
     if [ -n "$ARG" ]; then
-        HERMES_AGENT="$ARG"
+        HOST_AGENT="$ARG"
     fi
 
-    if [ -z "$HERMES_AGENT" ]; then
+    # The in-process engine needs a Python agent that hosts memory plugins.
+    # Daedalus is that host; Ariadne (C++) reaches memory over MCP instead —
+    # run the pod and point Ariadne's mcp_servers.mazemaker at it.
+    if [ -z "$HOST_AGENT" ]; then
     for candidate in \
-        "$HOME/.hermes/hermes-agent" \
-        "$HOME/jack-in-a-box/hermes-agent" \
-        "$HOME/hermes-agent" \
-        "$HOME/.hermes/agent" \
-        "/opt/hermes-agent" \
-        "$HOME/projects/hermes-agent"; do
+        "${DAEDALUS_HOME:-$HOME/.daedalus}/daedalus-agent" \
+        "$HOME/projects/daedalus"; do
             if [ -d "$candidate" ] && [ -d "$candidate/plugins/memory" ]; then
-                HERMES_AGENT="$candidate"
+                HOST_AGENT="$candidate"
                 break
             fi
         done
     fi
 
-    if [ -z "$HERMES_AGENT" ] || [ ! -d "$HERMES_AGENT/plugins/memory" ]; then
-        print_err "hermes-agent not found!"
-        echo "  Checked: ~/.hermes/hermes-agent, ~/hermes-agent, ~/.hermes/agent"
-        echo "  Install hermes-agent first, then run:"
-        echo "    bash install.sh install /path/to/hermes-agent"
+    if [ -z "$HOST_AGENT" ] || [ ! -d "$HOST_AGENT/plugins/memory" ]; then
+        print_err "No plugin host agent found!"
+        echo "  Checked: \${DAEDALUS_HOME:-~/.daedalus}/daedalus-agent, ~/projects/daedalus"
+        echo "  Point at one explicitly:"
+        echo "    bash install.sh install /path/to/agent-checkout"
+        echo "  Using Ariadne? It needs no plugin: it reaches the pod over MCP."
         exit 1
     fi
 
-    echo "$HERMES_AGENT"
+    echo "$HOST_AGENT"
 }
 
 # -------------------------------------------------------------------
@@ -114,25 +114,26 @@ detect_python() {
 }
 
 detect_pip() {
-    local HERMES_AGENT="$1"
+    local HOST_AGENT="$1"
 
     PIP=""
     PIP_ARGS=""
 
-    if [ -f "$HERMES_AGENT/venv/bin/pip" ]; then
+    local VENV="$HOST_AGENT/venv"
+    [ -d "$VENV" ] || VENV="$HOST_AGENT/.venv"
+    if [ -f "$VENV/bin/pip" ]; then
         # Traditional pip-bundled venv.
-        PIP="$HERMES_AGENT/venv/bin/pip"
-        PYTHON="$HERMES_AGENT/venv/bin/python3"
-        print_info "Using hermes-agent venv: $HERMES_AGENT/venv"
-    elif [ -f "$HERMES_AGENT/venv/bin/python3" ] && command -v uv &>/dev/null; then
+        PIP="$VENV/bin/pip"
+        PYTHON="$VENV/bin/python3"
+        print_info "Using the host agent's venv: $VENV"
+    elif [ -f "$VENV/bin/python3" ] && command -v uv &>/dev/null; then
         # uv-managed venv: no pip inside, but `uv pip install --python <bin>`
-        # works against it. Hermes-agent's 3.14 transition produced this
-        # shape and the prior "No venv detected" fallback hit PEP 668 on
-        # Arch.
-        PYTHON="$HERMES_AGENT/venv/bin/python3"
+        # works against it. A uv-built agent venv has this shape, and the
+        # prior "No venv detected" fallback hit PEP 668 on Arch.
+        PYTHON="$VENV/bin/python3"
         PIP="uv pip"
         PIP_ARGS="--python $PYTHON"
-        print_info "Using uv-managed hermes-agent venv: $HERMES_AGENT/venv"
+        print_info "Using the host agent's uv-managed venv: $VENV"
     elif [ -n "$VIRTUAL_ENV" ] && [ -f "$VIRTUAL_ENV/bin/pip" ]; then
         PIP="$VIRTUAL_ENV/bin/pip"
         PYTHON="$VIRTUAL_ENV/bin/python3"
@@ -203,8 +204,8 @@ create_symlinks() {
         CREATED=$((CREATED + 1))
     done
 
-    # Copy hermes-specific files (NOT symlinked — they are per-install metadata)
-    for f in plugin.yaml neural_skin.yaml; do
+    # Copy the host-specific metadata (NOT symlinked — it is per-install)
+    for f in plugin.yaml; do
         if [ -f "$PLUGIN_SRC/$f" ]; then
             cp "$PLUGIN_SRC/$f" "$TARGET_DIR/"
         fi
@@ -239,7 +240,7 @@ remove_symlinks() {
         fi
     done
 
-    # Remove hermes-specific files we copied
+    # Remove the host-specific metadata we copied
     rm -f "$TARGET_DIR/plugin.yaml" "$TARGET_DIR/neural_skin.yaml" 2>/dev/null || true
 
     # Remove __pycache__
@@ -258,37 +259,37 @@ cmd_install() {
     # Parse args
     local HASH_BACKEND=false
     local WITH_MSSQL=false
-    local HERMES_AGENT_ARG=""
+    local AGENT_ARG=""
 
     for arg in "$@"; do
         case "$arg" in
             --hash-backend) HASH_BACKEND=true ;;
             --with-mssql) WITH_MSSQL=true ;;
             --help|-h)
-                echo "Usage: bash install.sh install [OPTIONS] [/path/to/hermes-agent]"
+                echo "Usage: bash install.sh install [OPTIONS] [/path/to/agent-checkout]"
                 echo ""
                 echo "Options:"
                 echo "  --hash-backend   Use hash embedding (instant, no model download)"
                 echo "  --with-mssql     Also set up MSSQL cold store (requires pyodbc)"
                 exit 0
                 ;;
-            *) HERMES_AGENT_ARG="$arg" ;;
+            *) AGENT_ARG="$arg" ;;
         esac
     done
 
-    # Detect hermes-agent
-    local HERMES_AGENT
-    HERMES_AGENT=$(detect_hermes_agent "$HERMES_AGENT_ARG")
-    local PLUGIN_DIR="$HERMES_AGENT/plugins/memory/neural"
-    local ALT_PLUGIN_DIR="$HOME/.hermes/plugins/memory/neural"
+    # Detect the plugin host agent
+    local HOST_AGENT
+    HOST_AGENT=$(detect_host_agent "$AGENT_ARG")
+    local PLUGIN_DIR="$HOST_AGENT/plugins/memory/neural"
+    local ALT_PLUGIN_DIR="${DAEDALUS_HOME:-$HOME/.daedalus}/plugins/memory/neural"
 
-    print_ok "hermes-agent: $HERMES_AGENT"
+    print_ok "host agent: $HOST_AGENT"
     print_ok "Plugin target: $PLUGIN_DIR"
     print_ok "Alt target:    $ALT_PLUGIN_DIR"
 
     # Detect Python + pip
     detect_python
-    detect_pip "$HERMES_AGENT"
+    detect_pip "$HOST_AGENT"
 
     # -------------------------------------------------------------------
     # System checks
@@ -353,7 +354,7 @@ cmd_install() {
 
     # setuptools — Python 3.14 venvs no longer bundle it; pip itself relies on
     # it for any future install (and the plugin's setup_fast.py imports it).
-    # Hermes 3.14 transition silently lacked it before this guard landed.
+    # A 3.14 agent venv silently lacked it before this guard landed.
     $PYTHON -c "import setuptools" 2>/dev/null && print_ok "setuptools" || {
         print_info "Installing setuptools (required by pip on 3.14)..."
         $PIP install $PIP_ARGS --quiet setuptools
@@ -439,9 +440,9 @@ print('  Created')
     fi
 
     # -------------------------------------------------------------------
-    # Configure hermes config.yaml
+    # Configure the host agent's config.yaml
     # -------------------------------------------------------------------
-    CONFIG_FILE="$HOME/.hermes/config.yaml"
+    CONFIG_FILE="${DAEDALUS_HOME:-$HOME/.daedalus}/config.yaml"
     if [ -f "$CONFIG_FILE" ]; then
         # Always update neural sub-config, even if provider is already neural.
         # Jack-in-a-Box creates a default config before this installer runs; on
@@ -483,7 +484,7 @@ with open('$CONFIG_FILE', 'w') as f:
     echo "  GPU Recall: $([ "$HAS_CUDA" = true ] && echo 'enabled (CUDA)' || echo 'disabled (CPU)')"
     echo "  Symlinks:   $COUNT1 files → $PLUGIN_DIR"
     echo ""
-    echo "  Next: hermes gateway restart"
+    echo "  Next: restart the host agent (daedalus gateway restart)"
     echo ""
 }
 
@@ -503,11 +504,11 @@ cmd_update() {
         git pull --ff-only 2>/dev/null && print_ok "Git updated" || print_warn "Git pull skipped (no remote or conflicts)"
     fi
 
-    # Re-detect hermes-agent
-    local HERMES_AGENT
-    HERMES_AGENT=$(detect_hermes_agent "")
-    local PLUGIN_DIR="$HERMES_AGENT/plugins/memory/neural"
-    local ALT_PLUGIN_DIR="$HOME/.hermes/plugins/memory/neural"
+    # Re-detect the host agent
+    local HOST_AGENT
+    HOST_AGENT=$(detect_host_agent "")
+    local PLUGIN_DIR="$HOST_AGENT/plugins/memory/neural"
+    local ALT_PLUGIN_DIR="${DAEDALUS_HOME:-$HOME/.daedalus}/plugins/memory/neural"
 
     # Remove old symlinks and re-create
     print_info "Refreshing symlinks..."
@@ -523,7 +524,7 @@ cmd_update() {
 
     # Re-install deps if needed
     detect_python
-    detect_pip "$HERMES_AGENT"
+    detect_pip "$HOST_AGENT"
 
     $PYTHON -c "import numpy" 2>/dev/null || $PIP install $PIP_ARGS --quiet numpy
     $PYTHON -c "import fastembed" 2>/dev/null || $PIP install $PIP_ARGS --quiet fastembed
@@ -541,15 +542,15 @@ cmd_update() {
 cmd_test() {
     check_not_root
 
-    local HERMES_AGENT
-    HERMES_AGENT=$(detect_hermes_agent "")
+    local HOST_AGENT
+    HOST_AGENT=$(detect_host_agent "")
 
-    # Prefer hermes-agent venv python
-    if [ -f "$HERMES_AGENT/venv/bin/python3" ]; then
-        PYTHON="$HERMES_AGENT/venv/bin/python3"
-    fi
+    # Prefer the host agent's venv python
+    for _v in "$HOST_AGENT/venv" "$HOST_AGENT/.venv"; do
+        [ -f "$_v/bin/python3" ] && { PYTHON="$_v/bin/python3"; break; }
+    done
 
-    local PLUGIN_DIR="$HERMES_AGENT/plugins/memory/neural"
+    local PLUGIN_DIR="$HOST_AGENT/plugins/memory/neural"
 
     print_info "Running test suite..."
 
@@ -572,9 +573,9 @@ cmd_verify() {
     check_not_root
     print_banner
 
-    local HERMES_AGENT
-    HERMES_AGENT=$(detect_hermes_agent "")
-    local PLUGIN_DIR="$HERMES_AGENT/plugins/memory/neural"
+    local HOST_AGENT
+    HOST_AGENT=$(detect_host_agent "")
+    local PLUGIN_DIR="$HOST_AGENT/plugins/memory/neural"
 
     cmd_verify_quiet "$PLUGIN_DIR"
 
@@ -606,12 +607,12 @@ cmd_verify_quiet() {
 
     detect_python
 
-    # Try to find hermes-agent venv python
-    local HERMES_AGENT
-    HERMES_AGENT=$(detect_hermes_agent "") 2>/dev/null
-    if [ -n "$HERMES_AGENT" ] && [ -f "$HERMES_AGENT/venv/bin/python3" ]; then
-        PYTHON="$HERMES_AGENT/venv/bin/python3"
-    fi
+    # Try to find the host agent's venv python
+    local HOST_AGENT
+    HOST_AGENT=$(detect_host_agent "") 2>/dev/null
+    for _v in "$HOST_AGENT/venv" "$HOST_AGENT/.venv"; do
+        [ -n "$HOST_AGENT" ] && [ -f "$_v/bin/python3" ] && { PYTHON="$_v/bin/python3"; break; }
+    done
 
     print_info "Verifying installation..."
 
@@ -620,7 +621,8 @@ import sys
 sys.path.insert(0, '$PLUGIN_DIR')
 
 # Test imports
-from memory_client import NeuralMemory
+import os, tempfile
+from memory_client import Mazemaker
 from embed_provider import EmbeddingProvider, HashBackend
 print('  Imports: OK')
 
@@ -631,7 +633,8 @@ assert len(emb) == 1024, f'Expected 1024d, got {len(emb)}d'
 print(f'  Embedding: OK ({len(emb)}d)')
 
 # Test memory system
-m = NeuralMemory(embedding_backend='hash', use_cpp=False)
+tmp = tempfile.mkdtemp(prefix='mzm-verify-')   # never the operator's own database
+m = Mazemaker(db_path=os.path.join(tmp, 'verify.db'), embedding_backend='hash', use_cpp=False)
 m.remember('installation test', label='test')
 results = m.recall('installation test')
 assert len(results) > 0, 'Recall returned 0 results'
@@ -667,14 +670,14 @@ cmd_uninstall() {
 
     print_info "Uninstalling mazemaker-engine symlinks..."
 
-    local HERMES_AGENT
-    HERMES_AGENT=$(detect_hermes_agent "") 2>/dev/null
+    local HOST_AGENT
+    HOST_AGENT=$(detect_host_agent "") 2>/dev/null
 
     local TOTAL=0
 
     # Primary target
-    if [ -n "$HERMES_AGENT" ]; then
-        local PLUGIN_DIR="$HERMES_AGENT/plugins/memory/neural"
+    if [ -n "$HOST_AGENT" ]; then
+        local PLUGIN_DIR="$HOST_AGENT/plugins/memory/neural"
         local R1
         R1=$(remove_symlinks "$PLUGIN_DIR")
         print_ok "Removed $R1 symlinks from $PLUGIN_DIR"
@@ -689,7 +692,7 @@ cmd_uninstall() {
     fi
 
     # Alt target
-    local ALT_PLUGIN_DIR="$HOME/.hermes/plugins/memory/neural"
+    local ALT_PLUGIN_DIR="${DAEDALUS_HOME:-$HOME/.daedalus}/plugins/memory/neural"
     if [ -d "$ALT_PLUGIN_DIR" ]; then
         local R2
         R2=$(remove_symlinks "$ALT_PLUGIN_DIR")
@@ -703,7 +706,7 @@ cmd_uninstall() {
     echo "  Source files in $PYTHON_DIR are preserved."
     echo "  Backup files (*.bak.*) are preserved."
     echo "  To fully remove: rm -rf ~/projects/mazemaker-engine"
-    echo "  To remove from config: edit ~/.hermes/config.yaml"
+    echo "  To remove from config: edit ${DAEDALUS_HOME:-~/.daedalus}/config.yaml"
     echo ""
 }
 
@@ -734,7 +737,7 @@ case "$CMD" in
         echo "Install Options:"
         echo "  --hash-backend   Use hash embedding (no model download)"
         echo "  --with-mssql     Also set up MSSQL cold store"
-        echo "  /path/to/hermes-agent   Explicit hermes-agent path"
+        echo "  /path/to/agent-checkout Explicit host agent checkout"
         ;;
     *)
         print_err "Unknown command: $CMD"

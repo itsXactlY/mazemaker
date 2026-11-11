@@ -16,7 +16,7 @@ build/cmake_install.cpython
 docs
 tests
 tools
-hermes-plugin/fast_ops*.so
+agent-plugin/fast_ops*.so
 python/fast_ops*.so
 python/build
 python/setup_fast.py

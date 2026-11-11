@@ -502,15 +502,15 @@ def test_embed_fallback():
         T.ok("embed/invalid-fallback", f"backend={type(ep_invalid.backend).__name__}")
 
 
-# ── 11. MemoryProvider interface (hermes plugin) ─────────────────────
+# ── 11. MemoryProvider interface (agent plugin) ─────────────────────
 
 def test_memory_provider():
-    print("\n[11] MemoryProvider INTERFACE (HERMES PLUGIN)")
+    print("\n[11] MemoryProvider INTERFACE (AGENT PLUGIN)")
 
-    PLUGIN_DIR = PROJECT_DIR / "hermes-plugin"
+    PLUGIN_DIR = PROJECT_DIR / "agent-plugin"
 
     # Clear cached modules from earlier tests (memory_client was imported from python/)
-    # so hermes-plugin's __init__.py loads its own copy
+    # so agent-plugin's __init__.py loads its own copy
     import importlib
     for mod_name in list(sys.modules.keys()):
         if 'mazemaker' in mod_name or 'memory_client' in mod_name or 'embed_provider' in mod_name:
@@ -522,7 +522,7 @@ def test_memory_provider():
         from __init__ import NeuralMemoryProvider
     except ImportError as e:
         if 'agent' in str(e) or 'tools' in str(e):
-            T.ok("mp/import-skip", f"skipped (hermes-agent not on path: {e})")
+            T.ok("mp/import-skip", f"skipped (agent package not on path: {e})")
             return
         T.fail("mp/import", str(e))
         return
@@ -580,8 +580,8 @@ def test_memory_provider():
         # prefetch
         T.expect_no_crash("mp/prefetch", provider.prefetch, "test query")
 
-        # shutdown — known test-only bug: module cache causes hermes-plugin __init__.py
-        # to load memory_client from python/ instead of hermes-plugin/. In real usage
+        # shutdown — known test-only bug: module cache causes agent-plugin __init__.py
+        # to load memory_client from python/ instead of agent-plugin/. In real usage
         # (run_agent.py), this doesn't happen because the plugin loader sets up paths correctly.
         try:
             provider.shutdown()
@@ -638,23 +638,23 @@ def test_installer():
     else:
         T.fail("installer/help", "no --help flag")
 
-    # Heres-agent path detection (cross-fork)
-    for path in ['.hermes/hermes-agent', 'hermes-agent', '.hermes/agent', '/opt/hermes-agent']:
+    # Plugin host detection (Daedalus — the Python agent that hosts memory plugins)
+    for path in ['daedalus-agent', 'projects/daedalus']:
         if path in content:
             T.ok(f"installer/path/{path}", "detection candidate present")
-    candidate_count = content.count('HERMES_AGENT')
-    if candidate_count >= 3:
-        T.ok("installer/hermes-detect", f"{candidate_count} references to HERMES_AGENT")
+    host_count = content.count('HOST_AGENT')
+    if host_count >= 3:
+        T.ok("installer/host-detect", f"{host_count} references to HOST_AGENT")
     else:
-        T.fail("installer/hermes-detect", f"only {candidate_count} HERMES_AGENT refs")
+        T.fail("installer/host-detect", f"only {host_count} HOST_AGENT refs")
 
-    # pip detection (venv vs system)
-    if 'venv/bin/pip' in content:
+    # pip detection (venv vs system; a uv-built agent keeps .venv)
+    if 'VENV/bin/pip' in content and '.venv' in content:
         T.ok("installer/venv-detect", "venv pip detection present")
     else:
         T.fail("installer/venv-detect", "no venv pip detection")
 
-    # Plugin deploy (hermes-plugin/ → plugins/memory/neural/)
+    # Plugin deploy (agent-plugin/ → plugins/memory/neural/)
     if 'plugins/memory/neural' in content:
         T.ok("installer/plugin-deploy", "plugin target dir present")
     else:
@@ -679,40 +679,34 @@ def test_installer():
         T.fail("installer/verify", "no verification step")
 
 
-# ── 13. Cross-fork hermes-agent detection ─────────────────────────────
+# ── 13. Plugin host detection ─────────────────────────────────────
 
 def test_cross_fork_detection():
-    """Test that install.sh finds hermes-agent regardless of fork/location."""
-    print("\n[13] CROSS-FORK HERMES-AGENT DETECTION")
+    """install.sh finds the plugin host (Daedalus) and takes an explicit path."""
+    print("\n[13] PLUGIN HOST DETECTION")
 
-    install_sh = PROJECT_DIR / "install.sh"
-    content = install_sh.read_text()
+    content = (PROJECT_DIR / "install.sh").read_text()
 
-    # All common hermes-agent locations should be checked
-    expected_paths = [
-        "$HOME/.hermes/hermes-agent",
-        "$HOME/hermes-agent",
-        "$HOME/.hermes/agent",
-        "/opt/hermes-agent",
-        "$HOME/projects/hermes-agent",
-    ]
-    for path in expected_paths:
+    for path in ['${DAEDALUS_HOME:-$HOME/.daedalus}/daedalus-agent', '$HOME/projects/daedalus']:
         if path in content:
-            T.ok(f"fork/{path}", "candidate path checked")
+            T.ok(f"host/{path}", "candidate path checked")
         else:
-            T.fail(f"fork/{path}", "path NOT checked — will miss this fork location")
+            T.fail(f"host/{path}", "path NOT checked")
 
-    # Must check for plugins/memory directory (confirms it's actually hermes-agent)
     if 'plugins/memory' in content:
-        T.ok("fork/plugin-check", "validates plugins/memory exists")
+        T.ok("host/plugin-check", "validates plugins/memory exists")
     else:
-        T.fail("fork/plugin-check", "doesn't validate — could find wrong dir")
+        T.fail("host/plugin-check", "doesn't validate — could find wrong dir")
 
-    # Must support explicit path argument
-    if '$1' in content or 'HERMES_AGENT_ARG' in content:
-        T.ok("fork/explicit-path", "supports explicit path argument")
+    if '$1' in content or 'AGENT_ARG' in content:
+        T.ok("host/explicit-path", "supports explicit path argument")
     else:
-        T.fail("fork/explicit-path", "no explicit path argument support")
+        T.fail("host/explicit-path", "no explicit path argument support")
+
+    if 'hermes' not in content.lower():
+        T.ok("host/no-retired-agent", "installer carries no Hermes path")
+    else:
+        T.fail("host/no-retired-agent", "installer still names Hermes")
 
 
 # ── 14. Config.yaml generation ────────────────────────────────────────
@@ -780,23 +774,23 @@ def test_config_generation():
 # ── 15. Plugin file sync ──────────────────────────────────────────────
 
 def test_file_sync():
-    """Verify python/ source files exist and hermes-plugin/ holds only metadata.
+    """Verify python/ source files exist and agent-plugin/ holds only metadata.
 
     Architecture (since refactor e4f33d9):
       python/         — single source of truth for all .py files
-      hermes-plugin/  — Hermes-specific metadata (plugin.yaml, neural_skin.yaml, skills/)
+      agent-plugin/   — host-agent metadata (plugin.yaml)
       Deploy targets  — SYMLINKS back to python/, created by install.sh
 
-    Pre-refactor this test verified .py copies in hermes-plugin/ were in sync;
+    Pre-refactor this test verified .py copies in the plugin dir were in sync;
     that path no longer exists. We now (a) verify the python/ source files are
-    present, (b) verify hermes-plugin/ holds the metadata files, and
-    (c) flag stray .py files in hermes-plugin/ which would indicate a regression
+    present, (b) verify agent-plugin/ holds the metadata files, and
+    (c) flag stray .py files in agent-plugin/ which would indicate a regression
     back to the old copy-based mirror.
     """
     print("\n[15] PLUGIN FILE SYNC")
 
     PYTHON_DIR = PROJECT_DIR / "python"
-    PLUGIN_DIR = PROJECT_DIR / "hermes-plugin"
+    PLUGIN_DIR = PROJECT_DIR / "agent-plugin"
 
     # Source-of-truth .py files that MUST exist in python/
     sources = [
@@ -811,15 +805,15 @@ def test_file_sync():
     else:
         T.ok("sync/sources", f"all {len(sources)} source files present in python/")
 
-    # Metadata files that must live in hermes-plugin/
-    plugin_only = ['plugin.yaml', 'neural_skin.yaml', 'skills']
+    # Metadata files that must live in agent-plugin/
+    plugin_only = ['plugin.yaml']
     for f in plugin_only:
         if (PLUGIN_DIR / f).exists():
             T.ok(f"sync/plugin-only/{f}", "present")
         else:
-            T.fail(f"sync/plugin-only/{f}", "missing from hermes-plugin")
+            T.fail(f"sync/plugin-only/{f}", "missing from agent-plugin")
 
-    # Regression guard: hermes-plugin/ should NOT contain .py copies.
+    # Regression guard: agent-plugin/ should NOT contain .py copies.
     # Symlinks back to python/ are fine (that's how install.sh wires deploys
     # for in-tree testing), but real files would mean someone reintroduced
     # the old copy-based mirror.
@@ -830,9 +824,10 @@ def test_file_sync():
                 stray_pyfiles.append(p.name)
     if stray_pyfiles:
         T.fail("sync/no-stray-copies",
-               f"hermes-plugin/ has non-symlink .py files (regression): {stray_pyfiles}")
+               f"agent-plugin/ has non-symlink .py files (regression): {stray_pyfiles}")
     else:
-        T.ok("sync/no-stray-copies", "hermes-plugin/ has no stray .py copies")
+        T.ok("sync/no-stray-copies", "agent-plugin/ has no stray .py copies")
+    T.ok("sync/skin", "skins/neural.yaml present") if (PROJECT_DIR / "skins" / "neural.yaml").exists() else T.fail("sync/skin", "skins/neural.yaml missing")
 
     # Files unique to python/ (expected)
     python_only = ['demo.py', 'test_suite.py', 'test_integration.py']

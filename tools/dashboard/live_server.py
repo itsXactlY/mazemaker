@@ -62,7 +62,7 @@ def _default_sqlite_path() -> str:
 DEFAULT_SQLITE = _default_sqlite_path()
 TEMPLATE_DIR   = Path(__file__).parent
 POLL_INTERVAL  = 2.0
-CONFIG_PATH    = os.path.expanduser("~/.hermes/config.yaml")
+CONFIG_PATH    = os.path.expanduser(os.path.join(os.environ.get("DAEDALUS_HOME", "~/.daedalus"), "config.yaml"))
 NODE_LIMIT     = int(os.environ.get("MM_DASH_NODE_LIMIT", "2000"))   # top hub nodes
 EDGE_LIMIT     = int(os.environ.get("MM_DASH_EDGE_LIMIT", "8000"))   # max edges
 
@@ -173,7 +173,8 @@ def _categorize(label: str) -> str:
 
 AGENT_PALETTE = {
     "Claude":   "#76d9ff",   # bright cyan — the loudest co-author
-    "Hermes":   "#ffd700",   # warm gold
+    "Ariadne":  "#ff9e3d",
+    "Hermes":   "#ffd700",   # warm gold — records the retired agent wrote stay attributed to it
     "GPT":      "#34d399",   # mint green
     "Gemini":   "#60a5fa",   # blue
     "Mistral":  "#f97316",   # orange
@@ -203,6 +204,8 @@ def _classify_agent(label: str) -> str:
         return "Peer"
     if lo.startswith(("auto:claude", "claude:", "claude-turn")):
         return "Claude"
+    if lo.startswith(("auto:ariadne", "ariadne:")):
+        return "Ariadne"
     if lo.startswith(("auto:hermes", "hermes:")):
         return "Hermes"
     if lo.startswith(("auto:gpt", "gpt:", "auto:openai", "openai:")):
@@ -730,17 +733,16 @@ def _read_mssql_body(conn, t0, dsn):
 
 
 def _build_mssql_dsn(args) -> str | None:
-    """Resolve MSSQL DSN from --mssql-dsn or the hermes config backup."""
+    """Resolve the MSSQL DSN from --mssql-dsn, else from the host agent's config
+    (memory.neural.dream.mssql in $DAEDALUS_HOME/config.yaml)."""
     if args.mssql_dsn:
         return args.mssql_dsn
-    # Fall back to the pre-flip backup, since the live config got scrubbed.
-    backup = os.path.expanduser("~/.hermes/config.yaml.backup-pre-mcp-flip-20260501-005028")
-    if not os.path.exists(backup):
+    if not os.path.exists(CONFIG_PATH):
         return None
     try:
         import yaml
-        with open(backup) as f:
-            cfg = yaml.safe_load(f)
+        with open(CONFIG_PATH) as f:
+            cfg = yaml.safe_load(f) or {}
         m = cfg.get("memory", {}).get("neural", {}).get("dream", {}).get("mssql")
         if not m:
             return None
@@ -750,7 +752,7 @@ def _build_mssql_dsn(args) -> str | None:
             "TrustServerCertificate=yes;Encrypt=optional"
         )
     except Exception as exc:
-        logger.warning(f"could not parse mssql config from backup: {exc}")
+        logger.warning(f"could not parse mssql config from {CONFIG_PATH}: {exc}")
         return None
 
 
@@ -803,7 +805,7 @@ def load_data(args) -> tuple[dict, callable]:
     if args.source == "mssql":
         dsn = _build_mssql_dsn(args)
         if not dsn:
-            logger.error("--source=mssql but no DSN found (tried --mssql-dsn + hermes backup)")
+            logger.error(f"--source=mssql but no DSN found (tried --mssql-dsn + {CONFIG_PATH})")
             sys.exit(1)
         read_fn = lambda: read_mssql(dsn)
         data = _safe_read(read_fn, "MSSQL")
@@ -1426,7 +1428,7 @@ def main():
                         choices=("sqlite", "postgres", "mssql"),
                         help="Which backend to read from")
     parser.add_argument("--mssql-dsn",      default=None,
-                        help="Full pyodbc connection string; falls back to hermes config backup")
+                        help="Full pyodbc connection string; falls back to the agent config")
     parser.add_argument("--port",           type=int,      default=8443)
     parser.add_argument("--host",           default="0.0.0.0")
     parser.add_argument("--no-tls",         action="store_true")

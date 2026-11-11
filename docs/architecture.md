@@ -145,7 +145,7 @@ One core engine, three ways to consume it.
               ▲             ▲             ▲
               │             │             │
    ┌──────────┴──┐ ┌────────┴───┐ ┌───────┴──────┐
-   │ MCP server  │ │ Hermes     │ │ Standalone   │
+   │ MCP server  │ │ Daedalus   │ │ Standalone   │
    │ (wonderland │ │ plugin     │ │ Python lib   │
    │  daemon)    │ │ (__init__) │ │ (`import     │
    │ 127.0.0.1:  │ │            │ │  mazemaker`) │
@@ -155,8 +155,8 @@ One core engine, three ways to consume it.
 
 - **MCP server** — what every Claude Code, Cursor, Cline, Continue install
   talks to. Loopback only.
-- **Hermes plugin** — for Hermes Agent users. Drops into
-  `~/.hermes/hermes-agent/plugins/memory/neural/` via `install.sh`.
+- **Agent plugin** — the in-process `MemoryProvider` (`python/__init__.py`) for Python
+  agents that host memory plugins (Daedalus). Ariadne uses the MCP server instead.
 - **Standalone library** — `from mazemaker import Mazemaker` for your own
   scripts and notebooks.
 
@@ -387,7 +387,7 @@ Postgres schema mirrors this with `pgvector` for the embedding column,
 ├── access_logs/               JSONL recall event log
 └── license.jwt                Ed25519-signed license (Pro/Enterprise)
 
-~/.hermes/
+~/.daedalus/
 └── config.yaml                Provider + neural config
 ```
 

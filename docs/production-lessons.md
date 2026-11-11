@@ -55,7 +55,7 @@ producing no useful output, then diagnosing the bug after.
 
 ### Run dreams as their own process at scale
 
-The in-pod dream loop pauses on every Hermes `pre_llm_call` hook and
+The in-pod dream loop pauses on every agent `pre_llm_call` hook and
 shares the SQLite write lock with `mazemaker_remember`. On a 100 k+
 corpus, a NREM cycle with `max_memories_per_cycle=2000` can exceed
 the 600 s idle window, the loop fires a duplicate cycle, and both end
@@ -110,7 +110,7 @@ secrecy. Otherwise leave the default.
 
 ## Benchmark-driven defaults
 
-Every default in `~/.hermes/config.yaml` is traceable to a bench
+Every default in the agent's `config.yaml` is traceable to a bench
 result:
 
 - **`retrieval_mode: lean`** — channel ablation at n=200 on real prose

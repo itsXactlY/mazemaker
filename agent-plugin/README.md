@@ -20,7 +20,7 @@ Runs entirely offline — no API keys, no cloud.
 ## Configuration
 
 ```yaml
-# ~/.hermes/config.yaml
+# ~/.daedalus/config.yaml (the host agent's config)
 memory:
   provider: neural
   neural:
@@ -34,7 +34,7 @@ Or via environment variables:
 
 ## Tools
 
-The plugin surfaces the four core tools as Hermes MCP schemas. The full nine-tool set (dream control + telemetry, stats, prune, quota) is callable through the standalone `Memory` class and the daemon path — see the root [README](../README.md).
+The plugin surfaces the four core tools as the host agent's MCP schemas. The full nine-tool set (dream control + telemetry, stats, prune, quota) is callable through the standalone `Memory` class and the daemon path — see the root [README](../README.md).
 
 | Tool | Description |
 |------|-------------|

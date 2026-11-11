@@ -50,7 +50,7 @@ The pod is one Quadlet-defined `.pod` plus seven `.container` units:
 | `mazemaker-mcp.service`                 | `mazemaker-v2-mcp:gpu`             | MCP server + neural-memory engine             |
 | `mazemaker-dream-worker.service`        | `mazemaker-v2-mcp:gpu`             | Standalone NREM / REM / Insight / AFE / DAE loop |
 | `mazemaker-wonderland.service`          | `mazemaker-v2-wonderland`          | AES-256-GCM zero-knowledge MCP proxy on `127.0.0.1:8765` |
-| `mazemaker-hermes-bridge.service`       | (Python, no container)             | HTTP sidecar on `127.0.0.1:8769` for the Architect cockpit |
+| `mazemaker-agent-bridge.service`        | (Python, no container)             | HTTP sidecar on `127.0.0.1:8769` for the Architect cockpit |
 | `mazemaker-mcp-socket-bridge.service`   | (Python, no container)             | UNIX socket → HTTP `/mcp` adapter             |
 
 `mazemaker-mcp` and `mazemaker-dream-worker` share the same image but run
@@ -73,7 +73,7 @@ Sample healthy output:
 ```
 mazemaker-dream-worker.service        loaded active running
 mazemaker-embedding-worker.service    loaded active running
-mazemaker-hermes-bridge.service       loaded active running
+mazemaker-agent-bridge.service        loaded active running
 mazemaker-license-client.service      loaded active running
 mazemaker-mcp.service                 loaded active running
 mazemaker-mcp-socket-bridge.service   loaded active running

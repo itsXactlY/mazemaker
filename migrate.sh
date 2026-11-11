@@ -19,7 +19,7 @@
 #
 # Defaults:
 #   --db         ~/.mazemaker/engine/memory.db
-#   --plugin-dir ~/.hermes/hermes-agent/plugins/memory/neural
+#   --plugin-dir ~/.daedalus/daedalus-agent/plugins/memory/neural
 # ============================================================================
 
 set -euo pipefail
@@ -40,7 +40,7 @@ step()  { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
 
 # ── Parse args ───────────────────────────────────────────────────────────────
 DB_PATH="${HOME}/.mazemaker/engine/memory.db"
-PLUGIN_DIR="${HOME}/.hermes/hermes-agent/plugins/memory/neural"
+PLUGIN_DIR="${DAEDALUS_HOME:-${HOME}/.daedalus}/daedalus-agent/plugins/memory/neural"
 DRY_RUN=""
 SKIP_MSSQL=""
 ADAPTER_DIR="${HOME}/projects/mazemaker-engine"
@@ -548,7 +548,7 @@ if cfg:
 if not mssql_cfg:
     # Try reading config.yaml directly
     import yaml, pathlib
-    config_yaml = pathlib.Path.home() / ".hermes" / "config.yaml"
+    config_yaml = pathlib.Path(__import__("os").environ.get("DAEDALUS_HOME", pathlib.Path.home() / ".daedalus")) / "config.yaml"
     if config_yaml.exists():
         try:
             with open(config_yaml) as f:
@@ -559,7 +559,7 @@ if not mssql_cfg:
 
 if not mssql_cfg:
     print("  No MSSQL config found — skipping sync")
-    print("  Add mssql: block under memory.neural in ~/.hermes/config.yaml to enable")
+    print("  Add mssql: block under memory.neural in ~/.daedalus/config.yaml to enable")
     sys.exit(0)
 
 # Connect MSSQL
@@ -794,7 +794,7 @@ echo ""
 if [[ -z "$DRY_RUN" ]]; then
     echo "  Backup: ${BACKUP_PATH:-N/A}"
     echo ""
-    echo "  Restart Hermes to pick up code changes."
+    echo "  Restart the host agent (Daedalus) to pick up code changes."
     echo "  The Dream Engine will now auto-prune every 50 cycles."
 else
     echo "  Run without --dry-run to apply changes."

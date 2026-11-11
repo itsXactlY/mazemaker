@@ -438,49 +438,6 @@ def test_30():
     m = MazemakerCpp()
     assert m is not None
 
-# ============================================================================
-# Hermes Plugin Tests
-# ============================================================================
-
-@_testcase("hermes: plugin files exist", tags=["hermes"])
-def test_31():
-    plugin = Path.home() / ".hermes/hermes-agent/plugins/memory/neural"
-    assert (plugin / "__init__.py").exists()
-    assert (plugin / "config.py").exists()
-    assert (plugin / "plugin.yaml").exists()
-
-@_testcase("hermes: plugin loads", tags=["hermes"])
-def test_32():
-    sys.path.insert(0, str(Path.home() / "projects/mazemaker-adapter/python"))
-    sys.path.insert(0, str(Path.home() / ".hermes/hermes-agent"))
-    from plugins.memory.neural import NeuralMemoryProvider
-    p = NeuralMemoryProvider()
-    assert p.name == "neural"
-
-@_testcase("hermes: tool schemas", tags=["hermes"])
-def test_33():
-    sys.path.insert(0, str(Path.home() / "projects/mazemaker-adapter/python"))
-    sys.path.insert(0, str(Path.home() / ".hermes/hermes-agent"))
-    from plugins.memory.neural import ALL_TOOL_SCHEMAS
-    names = [s['name'] for s in ALL_TOOL_SCHEMAS]
-    assert "mazemaker_remember" in names
-    assert "mazemaker_recall" in names
-    assert "mazemaker_think" in names
-    assert "mazemaker_graph" in names
-
-@_testcase("hermes: config loads", tags=["hermes"])
-def test_34():
-    sys.path.insert(0, str(Path.home() / "projects/mazemaker-adapter/python"))
-    sys.path.insert(0, str(Path.home() / ".hermes/hermes-agent"))
-    from plugins.memory.neural.config import get_config
-    cfg = get_config()
-    assert 'db_path' in cfg
-    assert 'embedding_backend' in cfg
-
-# ============================================================================
-# Performance Tests
-# ============================================================================
-
 @_testcase("perf: embed 100 texts < 1s (hash)", tags=["perf"])
 def test_35():
     from embed_provider import HashBackend

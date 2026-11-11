@@ -2,7 +2,7 @@
 
 The LLM-callable surface. Nine tools, three integration shapes, one
 core engine. Read this if you're writing the client side — an MCP
-agent (Claude Code, Cursor, Cline, Continue), a Hermes plugin, or a
+agent (Claude Code, Cursor, Cline, Continue, Ariadne), a Daedalus plugin, or a
 plain Python script that imports `mazemaker`.
 
 ---
@@ -13,9 +13,9 @@ plain Python script that imports `mazemaker`.
 2. [Tool-by-tool reference](#tool-by-tool-reference)
 3. [Three integration shapes](#three-integration-shapes)
 4. [Quick-start: Claude Code / Cursor](#quick-start-claude-code--cursor)
-5. [Quick-start: Hermes plugin](#quick-start-hermes-plugin)
+5. [Quick-start: Ariadne](#quick-start-ariadne)
 6. [Quick-start: standalone Python](#quick-start-standalone-python)
-7. [The Hermes Skill Indexing endpoint](#the-hermes-skill-indexing-endpoint)
+7. [The Skill Indexing endpoint](#the-skill-indexing-endpoint)
 
 ---
 
@@ -287,7 +287,7 @@ so a bulk import doesn't get pruned in the first day.
               ▲             ▲             ▲
               │             │             │
    ┌──────────┴──┐ ┌────────┴───┐ ┌───────┴──────┐
-   │ MCP server  │ │ Hermes     │ │ Standalone   │
+   │ MCP server  │ │ Daedalus   │ │ Standalone   │
    │ (wonderland │ │ plugin     │ │ Python lib   │
    │  daemon)    │ │            │ │              │
    │ 127.0.0.1:  │ │            │ │              │
@@ -339,35 +339,26 @@ Tools available immediately: `mazemaker_remember`, `mazemaker_recall`,
 
 ---
 
-## Quick-start: Hermes plugin
+## Quick-start: Ariadne
 
-```bash
-git clone https://github.com/itsXactlY/mazemaker
-cd mazemaker
-bash install.sh                   # auto-detect ~/.hermes/hermes-agent
-# or:
-bash install.sh /path/to/hermes-agent
-```
-
-`install.sh` deploys the plugin into `~/.hermes/hermes-agent/plugins/memory/neural/`
-and adds a stanza to `~/.hermes/config.yaml`:
+Ariadne reaches the pod over MCP; there is no plugin to install. Its shipped
+`config.yaml` already carries the entry:
 
 ```yaml
-memory:
-  provider: neural
-  neural:
-    embedding_backend: auto
-    retrieval_mode: lean
+mcp_servers:
+  mazemaker:
+    enabled: true
+    transport: http
+    url: http://127.0.0.1:8765/mcp
 ```
 
-Restart Hermes:
+`bash install.sh install --with-ariadne` builds Ariadne from
+[itsXactlY/ariadne](https://github.com/itsXactlY/ariadne) and installs it into
+`~/ariadne` (its own `make install-all`). Every tool the pod exposes shows up in
+Ariadne's tool deck; skills found in the pod are merged into its catalogue.
 
-```bash
-hermes gateway restart
-```
-
-The four core tools (`mazemaker_remember/recall/think/graph`) ride the
-Hermes provider schema and show up in `tool_schemas()` automatically.
+The in-process `MemoryProvider` in `python/__init__.py` is for Python agents that
+host memory plugins (Daedalus); Ariadne does not load Python plugins.
 
 ---
 
@@ -414,17 +405,17 @@ requirements.txt` from a checkout; PyPI publication is coming.
 
 ---
 
-## The Hermes Skill Indexing endpoint
+## The Skill Indexing endpoint
 
 A Pro-only feature surfaced through the Architect cockpit. Press the
 `⟁ INDEX INTO MAZEMAKER` button and the SPA POSTs to
-`http://127.0.0.1:8769/hermes/skills/index`. The bridge sidecar
-enumerates every Hermes skill on disk and writes one memory per skill:
+`http://127.0.0.1:8769/agent/skills/index`. The agent bridge
+enumerates every skill of the machine's agent on disk and writes one memory per skill:
 
 ```json
 {
-  "label":  "skill:hermes:browser-use",
-  "content": "Hermes skill: browser-use",
+  "label":  "skill:local:browser-use",
+  "content": "Skill: browser-use",
   "salience": 1.0
 }
 ```

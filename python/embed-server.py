@@ -2,7 +2,7 @@
 """
 Standalone Embedding Server for Mazemaker.
 
-Run as a persistent background process — survives hermes-agent restarts.
+Run as a persistent background process — survives agent restarts.
 Shares the model across all processes via UNIX socket.
 
 Usage:
@@ -49,7 +49,7 @@ def main():
 
     # Refuse to clobber a live server. SharedEmbedServer.start() already
     # does this internally; the previous unconditional unlink() here
-    # bypassed that check and disconnected any clients (other Hermes
+    # bypassed that check and disconnected any clients (other agent
     # sessions, mcp pods, etc.) attached to a running peer server.
     if SOCKET_PATH.exists():
         try:

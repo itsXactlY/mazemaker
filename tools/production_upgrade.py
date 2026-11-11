@@ -423,7 +423,7 @@ def main():
     )
     parser.add_argument(
         "--db", default=os.path.expanduser("~/.mazemaker/data/memory.db"),
-        help="Path to SQLite database (default: ~/.hermes/hermes-agent/plugins/memory/mazemaker/engine/memory.db)"
+        help="Path to SQLite database (default: ~/.mazemaker/data/memory.db)"
     )
     parser.add_argument(
         "--dry-run", action="store_true",

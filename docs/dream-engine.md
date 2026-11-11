@@ -124,7 +124,7 @@ for community / non-Pro installs.
 - **Manual.** Via the `mazemaker_dream` MCP tool.
 - **Standalone.** `python python/dream_worker.py --daemon` — no idle gating.
 
-The in-pod loop pauses on every Hermes `pre_llm_call` hook and resumes on
+The in-pod loop pauses on every agent `pre_llm_call` hook and resumes on
 `post_llm_call` if it was running. This keeps the dream from fighting
 your interactive LLM for compute. On large corpora the standalone daemon
 is the better pattern — see below.
@@ -211,7 +211,7 @@ Already global. Benefits transitively from richer NREM/REM graphs.
 
 ## Standalone daemon — `dream_worker.py`
 
-The default in-pod dream loop pauses on every Hermes `pre_llm_call` hook
+The default in-pod dream loop pauses on every agent `pre_llm_call` hook
 and shares the SQLite write lock with `mazemaker_remember` calls. On a
 100 k+ corpus that's brittle: a NREM cycle with
 `max_memories_per_cycle=2000` can exceed the 600 s idle window, the loop
@@ -232,7 +232,7 @@ systemctl --user edit --runtime mazemaker-mcp.service
 systemctl --user daemon-reload && systemctl --user restart mazemaker-mcp.service
 
 # 2. Run the standalone daemon
-cd ~/projects/mazemaker/python
+cd ~/projects/mazemaker-stack/engine/mazemaker/python
 python dream_worker.py --max-memories 2000 --max-isolated 800
 ```
 

@@ -11,8 +11,8 @@ Components tested:
   3. Dream Engine (NREM, REM, Insight phases)
   4. Database (schema, integrity, indexes)
   5. C++ Bridge / LSTM-KNN Bridge
-  6. Hermes Plugin (init, hooks)
-  7. Installation Sync (python/ ↔ hermes-plugin/)
+  6. Agent Plugin (init, hooks)
+  7. Installation Sync (python/ ↔ agent-plugin/)
   8. Edge Cases (empty queries, large batches, concurrent)
 """
 
@@ -29,7 +29,7 @@ from typing import Optional
 # Add project to path
 PROJECT_DIR = Path(__file__).parent.parent
 PYTHON_DIR = PROJECT_DIR / "python"
-PLUGIN_DIR = PROJECT_DIR / "hermes-plugin"
+PLUGIN_DIR = PROJECT_DIR / "agent-plugin"
 sys.path.insert(0, str(PYTHON_DIR))
 
 # Test infrastructure
@@ -77,14 +77,14 @@ R = TestResult()
 # ========================================================================
 
 def test_install_sync():
-    """Verify python/ source files exist and hermes-plugin/ holds metadata only.
+    """Verify python/ source files exist and agent-plugin/ holds metadata only.
 
     Architecture (since refactor e4f33d9):
       python/         — single source of truth for all .py files
-      hermes-plugin/  — Hermes-specific metadata (plugin.yaml, etc.)
+      agent-plugin/   — host-agent metadata (plugin.yaml)
       Deploy targets  — SYMLINKS back to python/, created by install.sh
 
-    Pre-refactor this test verified .py copies in hermes-plugin/ were in
+    Pre-refactor this test verified .py copies in the plugin dir were in
     sync; that path no longer exists. Same fix as tests/test_upside_down.py
     (iter 1 commit 52bdc24).
     """
@@ -101,14 +101,14 @@ def test_install_sync():
     else:
         R.ok("sync/sources", f"all {len(sources)} source files present in python/")
 
-    plugin_only = ['plugin.yaml', 'neural_skin.yaml', 'skills']
+    plugin_only = ['plugin.yaml']
     for f in plugin_only:
         if (PLUGIN_DIR / f).exists():
             R.ok(f"sync/plugin-only/{f}", "present")
         else:
-            R.fail(f"sync/plugin-only/{f}", "missing from hermes-plugin")
+            R.fail(f"sync/plugin-only/{f}", "missing from agent-plugin")
 
-    # Regression guard: hermes-plugin/ should NOT contain .py copies
+    # Regression guard: agent-plugin/ should NOT contain .py copies
     # (symlinks to python/ are fine for in-tree testing).
     stray = []
     if PLUGIN_DIR.exists():
@@ -117,9 +117,10 @@ def test_install_sync():
                 stray.append(p.name)
     if stray:
         R.fail("sync/no-stray-copies",
-               f"hermes-plugin/ has non-symlink .py files (regression): {stray}")
+               f"agent-plugin/ has non-symlink .py files (regression): {stray}")
     else:
-        R.ok("sync/no-stray-copies", "hermes-plugin/ has no stray .py copies")
+        R.ok("sync/no-stray-copies", "agent-plugin/ has no stray .py copies")
+    R.ok("sync/skin", "skins/neural.yaml present") if (PROJECT_DIR / "skins" / "neural.yaml").exists() else R.fail("sync/skin", "skins/neural.yaml missing")
 
 
 # ========================================================================

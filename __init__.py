@@ -6,7 +6,7 @@ Provides semantic memory storage with embedding-based recall, knowledge graph
 connections, and spreading activation via the mazemaker-adapter Python
 client (memory_client.py + embed_provider.py).
 
-Config (in ~/.hermes/config.yaml):
+Config (in the host agent's config.yaml — Daedalus: ~/.daedalus/config.yaml):
   memory:
     provider: mazemaker
     mazemaker:

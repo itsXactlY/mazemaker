@@ -4,7 +4,7 @@ embed_provider.py - Text Embedding for Mazemaker Adapter
 
 SHARED MODE (default): First process starts a UNIX socket server holding
 the model. All other processes connect as clients. ONE model instance
-for ALL hermes sessions. Smart eject after 20s idle.
+for ALL agent sessions. Smart eject after 20s idle.
 
 FALLBACK: If shared server can't start, loads model directly per-process.
 

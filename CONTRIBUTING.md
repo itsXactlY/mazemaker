@@ -108,7 +108,6 @@ cd build && ./bench_vector_ops
 | `threading` | Thread safety tests |
 | `api` | Unified API tests |
 | `cpp` | C++ library tests |
-| `hermes` | Hermes plugin tests |
 | `perf` | Performance benchmarks |
 | `stress` | Stress/load tests |
 | `slow` | Tests that take > 1s |

@@ -1,7 +1,7 @@
 # Configuration
 
 Every knob, with defaults, why each default was picked, and what happens if
-you change it. All YAML lives in `~/.hermes/config.yaml`; all env vars are
+you change it. All YAML lives in the host agent's `config.yaml` (Daedalus: `~/.daedalus/config.yaml`); all env vars are
 plain environment variables you can `export`.
 
 > **Quick orientation:** the defaults below are the recommended preset based
@@ -261,7 +261,7 @@ systemctl --user edit --runtime mazemaker-mcp.service
 systemctl --user daemon-reload && systemctl --user restart mazemaker-mcp.service
 
 # Run the standalone daemon
-cd ~/projects/mazemaker/python
+cd ~/projects/mazemaker-stack/engine/mazemaker/python
 python dream_worker.py --max-memories 2000 --max-isolated 800
 ```
 

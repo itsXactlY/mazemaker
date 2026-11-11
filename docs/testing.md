@@ -23,7 +23,7 @@ file-structure map for when you need to know where a thing lives.
 ## The 10-second smoke
 
 ```bash
-cd ~/projects/mazemaker/python
+cd ~/projects/mazemaker-stack/engine/mazemaker/python
 python3 demo.py
 ```
 
@@ -33,10 +33,10 @@ If this prints results without error, the engine is working.
 
 ## Full Python test suite
 
-The plugin test suite (after `install.sh` deploys to Hermes):
+The engine test suite, run from the source tree:
 
 ```bash
-cd ~/.hermes/hermes-agent/plugins/memory/neural
+cd python
 python3 test_suite.py
 ```
 
@@ -56,7 +56,7 @@ Edge cases, corruption recovery, concurrency, SQL injection, malformed
 input. Run when you're about to change something important.
 
 ```bash
-cd ~/projects/mazemaker
+cd ~/projects/mazemaker-stack/engine/mazemaker
 python3 tests/test_upside_down.py
 ```
 
@@ -72,11 +72,11 @@ The `.so` is optional — Python falls back gracefully when it's absent.
 
 ## Clean Smoke Test
 
-Works on any machine, no Hermes dependency, no plugin install. Useful
+Works on any machine, no agent dependency, no plugin install. Useful
 for new VMs and CI.
 
 ```bash
-cd ~/projects/mazemaker
+cd ~/projects/mazemaker-stack/engine/mazemaker
 python3 -c "
 import sys; sys.path.insert(0, 'python')
 from mazemaker import Mazemaker
@@ -162,7 +162,7 @@ The gotchas from real installs on constrained hosts:
 ```
 mazemaker/
 ├── install.sh                    Installer
-├── hermes-plugin/                Plugin (deployed to hermes-agent)
+├── agent-plugin/                 Plugin manifest for Python agent hosts (Daedalus)
 │   ├── __init__.py               MemoryProvider + 4 tools
 │   ├── config.py                 Config loader
 │   ├── plugin.yaml               Plugin metadata
@@ -174,7 +174,7 @@ mazemaker/
 │   ├── access_logger.py          Recall event logger
 │   └── ...
 │
-├── python/                       Source of truth (mirrors hermes-plugin)
+├── python/                       Source of truth
 │   ├── mazemaker.py              The Mazemaker class
 │   ├── memory_client.py          SQLiteStore + NeuralMemory hot path
 │   ├── postgres_store.py         Postgres + pgvector primary backend

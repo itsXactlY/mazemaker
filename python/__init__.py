@@ -6,11 +6,11 @@ Provides semantic memory storage with embedding-based recall, knowledge graph
 connections, and spreading activation via the mazemaker-adapter Python
 client (memory_client.py + embed_provider.py).
 
-Config (in ~/.hermes/config.yaml):
+Config (in the host agent's config.yaml — Daedalus: ~/.daedalus/config.yaml):
   memory:
     provider: neural
     neural:
-      db_path: ~/.mazemaker/engine/hermes.db
+      db_path: ~/.mazemaker/engine/memory.db
       embedding_backend: auto
       consolidation_interval: 300
       max_episodic: 50000
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # MCP tool schemas live in mcp_schemas.py — the single source of truth
-# imported by both this Hermes plugin and the customer-pod adapter.
+# imported by both this agent plugin and the customer-pod adapter.
 from mcp_schemas import (  # noqa: F401
     MAZEMAKER_REMEMBER_SCHEMA, MAZEMAKER_RECALL_SCHEMA,
     MAZEMAKER_RECALL_MULTI_SCHEMA, MAZEMAKER_RECALL_ADVANCED_SCHEMA,
@@ -115,7 +115,7 @@ class NeuralMemoryProvider(MemoryProvider):
             from pathlib import Path
 
             # Ensure real plugin source dir is on sys.path. __file__ may be a
-            # symlink under ~/.hermes/plugins/...; Path(__file__).parent alone
+            # symlink under <agent>/plugins/...; Path(__file__).parent alone
             # points at a sparse runtime dir that may not contain config.py or
             # memory_client.py. Resolve to the source-of-truth python/ dir.
             plugin_dir = str(Path(__file__).resolve().parent)
@@ -156,7 +156,7 @@ class NeuralMemoryProvider(MemoryProvider):
 
             # Load initial context from memory — DEFERRED to a daemon thread.
             # Calling _load_initial_context() synchronously here was the main
-            # contributor to the >3min hermes-startup latency: it fires two
+            # contributor to the >3min agent-startup latency: it fires two
             # recall() calls, each of which lazily loads the embed model and
             # builds the HNSW index on first call. Backgrounding it lets
             # init return immediately; the first turn's system_prompt_block
@@ -1467,7 +1467,7 @@ memory?") call `neural_graph` to summarise.
             return tool_error(str(exc))
 
     def get_config_schema(self) -> List[Dict[str, Any]]:
-        """Return config schema for `hermes memory setup neural`."""
+        """Return config schema for `daedalus memory setup neural`."""
         return [
             {
                 "key": "db_path",
@@ -1515,10 +1515,10 @@ memory?") call `neural_graph` to summarise.
              "required": False, "default": 0.0},
         ]
 
-    def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
+    def save_config(self, values: Dict[str, Any], daedalus_home: str) -> None:
         """Write neural config to config.yaml under memory.neural."""
         try:
-            from hermes_cli.config import load_config, save_config
+            from daedalus_cli.config import load_config, save_config
             config = load_config()
             neural_cfg = config.setdefault("memory", {}).setdefault("neural", {})
             for k, v in values.items():
@@ -1538,7 +1538,7 @@ def register(ctx) -> None:
     provider = NeuralMemoryProvider()
     ctx.register_memory_provider(provider)
     
-    # Activity-aware dream engine: pause while Hermes is active, resume when idle.
+    # Activity-aware dream engine: pause while the agent is active, resume when idle.
     # _on_pre_llm_call: stops dreaming, records state, resets idle timer
     # post_llm_call: resumes if it was running before the turn started
     ctx.register_hook("pre_llm_call", provider._on_pre_llm_call)

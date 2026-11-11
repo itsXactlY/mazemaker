@@ -16,7 +16,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MAZEMAKER_ENGINE_DIR="$HOME/.mazemaker/engine"
-ENV_FILE="$HOME/.hermes/.env"
+ENV_FILE="${DAEDALUS_HOME:-$HOME/.daedalus}/.env"   # the host agent's env file
 SYNC_STATE="$MAZEMAKER_ENGINE_DIR/sync_state.json"
 
 # Colors

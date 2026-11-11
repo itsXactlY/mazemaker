@@ -54,7 +54,7 @@ _CONFIG_CACHE: Optional[Dict[str, Any]] = None
 def reset_config_cache() -> None:
     """Drop the cached config so the next get_config() re-reads YAML.
 
-    Useful after writing to ~/.hermes/config.yaml from within the same
+    Useful after writing to the agent's config.yaml from within the same
     process (rare — mostly used by tests).
     """
     global _CONFIG_CACHE
@@ -62,7 +62,7 @@ def reset_config_cache() -> None:
 
 
 def get_config() -> Dict[str, Any]:
-    """Read mazemaker config from ~/.hermes/config.yaml.
+    """Read mazemaker config from the host agent's config.yaml (Daedalus: ~/.daedalus).
 
     Falls back to defaults if the file doesn't exist or the section is
     missing. Result is cached on first call — the previous code re-
@@ -99,28 +99,28 @@ def get_config() -> Dict[str, Any]:
     }
 
     try:
-        from hermes_cli.config import load_config
-        hermes_cfg = load_config()
-        neural_cfg = hermes_cfg.get("memory", {}).get("neural", {}) or {}
+        from daedalus_cli.config import load_config
+        agent_cfg = load_config()
+        neural_cfg = agent_cfg.get("memory", {}).get("neural", {}) or {}
         if isinstance(neural_cfg, dict):
             config.update({k: v for k, v in neural_cfg.items() if v is not None})
     except ImportError as exc:
-        # hermes-cli isn't installed — operators running mazemaker
+        # daedalus-cli isn't installed — operators running mazemaker
         # stand-alone. Bare config + defaults is the right outcome here.
-        logger.debug("hermes_cli not installed (%s) — using defaults", exc)
+        logger.debug("daedalus_cli not installed (%s) — using defaults", exc)
     except Exception as exc:
-        # hermes-cli is installed but its config layer broke. The
+        # daedalus-cli is installed but its config layer broke. The
         # previous bare except hid this and the operator wondered why
         # their custom db_path was ignored.
-        logger.warning("hermes_cli.config.load_config() failed (%s) — using defaults", exc)
+        logger.warning("daedalus_cli.config.load_config() failed (%s) — using defaults", exc)
 
-    # Expand $HERMES_HOME and ~ in db_path
+    # Expand $DAEDALUS_HOME and ~ in db_path
     db_path = config.get("db_path", DEFAULT_DB_PATH)
     if isinstance(db_path, str):
         try:
-            from hermes_constants import get_hermes_home
-            db_path = db_path.replace("$HERMES_HOME", str(get_hermes_home()))
-            db_path = db_path.replace("${HERMES_HOME}", str(get_hermes_home()))
+            from daedalus_constants import get_daedalus_home
+            db_path = db_path.replace("$DAEDALUS_HOME", str(get_daedalus_home()))
+            db_path = db_path.replace("${DAEDALUS_HOME}", str(get_daedalus_home()))
         except Exception:
             pass
         db_path = os.path.expanduser(db_path)

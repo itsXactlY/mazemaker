@@ -3556,7 +3556,7 @@ class Mazemaker:
         # scoring. The 193k-memory corpus is ~98% auto-saved conversation
         # echoes; these crowd out facts because their semantic embedding
         # is dominated by the verbatim user question, not the synthesised
-        # answer. Recall callers (Hermes, Claude, MCP) want facts and
+        # answer. Recall callers (Ariadne, Claude, MCP) want facts and
         # synthesised insights only — set True only for session-replay
         # use cases that genuinely need raw turn content.
         include_echoes: bool = False,

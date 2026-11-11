@@ -1,12 +1,12 @@
 """mcp_schemas.py — Mazemaker MCP tool schemas + dispatch tables.
 
 This is the single source of truth for the engine's MCP tool surface.
-Both the in-process Hermes plugin (`python/__init__.py`) and the
+Both the in-process agent plugin (`python/__init__.py`) and the
 customer-pod adapter (`mazemaker-v2-stack/backend/client/pod/mazemaker/tools.py`)
 import from this module so there is exactly one schema definition for
 every Mazemaker MCP tool.
 
-The module is import-clean — no Hermes dependency, no engine side-
+The module is import-clean — no agent dependency, no engine side-
 effects, no I/O.  Safe to load from any context.
 """
 
@@ -575,7 +575,7 @@ _DREAM_PHASE_SCHEMAS = [
 ]
 
 
-# Label-namespace tools. The pod's Hermes bridge relies on these to keep its
+# Label-namespace tools. The pod's agent bridge relies on these to keep its
 # session archive in step, so the community engine serves them as Pro does —
 # they are plain label queries, not a paid feature.
 MAZEMAKER_COUNT_BY_LABEL_PREFIX_SCHEMA = {

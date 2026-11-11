@@ -255,7 +255,7 @@ Visual operator cockpit at [`architect.mazemaker.dev`](https://architect.mazemak
 * Synthesis activity
 * Rerank inspection
 * Graph communities
-* Hermes skill-indexing pipeline
+* Skill-indexing pipeline (the agent bridge's `/agent/skills/index`)
 
 Hosted UI. Local data. Nothing crosses the loopback.
 

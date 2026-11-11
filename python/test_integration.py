@@ -127,11 +127,6 @@ def t8():
             assert len(r) >= 1
     finally: os.unlink(db)
 
-@_testcase("Hermes plugin installed")
-def t9():
-    p = Path.home() / ".hermes/hermes-agent/plugins/memory/neural/__init__.py"
-    assert p.exists(), f"Missing: {p}"
-
 @_testcase("C++ library symbols")
 def t10():
     import subprocess

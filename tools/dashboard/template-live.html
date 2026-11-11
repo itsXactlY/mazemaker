@@ -223,7 +223,7 @@ __XTERM_CSS__
   .obs-row span:last-child  { color:var(--text-bright); font-weight:600; }
   .obs-sep { border:none; border-top:1px solid var(--border); margin:5px 0; }
 
-  /* ── Hermes terminal panel ── */
+  /* ── Terminal panel ── */
   .terminal-panel {
     position:fixed; bottom:-360px; left:0; right:0; height:360px;
     z-index:800;
@@ -398,10 +398,10 @@ __XTERM_CSS__
   <div class="obs-row"><span>Clients</span>     <span id="obs_clients">—</span></div>
 </div>
 
-<!-- Hermes terminal panel -->
+<!-- Terminal panel -->
 <div class="terminal-panel" id="terminal_panel">
   <div class="terminal-bar">
-    <span class="terminal-title">◈ hermes  ·  neural shell</span>
+    <span class="terminal-title">◈ shell  ·  neural</span>
     <div class="terminal-actions">
       <span id="term_status" class="term-status" title="Connection state">●</span>
       <button class="term-btn" id="term_new"   title="New session">+</button>
@@ -1089,7 +1089,7 @@ setInterval(() => {
 }, 500);
 
 // ═══════════════════════════════════════════════════════════
-// Hermes terminal  (xterm.js + PTY WebSocket)
+// Terminal  (xterm.js + PTY WebSocket)
 // ═══════════════════════════════════════════════════════════
 let term       = null;
 let fitAddon   = null;

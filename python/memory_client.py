@@ -2382,7 +2382,7 @@ class Mazemaker:
         # Intentionally non-blocking: any exception is logged and ignored
         # so a DB hiccup can't break a remember() call.
         if detect_supersedes:
-            self._detect_supersedes_at_ingest(mem_id, embedding, text)
+            self._detect_supersedes_at_ingest(mem_id, embedding, text, new_label=label)
 
         return mem_id
 
@@ -2502,7 +2502,7 @@ class Mazemaker:
         return frozenset(t.replace(",", "").strip() for t in raw)
 
     def _detect_supersedes_at_ingest(
-        self, new_id: int, new_emb: list[float], new_text: str
+        self, new_id: int, new_emb: list[float], new_text: str, new_label: str = ""
     ) -> None:
         """Write SUPERSEDES edges from older memories to new_id.
 
@@ -2536,6 +2536,8 @@ class Mazemaker:
             other_emb = node.get("embedding") or []
             if not other_emb or len(other_emb) != len(new_emb):
                 continue
+            if not self._supersession_allowed(node.get("label"), new_label):
+                continue  # a transcript does not retire a curated row
             other_text = node.get("content") or ""
             other_tokens = self._extract_numeric_tokens(other_text)
             if not other_tokens or other_tokens == new_tokens:
@@ -3484,6 +3486,22 @@ class Mazemaker:
         return ranked[:k]
 
     # Labels a person deliberately wrote down, as opposed to auto-saved turns.
+    # What a person or a procedure wrote down on purpose, as against what was merely said.
+    # A transcript (auto:turn:, auto:reasoning:, session:...) is evidence about the work; a
+    # decision:, a bug: or a skill: is the conclusion. Conflict detection links two rows when
+    # they are close in meaning and differ in their numbers, which a transcript turn and a
+    # curated fact routinely do; the newer transcript then retired the curated row (recall
+    # demoted it by 0.5 and dropped it for the transcript).
+    _AUTHORITATIVE_RE = re.compile(
+        r"^(bug|decision|invariant|ops|fact|feedback|signal|status|user|reference|rule|skill):")
+
+    @staticmethod
+    def _supersession_allowed(older_label: "str | None", newer_label: "str | None") -> bool:
+        """May the newer row retire the older one? Only if it is at least as authoritative:
+        anything may retire a transcript, a curated row only a curated one."""
+        a = Mazemaker._AUTHORITATIVE_RE
+        return bool(a.match(newer_label or "")) or not a.match(older_label or "")
+
     _CURATED_RE = re.compile(
         r"^(bug|decision|invariant|ops|fact|feedback|signal|status|user|reference):"
     )
@@ -3914,6 +3932,27 @@ class Mazemaker:
                     except Exception:
                         pass
 
+                # Which of these pairs may act. The replacement of a result is read from the
+                # store, so nothing above has looked at ITS label, and two things have to be
+                # true of it before it can demote the old row and take its place:
+                #   scope  -- the caller asked to see it. A transcript that "superseded" a
+                #             curated fact was appended here and elevated to the old row's
+                #             relevance + 0.01: scope=curated answered with a transcript at
+                #             rank 1.
+                #   trust  -- it is at least as authoritative as the old row. An unscoped
+                #             recall lost the curated row to the transcript the same way.
+                # A pair that fails either leaves the old row exactly as it was.
+                def _label_of(i: int) -> str:
+                    m = mems.get(i) or extra_mems.get(i) or {}
+                    return m.get("label") or ""
+                for old_id, new_id in list(superseded_map.items()):
+                    visible = (not scope or scope in ("all", "*")
+                               or self._scope_matches(_label_of(new_id), scope))
+                    if not visible or not self._supersession_allowed(_label_of(old_id), _label_of(new_id)):
+                        del superseded_map[old_id]
+                needed = set(superseded_map.values())
+                extra_mems = {nid: nm for nid, nm in extra_mems.items() if nid in needed}
+
                 # Build id → result dict for score edits.
                 id_to_result: dict[int, dict] = {r["id"]: r for r in results}
 
@@ -3962,6 +4001,9 @@ class Mazemaker:
                         new_r["combined"] = round(elevated, 6)
 
                 results.sort(key=lambda x: -x.get("relevance", 0.0))
+
+        if scope and scope not in ("all", "*"):
+            results = [r for r in results if self._scope_matches(r.get("label"), scope)]
 
         final = results[:k]
         if touch:
